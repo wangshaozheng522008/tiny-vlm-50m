@@ -237,12 +237,17 @@ def main() -> None:
     print(f"int{args.bits} (group_size<={args.group_size}, effective {payload_groups}) -> {out}")
     print(f"  {size_mb:.2f} MB / {args.budget_mb:.0f} MB budget  [{verdict}]")
 
+    # `load_quantized` picks the best available device, which is CUDA wherever one exists —
+    # so the probe tensors have to be built on that device, not on CPU.
     reloaded = load_quantized(out)
+    probe_device = next(reloaded.parameters()).device
     with torch.no_grad():
-        probe = torch.randint(0, cfg.text.vocab_size, (1, 8))
-        pixels = torch.randn(1, cfg.vision.in_channels, cfg.vision.img_size, cfg.vision.img_size)
+        probe = torch.randint(0, cfg.text.vocab_size, (1, 8), device=probe_device)
+        pixels = torch.randn(
+            1, cfg.vision.in_channels, cfg.vision.img_size, cfg.vision.img_size, device=probe_device
+        )
         logits = reloaded(probe, pixel_values=pixels)["logits"]
-    print(f"  reloaded and ran a forward pass: logits {tuple(logits.shape)}")
+    print(f"  reloaded on {probe_device.type} and ran a forward pass: logits {tuple(logits.shape)}")
 
 
 if __name__ == "__main__":

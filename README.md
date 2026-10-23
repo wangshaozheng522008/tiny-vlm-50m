@@ -126,6 +126,8 @@ python -m tiny_vlm.train \
   --out runs/tiny-vlm
 ```
 
+（`--batch-size 16` 在 4GB 显卡上会 OOM，GPU 的 batch 配置见下面「GPU 训练」一节。）
+
 也可以在训练时直接传 `--text-corpus` 让脚本自己训 tokenizer。
 
 **Loss 只算在回答部分。** prompt（`Describe this image:`）对应的 label 被置为 `-100`，
@@ -137,6 +139,53 @@ python -m tiny_vlm.train \
 ```bash
 python -m tiny_vlm.train --config nano-50m --synthetic 256 --epochs 1 --max-steps 20
 ```
+
+### GPU 训练
+
+`get_device()` 会自动选 CUDA，cuda 上自动开 AMP（fp16），无需额外参数。
+但 PyTorch 默认的 pip 包是 **CPU-only** 的，得先换成 CUDA 版：
+
+```bash
+pip uninstall -y torch torchvision
+pip install --index-url https://download.pytorch.org/whl/cu126 torch torchvision
+```
+
+国内走 `download.pytorch.org` 可能很慢或断流（大 wheel 走 `download-r2.pytorch.org` CDN，
+代理容易在中途 SSL EOF）。加 `--retries 20 --timeout 300` 会好一些。
+
+#### 实测（NVIDIA T1200 Laptop, 4GB, sm_75）
+
+336px / 697 token / `tiny-50m` / AMP fp16 / AdamW：
+
+| batch | ms/step | 峰值显存 | samples/s |
+|---:|---:|---:|---:|
+| 1 | 1194 | 932 MB | 0.8 |
+| 2 | 993 | 1119 MB | 2.0 |
+| 4 | 1952 | 1592 MB | 2.0 |
+| **8** | **3872** | **2535 MB** | **2.1** |
+| 16 | OOM | — | — |
+
+同样配置在 CPU 上是 0.53–0.74 samples/s，所以这块卡大约快 **3 倍**。
+
+**4GB 显存下 batch 最大就是 8。** 想要更大的等效 batch 用梯度累积：
+
+```bash
+python -m tiny_vlm.train --config tiny-50m --data data/captions.jsonl \
+  --batch-size 8 --grad-accum 4 --device cuda --out runs/tiny-vlm
+```
+
+训练结束会打印峰值显存占用，方便判断还能不能加 batch：
+
+```
+[mem] peak GPU allocation 1791 MB / 3715 MB (48%)
+```
+
+两点注意：
+
+- 吞吐在 batch ≥ 2 之后就平了（~2 samples/s）。瓶颈是显存带宽不是算力，
+  加 batch 换不来吞吐，只换显存。
+- sm_75 是 Turing，**没有原生 BF16**，所以 AMP 用的是 fp16，不要手动切 bf16。
+  （`torch.cuda.is_bf16_supported()` 在这块卡上会返回 `True`，别信它。）
 
 ---
 

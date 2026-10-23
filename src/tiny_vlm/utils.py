@@ -26,6 +26,23 @@ def get_device(preferred: str | None = None) -> torch.device:
     return torch.device("cpu")
 
 
+def describe_device(device: torch.device) -> str:
+    """Human-readable device label, with the CUDA details that affect memory tuning."""
+    if device.type != "cuda":
+        return str(device)
+    index = device.index if device.index is not None else torch.cuda.current_device()
+    props = torch.cuda.get_device_properties(index)
+    total_gb = props.total_memory / 1024**3
+    # Turing (7.5) has fp16 tensor cores but no bf16, so autocast must use float16.
+    return f"cuda:{index} ({props.name}, {total_gb:.1f} GB, sm_{props.major}{props.minor})"
+
+
+def peak_memory_mb(device: torch.device) -> float | None:
+    if device.type != "cuda":
+        return None
+    return torch.cuda.max_memory_allocated(device) / 1024**2
+
+
 def human_mb(num_bytes: float) -> str:
     return f"{num_bytes / 1024**2:.1f} MB"
 

@@ -7,9 +7,11 @@ from tiny_vlm.quantize import (
     dequantize_model,
     dequantize_weight,
     effective_group,
+    load_quantized,
     pack_int4,
     quantize_model,
     quantize_weight,
+    save_quantized,
     unpack_int4,
 )
 from tiny_vlm.utils import estimate_sizes
@@ -166,6 +168,44 @@ def test_tied_embeddings_are_stored_once():
         for e in payload["quantized"].values()
     ) + sum(t.numel() * t.element_size() for t in payload["fp16"].values())
     assert size / 1024**2 < 50
+
+
+def test_quantize_cli_verifies_on_the_models_own_device(tmp_path, monkeypatch):
+    """Regression: the CLI built its probe tensors on CPU while `load_quantized` placed the
+    model on CUDA, so the verification forward pass blew up on any GPU machine. Invisible on
+    CPU-only CI, which is exactly why it needs a test."""
+    import sys
+
+    from tiny_vlm import quantize
+
+    cfg = small_config()
+    ckpt = tmp_path / "model.pt"
+    torch.save({"model": TinyVLM(cfg).state_dict(), "config": cfg, "step": 0}, ckpt)
+    out = tmp_path / "model-int8.pt"
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "quantize", "--ckpt", str(ckpt), "--out", str(out),
+            "--bits", "8", "--group-size", "32",
+        ],
+    )
+    quantize.main()
+    assert out.exists()
+
+
+def test_load_quantized_honours_an_explicit_device(model, tmp_path):
+    from tiny_vlm.quantize import load_quantized
+
+    path = tmp_path / "model-int8.pt"
+    save_quantized(path, model, model.cfg, bits=8, group_size=32)
+    reloaded = load_quantized(path, device="cpu")
+    assert next(reloaded.parameters()).device.type == "cpu"
+    # Round-trip a forward pass with inputs on the same device as the model.
+    with torch.no_grad():
+        out = reloaded(torch.randint(0, 64, (1, 6), device="cpu"), pixel_values=torch.randn(1, 3, 32, 32))
+    assert out["logits"].shape == (1, 6, 64)
 
 
 def test_int4_checkpoint_is_smaller_than_int8(model):

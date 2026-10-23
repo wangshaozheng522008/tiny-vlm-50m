@@ -18,7 +18,7 @@ from .config import get_config
 from .data import CaptionDataset, SyntheticCaptionDataset, collate_fn
 from .model import TinyVLM, count_parameters
 from .tokenizer import TinyTokenizer
-from .utils import estimate_sizes, get_device, set_seed
+from .utils import describe_device, estimate_sizes, get_device, peak_memory_mb, set_seed
 
 
 def build_tokenizer(args, cache_dir: Path) -> TinyTokenizer:
@@ -89,6 +89,7 @@ def main() -> None:
     device = get_device(args.device)
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
+    print(f"[device] {describe_device(device)}")
 
     cfg = get_config(args.config)
     tokenizer = build_tokenizer(args, out_dir)
@@ -114,6 +115,8 @@ def main() -> None:
         num_workers=args.workers,
         collate_fn=lambda b: collate_fn(b, cfg.pad_token_id),
         drop_last=len(dataset) > args.batch_size,
+        # Pinned staging only pays off for the async CPU->GPU copies below.
+        pin_memory=device.type == "cuda",
     )
 
     decay, no_decay = [], []
@@ -183,13 +186,23 @@ def main() -> None:
         if done:
             break
 
+    if step == 0:
+        print(
+            f"[warn] no optimiser step ran: fewer than grad_accum ({args.grad_accum}) batches were "
+            f"iterated. Lower --grad-accum or --batch-size, or use more data."
+        )
+
     ckpt = out_dir / "model.pt"
     torch.save(
-        {"model": model.state_dict(), "config": cfg, "step": step},
+        {"model": {k: v.cpu() for k, v in model.state_dict().items()}, "config": cfg, "step": step},
         ckpt,
     )
     cfg.save(out_dir / "config.json")
     print(f"[done] saved {ckpt} ({ckpt.stat().st_size / 1024**2:.1f} MB fp32 checkpoint)")
+    peak = peak_memory_mb(device)
+    if peak is not None:
+        total = torch.cuda.get_device_properties(device).total_memory / 1024**2
+        print(f"[mem] peak GPU allocation {peak:.0f} MB / {total:.0f} MB ({peak / total:.0%})")
     print(f"[note] run `python -m tiny_vlm.quantize --ckpt {ckpt}` to shrink it ~4x (int8)")
 
 
