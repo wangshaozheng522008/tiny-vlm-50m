@@ -5,10 +5,11 @@ from tiny_vlm.config import TextConfig, VisionConfig, VLMConfig, get_config
 from tiny_vlm.model import TinyVLM, count_parameters
 from tiny_vlm.quantize import (
     dequantize_model,
+    dequantize_weight,
+    effective_group,
     pack_int4,
     quantize_model,
     quantize_weight,
-    dequantize_weight,
     unpack_int4,
 )
 from tiny_vlm.utils import estimate_sizes
@@ -93,13 +94,42 @@ def test_multi_image_prefix(model):
     assert out["n_image_tokens"] == 12
 
 
+def test_effective_group_picks_a_divisor():
+    # 448 = 2**6 * 7; 112 is the largest divisor <= 128, and 112 > 128/2.
+    assert effective_group(448, 128) == 112
+    assert effective_group(1792, 128) == 128  # already divides
+    assert effective_group(64, 128) == 64  # group_size above in_features
+    assert 448 % effective_group(448, 128) == 0
+
+
+def test_quantize_weight_does_not_pad_when_a_divisor_exists():
+    """Padding 448 -> 512 wasted 14% of every such weight and blew the budget."""
+    w = torch.randn(32, 448)
+    codes, scales, orig_in, group = quantize_weight(w, bits=8, group_size=128)
+    assert orig_in == 448
+    assert group == 112
+    assert codes.shape == (32, 448), f"codes were padded to {codes.shape}"
+    assert scales.shape == (32, 4)
+
+
 def test_quantize_weight_roundtrip_is_close():
     torch.manual_seed(0)
     w = torch.randn(16, 64)
-    codes, scales, orig_in = quantize_weight(w, bits=8, group_size=64)
-    restored = dequantize_weight(codes, scales, orig_in, group_size=64)
+    codes, scales, orig_in, group = quantize_weight(w, bits=8, group_size=64)
+    restored = dequantize_weight(codes, scales, orig_in, group)
     assert restored.shape == w.shape
     assert (restored - w).abs().mean() < 0.05
+
+
+def test_quantize_weight_falls_back_to_padding_for_awkward_shapes():
+    """A prime-ish in_features has no divisor in range, so padding is the fallback."""
+    w = torch.randn(8, 131)
+    codes, scales, orig_in, group = quantize_weight(w, bits=8, group_size=128)
+    assert orig_in == 131
+    assert codes.shape == (8, 256)  # padded to a multiple of the group
+    restored = dequantize_weight(codes, scales, orig_in, group)
+    assert restored.shape == (8, 131)
+    assert (restored - w).abs().mean() < 0.1
 
 
 def test_int4_packing_roundtrip():

@@ -5,6 +5,11 @@ per-group scales; everything else (norms, biases, position embeddings) stays in 
 4-bit codes are packed two-per-byte so the reported size is a real file size, not an
 estimate.
 
+`--group-size` is a *maximum*: see `effective_group`, which shrinks it to a divisor of
+`in_features` rather than zero-padding the weight. Scrimping there is not cosmetic —
+padding 448 up to 512 costs 14% on every projection weight and puts INT8 at 50.85 MB,
+over budget.
+
 The quantised checkpoint stores codes plus scales. `load_quantized` dequantises back
 into a regular `TinyVLM`, so inference needs no custom kernels — the model is small
 enough that fp32 activations are not the bottleneck.
@@ -50,17 +55,38 @@ def _storage_key(tensor: torch.Tensor) -> tuple:
     return (tensor.data_ptr(), tensor.storage_offset(), tuple(tensor.shape))
 
 
+def effective_group(in_f: int, group_size: int) -> int:
+    """Largest divisor of `in_f` within `(group_size / 2, group_size]`.
+
+    Grouping the input dimension of a `(out, in)` weight needs `in` to split evenly. When
+    it does not, the naive fix pads `in` up to the next multiple of `group_size` — for
+    `in=448, group_size=128` that pads to 512 and inflates every such weight by 14%, which
+    is what pushed the INT8 checkpoint over the 50 MB budget. Shrinking the group to a
+    divisor of `in` costs nothing in quality and wastes no bytes.
+
+    Searching only the upper half of the range matters: a tiny group (e.g. 1, when `in` is
+    prime) would mean one scale per weight element and *increase* the file size.
+    """
+    if group_size <= 0 or group_size >= in_f:
+        return in_f
+    lower = max(group_size // 2, 1)
+    for candidate in range(group_size, lower - 1, -1):
+        if in_f % candidate == 0:
+            return candidate
+    return 0  # no usable divisor; caller falls back to padding
+
+
 def quantize_weight(weight: torch.Tensor, bits: int = 8, group_size: int = 128):
     """Symmetric per-group quantisation along the input dimension.
 
-    Returns `(codes, scales, orig_in_features)`. `codes` may be padded so the last
-    dimension divides evenly by `group_size`.
+    Returns `(codes, scales, orig_in, group)`. `codes` is padded to a multiple of `group`
+    only in the fallback case where no divisor of `orig_in` is available.
     """
     if bits not in QMAX:
         raise ValueError(f"bits must be 4 or 8, got {bits}")
     w = weight.detach().float()
     out_f, in_f = w.shape
-    group = min(group_size, in_f) if group_size > 0 else in_f
+    group = effective_group(in_f, group_size) or group_size
     pad = (group - in_f % group) % group
     if pad:
         w = F.pad(w, (0, pad))
@@ -69,12 +95,11 @@ def quantize_weight(weight: torch.Tensor, bits: int = 8, group_size: int = 128):
     qmax = QMAX[bits]
     scales = (grouped.abs().amax(dim=-1, keepdim=True) / qmax).clamp_(min=1e-8)
     codes = torch.round(grouped / scales).clamp_(-qmax - 1, qmax).to(torch.int8)
-    return codes.reshape(out_f, -1), scales.squeeze(-1), in_f
+    return codes.reshape(out_f, -1), scales.squeeze(-1), in_f, group
 
 
-def dequantize_weight(codes: torch.Tensor, scales: torch.Tensor, orig_in: int, group_size: int) -> torch.Tensor:
+def dequantize_weight(codes: torch.Tensor, scales: torch.Tensor, orig_in: int, group: int) -> torch.Tensor:
     out_f, padded_in = codes.shape
-    group = min(group_size, orig_in) if group_size > 0 else orig_in
     grouped = codes.float().reshape(out_f, -1, group)
     if scales.shape[1] != grouped.shape[1]:
         raise ValueError(f"scale shape {tuple(scales.shape)} does not match codes {tuple(codes.shape)}")
@@ -110,11 +135,12 @@ def quantize_model(model: TinyVLM, bits: int = 8, group_size: int = 128) -> dict
         if name not in names or key in captured:
             continue
         captured.add(key)
-        codes, scales, orig_in = quantize_weight(tensor, bits, group_size)
+        codes, scales, orig_in, group = quantize_weight(tensor, bits, group_size)
         quantized[name] = {
             "codes": pack_int4(codes) if bits == 4 else codes,
             "scales": scales.to(torch.float16),
             "orig_in": orig_in,
+            "group": group,  # stored per tensor: `effective_group` varies with in_features
             "shape": tuple(tensor.shape),
             "bits": bits,
         }
@@ -140,7 +166,7 @@ def dequantize_model(payload: dict, cfg: VLMConfig) -> TinyVLM:
         codes = entry["codes"]
         if entry["bits"] == 4:
             codes = unpack_int4(codes)
-        weight = dequantize_weight(codes, entry["scales"].float(), entry["orig_in"], payload["group_size"])
+        weight = dequantize_weight(codes, entry["scales"].float(), entry["orig_in"], entry["group"])
         merged[name] = weight.to(target[name].dtype).reshape(entry["shape"])
         seen.add(name)
 
@@ -205,7 +231,10 @@ def main() -> None:
 
     size_mb = out.stat().st_size / 1024**2
     verdict = "OK" if size_mb <= args.budget_mb else "OVER BUDGET"
-    print(f"int{args.bits} (group_size={args.group_size}) -> {out}")
+    # `--group-size` is an upper bound; report the groups actually used.
+    payload = torch.load(out, map_location="cpu", weights_only=False)
+    payload_groups = sorted({entry["group"] for entry in payload["quantized"].values()})
+    print(f"int{args.bits} (group_size<={args.group_size}, effective {payload_groups}) -> {out}")
     print(f"  {size_mb:.2f} MB / {args.budget_mb:.0f} MB budget  [{verdict}]")
 
     reloaded = load_quantized(out)

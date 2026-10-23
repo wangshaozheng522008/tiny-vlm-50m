@@ -1,4 +1,4 @@
-"""TinyVLM — a ~28M-parameter vision-language model that quantises under 50 MB."""
+"""TinyVLM — a ~47M-parameter vision-language model that quantises under 50 MB."""
 
 from .config import PRESETS, TextConfig, VisionConfig, VLMConfig, get_config
 from .model import TinyVLM, count_parameters

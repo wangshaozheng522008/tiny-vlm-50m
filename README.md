@@ -2,9 +2,9 @@
 
 一个**量化后权重文件小于 50 MB** 的多模态小语言模型。输入图像 + 文字，输出文字。
 
-- 参数量：**28.23M**
-- INT8 权重文件：**27.81 MB** ✅（实测，group_size=128）
-- INT4 权重文件：**14.98 MB** ✅（实测，group_size=64）
+- 参数量：**46.95M**
+- INT8 权重文件：**46.30 MB** ✅（实测，group_size=128）
+- INT4 权重文件：**24.89 MB** ✅（实测，group_size=64）
 - 训练框架：PyTorch，纯手写，无 HuggingFace 依赖（只用到 `tokenizers` 训练 BPE）
 - CPU 可训练、可推理
 
@@ -16,25 +16,25 @@
 ## 架构
 
 ```
-        图像 (3, 224, 224)
+        图像 (3, 336, 336)
               │
       ┌───────▼────────┐
-      │  ViT Encoder   │  patch 16×16 → 196 tokens
-      │  d=384, L=6    │  ~11.0M params
+      │  ViT Encoder   │  patch 16×16 → 441 tokens
+      │  d=448, L=8    │  ~19.8M params
       └───────┬────────┘
-              │ (B, 196, 384)
+              │ (B, 441, 448)
       ┌───────▼────────┐
-      │ Linear 投影层   │  ~0.15M params
+      │ Linear 投影层   │  ~0.2M params
       └───────┬────────┘
-              │ (B, 196, 384)
+              │ (B, 441, 448)
               ▼
    ┌──────────────────────────────────┐
-   │  拼接：[图像 tokens | 文字 tokens] │
+   │  拼接：[图像 tokens | 文字 tokens] │   → 441 + 256 = 697
    └──────────────┬───────────────────┘
                   │
          ┌────────▼─────────┐
-         │  Causal Decoder  │  d=384, L=6, heads=6
-         │  d=384, L=6      │  ~10.6M params
+         │  Causal Decoder  │  d=448, L=8, heads=7
+         │  d=448, L=8      │  ~19.4M params
          └────────┬─────────┘
                   │
             ┌─────▼─────┐
@@ -46,21 +46,26 @@
 
 图像 token 作为**前缀**拼在文字序列前面，decoder 在 `[图像, 文字]` 整体上做因果注意力。
 于是每个文字 token 都能看到完整图像，而文字部分保持自回归。这是 LLaVA 式的前缀方案，
-但省掉了单独的 cross-attention 层——在 28M 参数的规模下，每一层都得省着用。
+但省掉了单独的 cross-attention 层——在这个规模下，每一层都得省着用。
 
 ### 参数预算
 
 | 模块 | 参数量 | 说明 |
 |---|---:|---|
-| ViT Encoder | 11.00M | patch embed 0.30M + 6 × Transformer block 10.62M |
-| 投影层 + 视觉位置编码 | 0.22M | Linear(384→384) |
-| Token Embedding | 6.29M | 16k BPE 词表 × 384 |
-| Text Decoder | 10.72M | 6 × Transformer block + 位置编码 |
+| ViT Encoder | 19.82M | patch embed 0.34M + 441 位置编码 0.20M + 8 × block 19.27M |
+| 投影层 + 视觉位置编码 | 0.40M | Linear(448→448) 0.20M + vision_pos 0.20M |
+| Token Embedding | 7.34M | 16k BPE 词表 × 448 |
+| Text Decoder | 19.39M | 8 × Transformer block + 位置编码 |
 | LM Head | 0（共享） | 与 token embedding 绑定 |
-| **合计** | **28.23M** | |
+| **合计** | **46.95M** | |
 
-词表是这里最大的单个开销：16k 词表占了 6.3M 参数，接近整个文本侧的 1/3。
-如果接受更差的分词质量，把词表压到 8k 能再省下 3M 参数。
+词表是单个模块里最大的一笔：16k 词表占 7.34M 参数，是整个文本侧的 27%。
+如果你的数据以中文为主，把这笔预算换到更大的词表（24k）通常比换到更多层更划算——
+16k BPE 在中文上分词效率明显偏低。这也是 Roadmap 里 `d448 L7/7 + 24k 词表` 那个变体的动机。
+
+**为什么是 336px 而不是 224px：** 分辨率几乎不吃参数预算（只多 0.19M 的 pos_embed，
+196 → 441 个 token），但图像 token 数涨 2.25 倍，对小目标和小字号文字的识别提升最直接。
+代价是注意力计算量按 token 数平方增长，CPU 训练明显变慢。
 
 ---
 
@@ -147,8 +152,8 @@ python -m tiny_vlm.quantize --ckpt runs/tiny-vlm/model.pt --bits 4 --group-size 
 输出会直接打印真实文件大小和是否超预算：
 
 ```
-int8 (group_size=128) -> runs/tiny-vlm/model-int8.pt
-  27.81 MB / 50 MB budget  [OK]
+int8 (group_size<=128, effective [112, 128]) -> runs/tiny-vlm/model-int8.pt
+  46.30 MB / 50 MB budget  [OK]
   reloaded and ran a forward pass: logits (1, 8, 16384)
 ```
 
@@ -159,11 +164,17 @@ int8 (group_size=128) -> runs/tiny-vlm/model-int8.pt
 - **4-bit 真的做了打包**（两个 code 塞一个 byte），所以报出来的体积是真实文件大小，
   不是「参数量 × 0.5」的估算。
 - **加载时反量化**回 fp32 再送进普通 `TinyVLM`，不依赖任何自定义 kernel。
-  代价是推理显存不省，收益是不用为不同后端各写一套算子——28M 参数下这个交换是划算的。
-- **共享权重按 storage 去重。** `nn.Linear` 和 `nn.Embedding` 绑定权重后，
-  `state_dict()` 会返回两个**不同的 tensor 对象**（`id()` 不同、`data_ptr()` 相同）。
-  用 `id()` 去重会失效，导致 embedding 被存两遍——这个坑让 checkpoint 白白多了 6 MB，
-  实测 33.90 MB → 27.81 MB。去重键必须用 `data_ptr()`。
+  代价是推理显存不省，收益是不用为不同后端各写一套算子——50M 参数以下这个交换是划算的。
+- **group 大小会自动取整除值，而不是补零。** 按 input 维分组要求 input 能均分。
+  `d_model=448` 配 `group_size=128` 时，天真的做法是把 448 补到 512，每个这样的权重
+  白白膨胀 14%——这一步把 INT8 推到了 **50.85 MB，直接超预算**。改成在 `(group_size/2, group_size]`
+  里找 448 的最大因数（112），体积降到 **46.30 MB**，精度不受影响。
+  只在上半区找是关键：如果允许很小的因数，素数长度的 input 会退化成「每个元素一个 scale」，
+  反而更大；找不到就回退到补零。有效 group 随张量而异，所以存在 payload 里。
+
+  > 两个都是实测踩出来的坑：`state_dict()` 返回的绑定权重是两个**不同的 tensor 对象**
+  > （`id()` 不同、`data_ptr()` 相同），用 `id()` 去重会失效导致 embedding 存两遍
+  > （33.90 MB → 27.81 MB）；而补零膨胀把 46.30 MB 顶到了 50.85 MB。
 
 用法：
 
@@ -223,7 +234,7 @@ src/tiny_vlm/
 ├── quantize.py   # int8 / int4 权重量化、打包、反量化加载
 ├── generate.py   # 单图推理 CLI
 └── utils.py      # 设备选择、显存/体积估算
-tests/test_model.py       # 13 个单元测试
+tests/test_model.py       # 16 个单元测试
 scripts/smoke_test.sh     # 端到端冒烟测试
 ```
 
@@ -235,19 +246,27 @@ scripts/smoke_test.sh     # 端到端冒烟测试
 
 1. **图像 token 之间也是因果注意力。** 真正的 ViT 里 patch 之间是双向的。
    这里为了复用同一套 decoder block，图像前缀内部也走因果掩码。
-   代价是后面的 patch 看不到前面的——信息流是单向的，能work，但不是最优。
+   代价是后面的 patch 看不到前面的——信息流是单向的，能 work，但不是最优。
+   336px 下前缀有 441 个 token，这个限制比 224px 时更值得修。
    要修的话，得给图像段单独跑一遍双向注意力再拼进去。
 
 2. **没有 KV cache。** `generate` 每步重算整个前缀。
-   好处是代码短、不会有 cache 实现 bug；代价是长序列生成慢。
-   但 ViT 编码只做一次（`encode_images` 的结果被缓存复用），所以主要开销还是 decoder。
+   好处是代码短、不会有 cache 实现 bug；代价是长序列生成慢——697 的前缀长度下比 384 配置明显。
+   但 ViT 编码只做一次（`encode_images` 的结果被缓存复用），所以每步重算的主要是 decoder。
    目标是端侧小模型的话，这里值得补。
 
 3. **单轮对话。** 没有多轮历史拼接的逻辑，每次调用独立。
 
 4. **加载时反量化**，推理内存不省（见上文「量化」一节）。
 
-5. **`nano-50m` 预设没验证过效果**，只是给冒烟测试用的更小配置。
+5. **16k 词表对中文偏小。** 以中文语料为主的话，分词效率会明显低于 24k+ 的词表。
+   扩词表是 Roadmap 里优先级最高的一项。
+
+6. **都没有在真实数据上训过。** 目前所有验证都是结构/流程层面的（参数量、体积、
+   量化误差、梯度是否流动）。**没有任何质量结论**——比如 int4 反量化后的
+   argmax 一致率是 0.5，但那是随机初始化权重上的数字，训练之后才有参考价值。
+
+7. **`nano-50m` 预设没验证过效果**，只是给冒烟测试用的更小配置。
 
 ---
 
@@ -255,6 +274,7 @@ scripts/smoke_test.sh     # 端到端冒烟测试
 
 - [ ] KV cache + 增量解码
 - [ ] 图像段双向注意力（把 ViT 输出和文本段解耦）
+- [ ] 词表扩到 24k，改善中文分词
 - [ ] 多图交错输入（`<image>` 占位 token 方案）
 - [ ] ONNX / GGUF 导出
 - [ ] 在 COCO Captions 子集上训一个可用的公开 checkpoint
