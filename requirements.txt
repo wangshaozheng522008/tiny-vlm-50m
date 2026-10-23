@@ -1,0 +1,4 @@
+torch>=2.2
+torchvision>=0.17
+tokenizers>=0.15
+pillow>=10.0

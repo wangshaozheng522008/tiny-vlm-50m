@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tiny-vlm"
+version = "0.1.0"
+description = "A ~28M-parameter vision-language model that quantises under 50 MB"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = [
+    "torch>=2.2",
+    "torchvision>=0.17",
+    "tokenizers>=0.15",
+    "pillow>=10.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4"]
+
+[project.scripts]
+tiny-vlm-train = "tiny_vlm.train:main"
+tiny-vlm-quantize = "tiny_vlm.quantize:main"
+tiny-vlm-generate = "tiny_vlm.generate:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

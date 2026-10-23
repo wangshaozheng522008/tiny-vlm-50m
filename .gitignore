@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+
+# Training artefacts
+runs/
+checkpoints/
+*.pt
+*.pth
+*.bin
+
+# Data
+data/
+*.jsonl
+!examples/**/*.jsonl
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
