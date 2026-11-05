@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # End-to-end smoke test on synthetic data: tokenizer -> train -> quantise -> generate.
-# Runs in under a minute on CPU and needs no dataset.
+# Uses grounded synthetic examples and needs no external dataset.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -33,7 +33,7 @@ import torch
 from PIL import Image
 from tiny_vlm.generate import load_model
 from tiny_vlm.tokenizer import TinyTokenizer
-from tiny_vlm.data import build_transform
+from tiny_vlm.data import build_prompt, build_transform
 from tiny_vlm.utils import get_device
 
 device = get_device()
@@ -41,9 +41,14 @@ model, cfg = load_model("runs/smoke/model-int8.pt", device)
 tok = TinyTokenizer.load("runs/smoke/tokenizer.json")
 img = Image.fromarray((torch.rand(224, 224, 3).numpy() * 255).astype("uint8"))
 pixels = build_transform(cfg.vision.img_size)(img).unsqueeze(0).to(device)
-ids = torch.tensor([tok.encode("Describe this image:", add_special_tokens=True)], device=device)
-out = model.generate(ids, pixel_values=pixels, max_new_tokens=16, temperature=0.0)
-print("generated:", repr(tok.decode(out[0, ids.shape[1]:].tolist())))
+for mode, prompt, image in [
+    ("text", "What color is a red circle?", None),
+    ("image", "", pixels),
+    ("mixed", "What color is the shape?", pixels),
+]:
+    ids = torch.tensor([build_prompt(tok, prompt)], device=device)
+    out = model.generate(ids, pixel_values=image, max_new_tokens=16, temperature=0.0)
+    print(mode, "generated:", repr(tok.decode(out[0, ids.shape[1]:].tolist())))
 EOF
 
 echo "==> OK"

@@ -196,11 +196,15 @@ def dequantize_model(payload: dict, cfg: VLMConfig) -> TinyVLM:
     return model
 
 
-def save_quantized(path: str | Path, model: TinyVLM, cfg: VLMConfig, bits: int = 8, group_size: int = 128) -> Path:
+def save_quantized(path: str | Path, model: TinyVLM, cfg: VLMConfig, bits: int = 8,
+                   group_size: int = 128, *, metadata: dict | None = None) -> Path:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = quantize_model(model, bits, group_size)
     payload["config"] = cfg
+    for key in ("tokenizer_fingerprint", "training_modes", "step"):
+        if metadata is not None and key in metadata:
+            payload[key] = metadata[key]
     torch.save(payload, path)
     return path
 
@@ -227,7 +231,7 @@ def main() -> None:
     model.load_state_dict(ckpt["model"])
 
     out = Path(args.out) if args.out else ckpt_path.with_name(f"model-int{args.bits}.pt")
-    save_quantized(out, model, cfg, args.bits, args.group_size)
+    save_quantized(out, model, cfg, args.bits, args.group_size, metadata=ckpt)
 
     size_mb = out.stat().st_size / 1024**2
     verdict = "OK" if size_mb <= args.budget_mb else "OVER BUDGET"

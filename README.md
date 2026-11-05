@@ -1,6 +1,6 @@
 # tiny-vlm-50m
 
-一个**量化后权重文件小于 50 MB** 的多模态小语言模型。输入图像 + 文字，输出文字。
+一个**量化后权重文件小于 50 MB** 的多模态小语言模型。支持**纯文字、纯图片、图片＋文字**三种输入，统一输出文字。
 
 - 参数量：**46.95M**
 - INT8 权重文件：**46.30 MB** ✅（实测，group_size=128）
@@ -80,7 +80,7 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-一条命令跑通全流程（合成数据，CPU 上不到一分钟，不需要任何数据集）：
+一条命令验证训练、量化和三种输入的推理（使用合成数据，不需要外部数据集）：
 
 ```bash
 ./scripts/smoke_test.sh
@@ -88,22 +88,116 @@ pip install -e .
 
 ---
 
+## 本地网页测试
+
+在项目根目录运行：
+
+```bash
+.venv/bin/python -m tiny_vlm.web
+```
+
+浏览器打开 **http://127.0.0.1:8765**。默认加载 `runs/multimodal-tiny-stage2/model-int8.pt`，
+分词器从同目录读取；模型只在启动时加载一次，自动选择可用的 CUDA / MPS / CPU。
+网页和 API 均由 Python 标准库提供，无需安装前端框架或 Web 框架。
+
+- 三种模式：纯文字、纯图片描述、图片＋文字提问。
+- 支持选择、拖拽、粘贴图片，显示图片预览；单张图片最大 8 MB / 1600 万像素。
+- 可调整生成长度、随机程度和 Top-K，查看实际回答、生成 token 数和耗时。
+- 点击示例可自动填入测试数据；示例需要 `data/multimodal/test.jsonl` 和对应图片。
+- 保存本次页面中的最近 12 条测试记录，可回看、复制回答或导出 JSON。刷新页面会清空记录；导出文件不包含图片内容。
+- 每次请求独立推理，历史记录不会拼入上下文。模型返回空文字时，页面会明确提示。
+
+指定其他权重或运行设备：
+
+```bash
+.venv/bin/python -m tiny_vlm.web \
+  --ckpt runs/multimodal-tiny-stage2/model.pt \
+  --tokenizer runs/multimodal-tiny-stage2/tokenizer.json \
+  --device cpu --port 8765
+```
+
+`--threads` 控制 CPU 线程数（默认 4），`--examples-dir` 可指定示例数据目录。
+服务默认只监听本机；如需从局域网其他设备访问，可使用 `--host 0.0.0.0`，再用本机 IP 和端口打开。
+按 `Ctrl+C` 停止服务。
+
+API：`GET /api/status` 返回模型状态；`GET /api/examples` 返回示例；
+`POST /api/generate` 接受 `{mode, prompt, image, parameters}`。
+`image` 为图片 data URL 或 `null`，`parameters` 支持 `max_new_tokens`、`temperature`、`top_k`。
+同时只执行一个生成请求，忙碌时返回 HTTP 409，输入错误返回 HTTP 400。
+
 ## 训练
 
 ### 数据格式
 
-JSONL，每行一个 `{image, caption}`，`image` 是相对 JSONL 文件所在目录的路径：
+JSONL，每行一条监督样本。三种输入可以放在同一文件、同一批次中：
 
 ```json
-{"image": "images/cat.jpg", "caption": "a grey cat sleeping on a blue sofa"}
-{"image": "images/street.jpg", "caption": "a busy street with red buses"}
+{"prompt": "计算 2 + 3，只回答结果。", "answer": "5"}
+{"image": "images/red-circle.png", "answer": "1个红色圆形。"}
+{"image": "images/red-circle.png", "prompt": "图中的图形是什么颜色？", "answer": "红色"}
 ```
 
-参考 `examples/captions.example.jsonl`。
+- **纯文字**：`prompt`＋`answer`；另支持 `{"text": "完整语料段落"}`，对整段做下一 token 预测。
+- **纯图片**：`image`＋`answer`，不提供提示词，文字前缀只有 BOS。
+- **图文混合**：`image`＋`prompt`＋`answer`，回答根据图像和问题确定。
+- 兼容旧格式 `{"image": "...", "caption": "..."}`，默认提示词仍为 `Describe this image:`，也可以显式设置 `prompt`。
+
+`image` 相对各自 JSONL 文件所在目录解析。`--data` 可以接受多个文件。参考 `examples/multimodal.example.jsonl` 和 `examples/captions.example.jsonl`。
+
+### 自动生成数据并训练
+
+不需要下载数据，直接生成中英文数据、图片和独立的验证/测试集：
+
+```bash
+python scripts/gen_multimodal.py --out data/multimodal
+
+python -m tiny_vlm.train \
+  --config tiny-50m \
+  --data data/multimodal/train.jsonl \
+  --val-data data/multimodal/val.jsonl \
+  --vocab-size 2048 \
+  --epochs 3 --batch-size 2 --grad-accum 4 \
+  --modality-weights 1 1 1 \
+  --out runs/multimodal
+```
+
+默认生成 200 张训练图、40 张验证图、40 张测试图，分别有 **2600 / 520 / 520 条样本**。
+图片由程序绘制，监督标签直接来自颜色、形状、数量；每张图配中英文的颜色、形状和数量问题。
+图片单独输入时，描述统一用中文，避免相同输入对应两种语言的冲突。
+文字任务包括加减法、比较数字、原样输出、字母计数和字符串倒序。所有图片内容哈希和文字任务的完整提示词在三个集合间互不重复。
+任务模板和视觉类别在集合间共享，因此这些指标衡量的是该合成任务范围内的泛化。
+可用 `--train-scenes`、`--val-scenes`、`--test-scenes`、`--language zh|en|both` 调整规模和语言。
+
+生成数据用于验证训练流程和学习基础任务，不能代替真实图片、OCR、通用知识和指令数据。
+`--text-corpus` 只参与 tokenizer 训练；文字要参与模型训练，必须以以上 JSONL 记录提供。
+
+### 混合训练的处理
+
+- 没有图片的样本跳过 ViT，并在 decoder 中屏蔽所有图片前缀，混合批次中的纯文字结果与独立纯文字推理保持一致。
+- `--modality-weights TEXT IMAGE MIXED` 控制三类样本被抽取的相对概率。默认按原始比例打乱；`1 1 1` 对已有的三类均衡采样（有放回，单次批次不保证各类齐全）。
+- 损失只覆盖回答，长提示词截断时保留回答监督；梯度累积按实际回答 token 数归一化，最后不足一组的批次也会更新。
+- 每轮验证分别报告三种模式的 loss 和教师强制 token 准确率，按各模式平均 loss 保存 `best.pt`，同时保存最新的 `model.pt`、`tokenizer.json`、`config.json` 和 `metrics.json`。
+- 推理与训练共用提示词编码，提示词末尾不添加 EOS；图片编码在每次生成时只计算一次。
+
+继续微调现有权重：
+
+```bash
+python -m tiny_vlm.train \
+  --init-from runs/multimodal/model.pt \
+  --data data/multimodal/train.jsonl \
+  --val-data data/multimodal/val.jsonl \
+  --modality-weights 1 1 1 --lr 1e-4 \
+  --batch-size 2 --grad-accum 4 --epochs 2 \
+  --out runs/multimodal-finetune
+```
+
+`--init-from` 加载权重和原 tokenizer，重新开始优化器与学习率计划；不是恢复中断时的优化器状态。
+不会为旧权重重新训练 tokenizer。若要冻结已有视觉编码器，可再加 `--freeze-vision`，投影层仍然训练。
+默认从 checkpoint 所在目录读取 tokenizer；也可显式传 `--tokenizer`。新 checkpoint 会校验 tokenizer 的完整指纹。
 
 ### 先训 tokenizer
 
-词表需要单独训练，且 `vocab_size` 必须和模型配置一致：
+从头训练时可以直接从训练集的提示词和答案自动训练 tokenizer（验证集不参与）。也可以提前训练：
 
 ```bash
 python - <<'EOF'
@@ -126,11 +220,11 @@ python -m tiny_vlm.train \
   --out runs/tiny-vlm
 ```
 
-（`--batch-size 16` 在 4GB 显卡上会 OOM，GPU 的 batch 配置见下面「GPU 训练」一节。）
+（此例中的 `--batch-size 16` 在 4GB 显卡上会 OOM。默认 batch 为 8，实际配置应结合序列长度调整。）
 
 也可以在训练时直接传 `--text-corpus` 让脚本自己训 tokenizer。
 
-**Loss 只算在回答部分。** prompt（`Describe this image:`）对应的 label 被置为 `-100`，
+**指令样本的 Loss 只算在回答部分。** prompt 对应的 label 被置为 `-100`，
 模型不会被训练去复述 prompt——这个细节在小模型上影响很明显，否则模型会把大部分容量
 浪费在记忆一个固定前缀上。
 
@@ -238,6 +332,20 @@ model = load_quantized("runs/tiny-vlm/model-int8.pt")
 ## 推理
 
 ```bash
+# 纯文字
+python -m tiny_vlm.generate --ckpt runs/multimodal/model.pt \
+  --tokenizer runs/multimodal/tokenizer.json --prompt "计算 2 + 3，只回答结果。"
+
+# 纯图片：不传 prompt
+python -m tiny_vlm.generate --ckpt runs/multimodal/model.pt \
+  --tokenizer runs/multimodal/tokenizer.json --image data/multimodal/images/test/000000.png
+
+# 图片＋文字
+python -m tiny_vlm.generate --ckpt runs/multimodal/model.pt \
+  --tokenizer runs/multimodal/tokenizer.json --image data/multimodal/images/test/000000.png \
+  --prompt "图中有几个图形？只回答数字。"
+
+# 旧图片描述任务需显式传入训练时使用的提示词
 python -m tiny_vlm.generate \
   --ckpt runs/tiny-vlm/model-int8.pt \
   --tokenizer runs/tiny-vlm/tokenizer.json \
@@ -253,7 +361,7 @@ Python 里直接用：
 import torch
 from PIL import Image
 from tiny_vlm import TinyVLM, TinyTokenizer, get_config
-from tiny_vlm.data import build_transform
+from tiny_vlm.data import build_prompt, build_transform
 from tiny_vlm.quantize import load_quantized
 
 cfg = get_config("tiny-50m")
@@ -264,10 +372,26 @@ image = Image.open("cat.jpg").convert("RGB")
 pixels = build_transform(cfg.vision.img_size)(image).unsqueeze(0)
 
 prompt = "Describe this image:"
-input_ids = torch.tensor([tokenizer.encode(prompt, add_special_tokens=True)])
+input_ids = torch.tensor([build_prompt(tokenizer, prompt)])
 out = model.generate(input_ids, pixel_values=pixels, max_new_tokens=32, temperature=0.0)
 print(tokenizer.decode(out[0, input_ids.shape[1]:].tolist()))
 ```
+
+纯文字调用不传 `pixel_values`；纯图片调用使用 `build_prompt(tokenizer, "")`。
+以上命令都能使用量化权重。无参数输入会报错。
+
+### 三种模式的独立评估
+
+```bash
+python -m tiny_vlm.evaluate \
+  --ckpt runs/multimodal/best.pt \
+  --data data/multimodal/test.jsonl \
+  --generate-per-mode 10 \
+  --out runs/multimodal/test-metrics.json
+```
+
+分别输出教师强制 loss / token 准确率，以及贪心生成的完整答案匹配率和样例。
+后者才直接检验实际生成结果；小规模抽样结果不代表通用模型质量。
 
 ---
 
@@ -278,12 +402,16 @@ src/tiny_vlm/
 ├── config.py     # 模型配置 + PRESETS（tiny-50m / nano-50m）
 ├── model.py      # ViT encoder + 投影层 + causal decoder + generate
 ├── tokenizer.py  # ByteLevel BPE 封装，固定 special token id
-├── data.py       # CaptionDataset / 合成数据集 / collate
-├── train.py      # 训练循环（AdamW + warmup-cosine + AMP + 梯度累积）
+├── data.py       # 三种输入的数据解析、提示词构建、混合 collate
+├── train.py      # 混合训练、梯度累积、分模式验证、权重微调
+├── evaluate.py   # 分模式测试 loss 和实际生成结果
 ├── quantize.py   # int8 / int4 权重量化、打包、反量化加载
-├── generate.py   # 单图推理 CLI
+├── generate.py   # 纯文字 / 纯图片 / 图文推理 CLI
+├── web.py        # 本地网页与模型推理 API
+├── web_assets/   # 无需构建的 HTML / CSS / JavaScript 页面
 └── utils.py      # 设备选择、显存/体积估算
-tests/test_model.py       # 16 个单元测试
+tests/                   # 模型、混合数据、训练/推理和数据隔离测试
+scripts/gen_multimodal.py # 中英文三种模式合成数据生成
 scripts/smoke_test.sh     # 端到端冒烟测试
 ```
 
@@ -295,7 +423,7 @@ scripts/smoke_test.sh     # 端到端冒烟测试
 
 1. **图像 token 之间也是因果注意力。** 真正的 ViT 里 patch 之间是双向的。
    这里为了复用同一套 decoder block，图像前缀内部也走因果掩码。
-   代价是后面的 patch 看不到前面的——信息流是单向的，能 work，但不是最优。
+   代价是前面的 patch 看不到后面的——信息流是单向的，能 work，但不是最优。
    336px 下前缀有 441 个 token，这个限制比 224px 时更值得修。
    要修的话，得给图像段单独跑一遍双向注意力再拼进去。
 

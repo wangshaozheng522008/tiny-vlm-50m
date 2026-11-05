@@ -1,0 +1,6 @@
+{"prompt": "计算 2 + 3，只回答结果。", "answer": "5"}
+{"prompt": "Repeat exactly: hello", "answer": "hello"}
+{"image": "images/red-circle.png", "answer": "1个红色圆形。"}
+{"image": "images/red-circle.png", "prompt": "图中的图形是什么颜色？", "answer": "红色"}
+{"image": "images/red-circle.png", "prompt": "What shape is shown?", "answer": "circle"}
+{"text": "这是一段用于语言建模训练的文字语料。"}

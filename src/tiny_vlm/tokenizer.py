@@ -6,6 +6,8 @@ when the whole quantised model has to fit in 50 MB.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -70,6 +72,12 @@ class TinyTokenizer:
     @property
     def vocab_size(self) -> int:
         return self._tok.get_vocab_size()
+
+    @property
+    def fingerprint(self) -> str:
+        """Identify the full vocabulary, merge rules, and preprocessing configuration."""
+        canonical = json.dumps(json.loads(self._tok.to_str()), sort_keys=True)
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
     def encode(self, text: str, add_special_tokens: bool = True) -> list[int]:
         ids = self._tok.encode(text).ids

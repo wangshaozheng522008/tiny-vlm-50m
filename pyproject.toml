@@ -23,6 +23,10 @@ dev = ["pytest>=7.4"]
 tiny-vlm-train = "tiny_vlm.train:main"
 tiny-vlm-quantize = "tiny_vlm.quantize:main"
 tiny-vlm-generate = "tiny_vlm.generate:main"
+tiny-vlm-web = "tiny_vlm.web:main"
+
+[tool.setuptools.package-data]
+tiny_vlm = ["web_assets/*"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -18,7 +18,7 @@ from pathlib import Path
 
 import torch
 
-from tiny_vlm.data import DEFAULT_PROMPT, build_transform, load_image
+from tiny_vlm.data import DEFAULT_PROMPT, build_prompt, build_transform, load_image
 from tiny_vlm.generate import load_model
 from tiny_vlm.tokenizer import EOS_ID, TinyTokenizer
 from tiny_vlm.utils import get_device
@@ -66,7 +66,7 @@ def normalise(text: str) -> str:
 
 @torch.no_grad()
 def evaluate(model, tokenizer, records, root: Path, transform, device, max_new_tokens: int):
-    prompt_ids = tokenizer.encode(DEFAULT_PROMPT, add_special_tokens=True)
+    prompt_ids = build_prompt(tokenizer, DEFAULT_PROMPT)
     input_ids = torch.tensor([prompt_ids], device=device)
 
     stats = {

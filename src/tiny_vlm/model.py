@@ -212,6 +212,20 @@ class TinyVLM(nn.Module):
             + self.modality.weight[0]
         )
 
+    def _encode_present_images(
+        self, pixel_values: torch.Tensor, image_mask: torch.Tensor | None
+    ) -> torch.Tensor | None:
+        """Skip the vision encoder for missing images in a mixed batch."""
+        if image_mask is None:
+            return self.encode_images(pixel_values)
+        indices = image_mask.nonzero(as_tuple=True)[0]
+        if indices.numel() == 0:
+            return None
+        encoded = self.encode_images(pixel_values.index_select(0, indices))
+        return encoded.new_zeros(pixel_values.shape[0], *encoded.shape[1:]).index_copy(
+            0, indices, encoded
+        )
+
     # ------------------------------------------------------------------ forward
 
     def forward(
@@ -222,6 +236,7 @@ class TinyVLM(nn.Module):
         attention_mask: torch.Tensor | None = None,
         labels: torch.Tensor | None = None,
         return_dict: bool = True,
+        image_mask: torch.Tensor | None = None,
     ):
         """Args:
         input_ids: (b, t) text token ids.
@@ -229,13 +244,22 @@ class TinyVLM(nn.Module):
         vision_embeds: precomputed output of :meth:`encode_images`.
         attention_mask: (b, t) with 1 for real text tokens, 0 for padding.
         labels: (b, t) text labels aligned with `input_ids`; -100 to ignore.
+        image_mask: (b,) true for rows with images. Missing images are neither
+            encoded nor visible to the text decoder, even inside a mixed batch.
 
         Returns a dict with `logits`, optional `loss`, and `n_image_tokens`.
         """
         text = self._text_embeds(input_ids)
 
+        if image_mask is not None:
+            if image_mask.shape != (input_ids.shape[0],):
+                raise ValueError("image_mask must have shape (batch_size,)")
+            image_mask = image_mask.to(device=text.device, dtype=torch.bool)
+            if pixel_values is None and vision_embeds is None and bool(image_mask.any()):
+                raise ValueError("image_mask marks images present but no image inputs were supplied")
+
         if vision_embeds is None and pixel_values is not None:
-            vision_embeds = self.encode_images(pixel_values)
+            vision_embeds = self._encode_present_images(pixel_values, image_mask)
         if vision_embeds is not None:
             vision_embeds = vision_embeds.to(text.dtype) + self.modality.weight[1]
             n_image_tokens = vision_embeds.shape[1]
@@ -250,9 +274,12 @@ class TinyVLM(nn.Module):
         # cheaply. Padding additionally requires masking out padded keys, which forces a
         # materialised (b, 1, t, t) boolean mask. `True` means "may attend".
         attn_mask = None
-        if attention_mask is not None:
+        if attention_mask is not None or (image_mask is not None and n_image_tokens):
             keep = torch.ones(x.shape[0], total, dtype=torch.bool, device=x.device)
-            keep[:, n_image_tokens:] = attention_mask.to(torch.bool)
+            if attention_mask is not None:
+                keep[:, n_image_tokens:] = attention_mask.to(torch.bool)
+            if image_mask is not None and n_image_tokens:
+                keep[:, :n_image_tokens] = image_mask[:, None]
             causal = torch.ones(total, total, dtype=torch.bool, device=x.device).tril()
             attn_mask = keep[:, None, None, :] & causal
 
@@ -263,18 +290,29 @@ class TinyVLM(nn.Module):
 
         out = {"logits": logits, "n_image_tokens": n_image_tokens}
         if labels is not None:
-            out["loss"] = self.loss(logits, labels)
-        return out if return_dict else tuple(out.values())
+            loss_sum, n_tokens = self.loss_terms(logits, labels)
+            out.update(loss=loss_sum / n_tokens.clamp_min(1), loss_sum=loss_sum,
+                       num_loss_tokens=n_tokens)
+        if return_dict:
+            return out
+        # Preserve the original tuple API while exposing extra loss statistics in dicts.
+        return (logits, n_image_tokens, out["loss"]) if labels is not None else (logits, n_image_tokens)
 
     def loss(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
         """Next-token cross entropy over shifted logits (image prefix excluded)."""
+        loss_sum, n_tokens = self.loss_terms(logits, labels)
+        return loss_sum / n_tokens.clamp_min(1)
+
+    def loss_terms(self, logits: torch.Tensor, labels: torch.Tensor):
         shift_logits = logits[:, :-1].contiguous()
         shift_labels = labels[:, 1:].contiguous()
-        return F.cross_entropy(
-            shift_logits.view(-1, shift_logits.size(-1)),
+        loss_sum = F.cross_entropy(
+            shift_logits.float().view(-1, shift_logits.size(-1)),
             shift_labels.view(-1),
             ignore_index=self.cfg.ignore_index,
+            reduction="sum",
         )
+        return loss_sum, (shift_labels != self.cfg.ignore_index).sum()
 
     # ----------------------------------------------------------------- generate
 
@@ -288,14 +326,30 @@ class TinyVLM(nn.Module):
         temperature: float = 0.7,
         top_k: int = 50,
         eos_token_id: int | None = None,
+        image_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Greedy/top-k sampling. Recomputes the prefix each step (no KV cache)."""
         self.eval()
+        if input_ids.ndim != 2 or input_ids.shape[1] == 0:
+            raise ValueError("input_ids must have shape (batch_size, nonempty_sequence)")
+        if input_ids.shape[1] > self.cfg.text.max_seq_len:
+            raise ValueError("prompt exceeds max_seq_len")
+        if max_new_tokens < 0 or top_k < 0:
+            raise ValueError("max_new_tokens and top_k must be nonnegative")
+        # Cache the expensive ViT result once, including for mixed batches.
+        if vision_embeds is None and pixel_values is not None:
+            if image_mask is not None:
+                if image_mask.shape != (input_ids.shape[0],):
+                    raise ValueError("image_mask must have shape (batch_size,)")
+                image_mask = image_mask.to(device=input_ids.device, dtype=torch.bool)
+            vision_embeds = self._encode_present_images(pixel_values, image_mask)
+            pixel_values = None
         generated = input_ids
-        for _ in range(max_new_tokens):
-            if generated.shape[1] > self.cfg.text.max_seq_len:
-                break
-            logits = self.forward(generated, pixel_values, vision_embeds)["logits"][:, -1, :]
+        finished = torch.zeros(input_ids.shape[0], device=input_ids.device, dtype=torch.bool)
+        for _ in range(min(max_new_tokens, self.cfg.text.max_seq_len - input_ids.shape[1])):
+            logits = self.forward(
+                generated, pixel_values, vision_embeds, image_mask=image_mask
+            )["logits"][:, -1, :]
             if temperature <= 0:
                 next_id = logits.argmax(dim=-1, keepdim=True)
             else:
@@ -306,8 +360,11 @@ class TinyVLM(nn.Module):
                     logits = logits.masked_fill(logits < threshold, float("-inf"))
                 probs = F.softmax(logits, dim=-1)
                 next_id = torch.multinomial(probs, num_samples=1)
+            if eos_token_id is not None:
+                next_id = torch.where(finished[:, None], eos_token_id, next_id)
+                finished |= next_id.squeeze(1) == eos_token_id
             generated = torch.cat([generated, next_id], dim=1)
-            if eos_token_id is not None and bool((next_id == eos_token_id).all()):
+            if bool(finished.all()):
                 break
         return generated
 
