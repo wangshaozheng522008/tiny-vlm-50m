@@ -43,6 +43,13 @@ def peak_memory_mb(device: torch.device) -> float | None:
     return torch.cuda.max_memory_allocated(device) / 1024**2
 
 
+def peak_rss_mb() -> float:
+    """Peak resident set size of this process in MB (Linux reports kilobytes)."""
+    import resource
+
+    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+
+
 def human_mb(num_bytes: float) -> str:
     return f"{num_bytes / 1024**2:.1f} MB"
 

@@ -96,7 +96,8 @@ pip install -e .
 .venv/bin/python -m tiny_vlm.web
 ```
 
-浏览器打开 **http://127.0.0.1:8765**。默认加载 `runs/multimodal-tiny-stage2/model-int8.pt`，
+浏览器打开 **http://127.0.0.1:8765**。默认加载 `runs/text-minimind-replay/model-int8.pt`
+（MiniMind 语料继续训练后的权重，40.07 MB），
 分词器从同目录读取；模型只在启动时加载一次，自动选择可用的 CUDA / MPS / CPU。
 网页和 API 均由 Python 标准库提供，无需安装前端框架或 Web 框架。
 
@@ -194,6 +195,44 @@ python -m tiny_vlm.train \
 `--init-from` 加载权重和原 tokenizer，重新开始优化器与学习率计划；不是恢复中断时的优化器状态。
 不会为旧权重重新训练 tokenizer。若要冻结已有视觉编码器，可再加 `--freeze-vision`，投影层仍然训练。
 默认从 checkpoint 所在目录读取 tokenizer；也可显式传 `--tokenizer`。新 checkpoint 会校验 tokenizer 的完整指纹。
+
+### 用真实中文语料继续预训练
+
+前面的数据都是程序生成的短句，模型没有真实语言能力。`data/minimind/pretrain_t2t_mini.jsonl`
+（MiniMind 预训练语料，127 万条）用来补语言部分，同时保留原 2048 词表 tokenizer 和视觉权重：
+
+```bash
+# 1) 清洗、去重、抽样 5 万条；按原始文本 96/2/2 划分后再切块（≤254 token，加 BOS/EOS=256）
+python scripts/prepare_text.py \
+  --input data/minimind/pretrain_t2t_mini.jsonl \
+  --out data/pretrain-minimind \
+  --tokenizer runs/multimodal-tiny-stage2/tokenizer.json \
+  --sample 50000 --seed 42
+
+# 2) 从现有 FP32 权重继续训练，结果存到新目录便于对比
+python -m tiny_vlm.train \
+  --indexed \
+  --data data/pretrain-minimind/train.jsonl \
+  --val-data data/pretrain-minimind/val.jsonl \
+  --init-from runs/multimodal-tiny-stage2/model.pt \
+  --out runs/text-minimind \
+  --batch-size 4 --grad-accum 4 --lr 1e-4 --warmup 100 \
+  --epochs 4 --max-steps 4800 \
+  --save-every 400 --val-every 200 --val-limit 512
+```
+
+- `--indexed` 只给每条记录建字节偏移索引，18.4 万块不常驻内存；`--save-every` 写
+  `state.pt`（权重＋优化器＋AMP＋进度），`--resume` 从该文件续训并校验 tokenizer 指纹，
+  `batch-size`/`grad-accum`/`seed` 中途不能改；`--max-minutes` 到点保存退出。
+- CPU（8 线程）实测 1.9–3.0 s/update；T1200 4GB 上 fp16 AMP 1.5 s/update、峰值显存 769 MB。
+- 5 万条文本切成 184,060 / 3,726 / 4,088 块（40.0M / 0.80M / 0.89M token），
+  划分与过滤统计见 `data/pretrain-minimind/dataset.json`。
+
+完整 val（3,726 块）上 loss 从 9.98 降到 1.91，token 准确率 0.46% → 48.3%；
+test 从 9.99 降到 1.91。但 2048 词表把 72% 的汉字拆成 3 个 byte token
+（平均 2.68 token/字），模型能输出合法汉字却仍不成句，贪心解码还会退化成重复单字。
+文本训练同时覆盖了原来的合成视觉任务，于是又跑了一小段“文本＋图文”回放恢复视觉能力。
+完整数据、曲线、视觉回归和生成样例见 `runs/text-minimind/training-report.md`。
 
 ### 先训 tokenizer
 
@@ -436,12 +475,13 @@ scripts/smoke_test.sh     # 端到端冒烟测试
 
 4. **加载时反量化**，推理内存不省（见上文「量化」一节）。
 
-5. **16k 词表对中文偏小。** 以中文语料为主的话，分词效率会明显低于 24k+ 的词表。
-   扩词表是 Roadmap 里优先级最高的一项。
+5. **2048 词表对中文太小（已实测）。** MiniMind 语料上平均 2.68 token/字，
+   72% 的汉字要 3 个 byte token，自由生成因此不成句。扩到 24k 级别是 Roadmap 里
+   优先级最高的一项。
 
-6. **都没有在真实数据上训过。** 目前所有验证都是结构/流程层面的（参数量、体积、
-   量化误差、梯度是否流动）。**没有任何质量结论**——比如 int4 反量化后的
-   argmax 一致率是 0.5，但那是随机初始化权重上的数字，训练之后才有参考价值。
+6. **语言部分只补了一小步。** 权重现在在 4.8 万条 MiniMind 文本上继续训练过
+   （见“用真实中文语料继续预训练”），但只有 1,680 万 token，生成仍不可读；
+   视觉任务仍在小型合成数据上，且会被纯文本训练覆盖，需要混合回放。
 
 7. **`nano-50m` 预设没验证过效果**，只是给冒烟测试用的更小配置。
 

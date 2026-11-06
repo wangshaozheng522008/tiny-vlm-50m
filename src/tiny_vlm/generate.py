@@ -83,7 +83,8 @@ def main() -> None:
         eos_token_id=EOS_ID,
     )
     new_ids = out[0, input_ids.shape[1] :].tolist()
-    print(tokenizer.decode(new_ids, skip_special_tokens=True).strip())
+    # Drop a character cut in half by the token budget (byte-level tokenizers).
+    print(tokenizer.decode(new_ids, skip_special_tokens=True).rstrip("\ufffd").strip())
 
 
 if __name__ == "__main__":

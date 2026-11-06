@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import random
+from array import array
+from bisect import bisect_right
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -163,6 +165,104 @@ class CaptionDataset(MultimodalDataset):
                  prompt=DEFAULT_PROMPT, ignore_index=-100):
         records = [TrainingRecord(r.image, prompt, r.answer) for r in read_records(jsonl_path)]
         super().__init__(jsonl_path, tokenizer, img_size, max_seq_len, ignore_index, records)
+
+
+class IndexedTextDataset(Dataset):
+    """Random access to pre-chunked ``{"text": ...}`` JSONL without keeping it in RAM.
+
+    Only byte offsets are indexed (8 bytes per line); each sample is read and
+    tokenised on demand. This is the reader to use for a full pretraining run,
+    where the chunked corpus is far larger than the model.
+    """
+
+    def __init__(self, paths, tokenizer, max_seq_len: int = 256,
+                 ignore_index: int = -100):
+        if isinstance(paths, (str, Path)):
+            paths = [paths]
+        self.paths = [Path(p) for p in paths]
+        if not self.paths:
+            raise ValueError("indexed dataset needs at least one JSONL file")
+        self.tokenizer = tokenizer
+        self.max_seq_len = max_seq_len
+        self.ignore_index = ignore_index
+        self._handles: dict[Path, Any] = {}
+        self._files: list[tuple[Path, array]] = []
+        self._starts = [0]
+        total = 0
+        for path in self.paths:
+            offsets = index_jsonl(path)
+            if not offsets:
+                continue
+            self._files.append((path, offsets))
+            total += len(offsets)
+            self._starts.append(total)
+        if not total:
+            raise ValueError("indexed dataset contains no text records")
+        self._length = total
+        self.modes = ["text"] * total
+
+    @property
+    def mode_counts(self) -> dict[str, int]:
+        return {"text": self._length}
+
+    def __len__(self) -> int:
+        return self._length
+
+    def _locate(self, index: int) -> tuple[Path, int]:
+        file_index = bisect_right(self._starts, index) - 1
+        path, offsets = self._files[file_index]
+        return path, offsets[index - self._starts[file_index]]
+
+    def _read(self, path: Path, offset: int) -> dict:
+        handle = self._handles.get(path)
+        if handle is None:
+            handle = path.open("rb")
+            self._handles[path] = handle
+        handle.seek(offset)
+        line = handle.readline()
+        try:
+            raw = json.loads(line.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"{path}: offset {offset}: invalid JSON record") from exc
+        if not isinstance(raw, dict) or not isinstance(raw.get("text"), str):
+            raise ValueError(f"{path}: offset {offset}: expected {{\"text\": ...}}")
+        return raw
+
+    def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
+        path, offset = self._locate(index)
+        record = self._read(path, offset)
+        input_ids, labels = build_example(
+            self.tokenizer, "", record["text"], self.max_seq_len, self.ignore_index
+        )
+        return {
+            "input_ids": torch.tensor(input_ids, dtype=torch.long),
+            "labels": torch.tensor(labels, dtype=torch.long),
+            "mode_id": torch.tensor(MODES.index("text"), dtype=torch.long),
+        }
+
+    def __getstate__(self) -> dict:
+        state = self.__dict__.copy()
+        state["_handles"] = {}  # worker processes reopen lazily
+        return state
+
+    def __del__(self):
+        for handle in getattr(self, "_handles", {}).values():
+            try:
+                handle.close()
+            except OSError:
+                pass
+
+
+def index_jsonl(path: str | Path) -> array:
+    """Byte offsets of every nonblank line, with one sequential pass over the file."""
+    offsets = array("q")
+    position = 0
+    with Path(path).open("rb") as handle:
+        for line in handle:
+            if line.strip():
+                offsets.append(position)
+            position += len(line)
+    return offsets
 
 
 SYNTHETIC_COLORS = {"red": (220, 30, 30), "green": (30, 170, 30), "blue": (30, 30, 220)}

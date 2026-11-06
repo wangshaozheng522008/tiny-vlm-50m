@@ -29,7 +29,7 @@ ASSETS = Path(__file__).with_name("web_assets")
 MAX_IMAGE_BYTES = 8 * 1024**2
 MAX_REQUEST_BYTES = 12 * 1024**2
 MAX_IMAGE_PIXELS = 16_000_000
-DEFAULT_CHECKPOINT = Path("runs/multimodal-tiny-stage2/model-int8.pt")
+DEFAULT_CHECKPOINT = Path("runs/text-minimind-replay/model-int8.pt")
 
 
 class InputError(ValueError):
@@ -92,9 +92,14 @@ class ModelRuntime:
         self.lock = threading.Lock()
         self.transform = build_transform(model.cfg.vision.img_size)
         self.example_image = None
-        self.examples = [{"id": "text", "mode": "text", "title": "试一道文字题",
-                          "description": "只输入文字，看看模型怎么回答。",
-                          "prompt": "计算 2 + 3，只回答结果。", "reference": "5"}]
+        self.examples = [
+            {"id": "text", "mode": "text", "title": "试一道文字题",
+             "description": "只输入文字，看看模型怎么回答。",
+             "prompt": "计算 2 + 3，只回答结果。", "reference": "5"},
+            {"id": "text-continue", "mode": "text", "title": "试一段中文续写",
+             "description": "给模型一段开头，看它往下写。",
+             "prompt": "如何提高孩子的阅读能力？", "reference": ""},
+        ]
         if examples_dir is not None:
             self._load_examples(examples_dir)
 
@@ -176,6 +181,9 @@ class ModelRuntime:
                 generated = self.model.generate(inputs, pixel_values=pixels, eos_token_id=EOS_ID, **params)
                 new_ids = generated[0, len(ids):].tolist()
                 answer = self.tokenizer.decode(new_ids, skip_special_tokens=True)
+                # Byte-level tokenizers can stop in the middle of a character; the
+                # trailing replacement char is a token-budget artefact, not content.
+                answer = answer.rstrip("\ufffd")
             elapsed = time.perf_counter() - start
             return {"text": answer, "mode": mode, "input_tokens": len(ids),
                     "image_tokens": self.model.cfg.vision.num_patches if image is not None else 0,
