@@ -1,126 +1,122 @@
-import base64
-import io
+"""Local web server: text-only API, multi-turn history, no image surface."""
+
+from __future__ import annotations
+
 import json
 import threading
-from urllib.error import HTTPError
-from urllib.request import Request, urlopen
+import urllib.error
+import urllib.request
 
 import pytest
 import torch
-from PIL import Image
 
-from tiny_vlm.config import TextConfig, VisionConfig, VLMConfig
-from tiny_vlm.model import TinyVLM
-from tiny_vlm.tokenizer import TinyTokenizer
-from tiny_vlm.web import MAX_REQUEST_BYTES, ModelRuntime, create_server, decode_image
-
-
-@pytest.fixture
-def image_data():
-    buffer = io.BytesIO()
-    Image.new("RGB", (32, 32), "red").save(buffer, format="PNG")
-    return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode()
+from minillm.config import MINILLM_NANO
+from minillm.model import MiniLLM
+from minillm.train import save_model_checkpoint
+from minillm.web import serve
 
 
-@pytest.fixture
-def web_server(tmp_path):
-    tokenizer = TinyTokenizer.train(["hello world what color red blue a circle", "你好，描述图片。"], vocab_size=300)
-    cfg = VLMConfig(vision=VisionConfig(img_size=32, d_model=16, depth=1, num_heads=2),
-                    text=TextConfig(vocab_size=tokenizer.vocab_size, max_seq_len=96,
-                                    d_model=16, depth=1, num_heads=2))
-    checkpoint = tmp_path / "model.pt"
-    checkpoint.write_bytes(b"fixture")
-    runtime = ModelRuntime(TinyVLM(cfg).eval(), tokenizer, checkpoint, torch.device("cpu"))
-    server = create_server(runtime, port=0)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+@pytest.fixture()
+def server(tmp_path, tiny_tokenizer):
+    cfg = MINILLM_NANO.copy()
+    cfg.vocab_size = tiny_tokenizer.vocab_size
+    model = MiniLLM(cfg).eval()
+    ckpt = tmp_path / "model.pt"
+    save_model_checkpoint(ckpt, model, tiny_tokenizer, step=0, tokens=0, val_loss=None)
+    tiny_tokenizer.save(tmp_path / "tokenizer.json")
+    httpd = serve(str(ckpt), str(tmp_path / "tokenizer.json"), port=0, device="cpu",
+                  name="test-model")
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
+    base = f"http://127.0.0.1:{httpd.server_address[1]}"
+    yield base
+    httpd.shutdown()
+    httpd.server_close()
+    thread.join(timeout=5)
+
+
+def get(base, path):
+    with urllib.request.urlopen(base + path, timeout=10) as response:
+        return response.status, response.read()
+
+
+def post(base, path, payload):
+    request = urllib.request.Request(
+        base + path, data=json.dumps(payload).encode(), method="POST",
+        headers={"Content-Type": "application/json"},
+    )
     try:
-        yield f"http://127.0.0.1:{server.server_port}", runtime
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=2)
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return response.status, json.loads(response.read())
+    except urllib.error.HTTPError as error:
+        return error.code, json.loads(error.read())
 
 
-def request(base, path, payload=None, headers=None, raw=None):
-    body = json.dumps(payload).encode() if payload is not None else raw
-    req = Request(base + path, data=body, headers=headers or ({"Content-Type": "application/json"} if body else {}))
-    try:
-        with urlopen(req, timeout=10) as response:
-            return response.status, response.read(), response.headers
-    except HTTPError as exc:
-        return exc.code, exc.read(), exc.headers
+def test_index_is_text_only_chat(server):
+    status, body = get(server, "/")
+    assert status == 200
+    html = body.decode()
+    assert "MiniLLM" in html and "对话" in html
+    assert "image" not in html.lower() and "图片上传" not in html
+    assert "/static/app.js" in html and "/static/styles.css" in html
 
 
-def test_assets_status_and_no_arbitrary_file_access(web_server):
-    base, _ = web_server
-    for path, content in (("/", "一个模型，三种输入"), ("/app.js", "api/generate"),
-                          ("/styles.css", "@media")):
-        code, body, headers = request(base, path)
-        assert code == 200 and content in body.decode()
-        assert headers["X-Content-Type-Options"] == "nosniff"
-    code, body, _ = request(base, "/api/status")
-    data = json.loads(body)
-    assert code == 200 and data["ready"] and data["modes"] == ["text", "image", "mixed"]
-    assert request(base, "/../../pyproject.toml")[0] == 404
-    assert request(base, "/api/example-image")[0] == 404
-    assert json.loads(request(base, "/api/examples")[1])["examples"][0]["mode"] == "text"
+def test_static_assets_and_traversal_guard(server):
+    status, body = get(server, "/static/app.js")
+    assert status == 200 and b"api/chat" in body
+    with pytest.raises(urllib.error.HTTPError) as excinfo:
+        get(server, "/static/../web.py")
+    assert excinfo.value.code == 404
 
 
-@pytest.mark.parametrize("mode", ["text", "image", "mixed"])
-def test_real_model_generation_for_each_mode(web_server, image_data, mode):
-    base, _ = web_server
-    code, body, _ = request(base, "/api/generate", {
-        "mode": mode, "prompt": "hello" if mode != "image" else "",
-        "image": image_data if mode != "text" else None,
-        "parameters": {"max_new_tokens": 3, "temperature": 0, "top_k": 10},
+def test_info_reports_params_and_checkpoint(server):
+    status, body = get(server, "/api/info")
+    info = json.loads(body)
+    assert status == 200
+    assert info["params"] > 0 and info["trained"] is False
+    assert info["checkpoint_bytes"] > 0 and info["quantized"] is None
+    assert info["max_context"] == MINILLM_NANO.max_position_embeddings
+
+
+def test_chat_returns_reply_and_timings(server):
+    status, data = post(server, "/api/chat", {
+        "message": "你好", "max_new_tokens": 6, "temperature": 0.0,
     })
-    data = json.loads(body)
-    assert code == 200 and data["mode"] == mode and isinstance(data["text"], str)
-    assert 1 <= data["output_tokens"] <= 3 and data["elapsed_ms"] >= 0
-    assert data["image_tokens"] == (4 if mode != "text" else 0)
+    assert status == 200
+    assert isinstance(data["reply"], str)
+    assert data["tokens"] <= 6
+    for key in ("ttft_ms", "prefill_tok_s", "tok_s", "total_ms", "prompt_tokens"):
+        assert isinstance(data[key], (int, float)) and data[key] >= 0
+    assert data["history_turns"] == 1
 
 
-@pytest.mark.parametrize("payload", [
-    {}, {"mode": "image"}, {"mode": "mixed", "prompt": "hello"},
-    {"mode": "text", "prompt": " "}, {"mode": "wrong", "prompt": "hello"},
-    {"prompt": "hello", "parameters": {"max_new_tokens": True}},
-    {"prompt": "hello", "parameters": {"temperature": float("nan")}},
-    {"prompt": "hello", "parameters": {"top_k": 0}},
-    {"mode": "image", "image": "data:image/png;base64,not an image"},
-    {"prompt": "hello" * 1000}, [],
-])
-def test_bad_requests_have_readable_errors(web_server, payload):
-    base, _ = web_server
-    code, body, _ = request(base, "/api/generate", payload)
-    assert code == 400 and json.loads(body)["error"]
+def test_multi_turn_history_and_reset(server):
+    post(server, "/api/chat", {"message": "第一句", "max_new_tokens": 2})
+    _, second = post(server, "/api/chat", {"message": "第二句", "max_new_tokens": 2})
+    assert second["history_turns"] == 2
+    assert second["prompt_tokens"] > 0
+    status, _ = post(server, "/api/reset", {})
+    assert status == 200
+    _, third = post(server, "/api/chat", {"message": "重新开始", "max_new_tokens": 2})
+    assert third["history_turns"] == 1
 
 
-def test_concurrent_generation_returns_busy_and_releases_lock(web_server):
-    base, runtime = web_server
-    runtime.lock.acquire()
-    try:
-        code, body, _ = request(base, "/api/generate", {"prompt": "hello"})
-        assert code == 409 and "稍后" in json.loads(body)["error"]
-    finally:
-        runtime.lock.release()
-    code, _, _ = request(base, "/api/generate", {"prompt": "hello", "parameters": {"max_new_tokens": 1}})
-    assert code == 200 and not runtime.lock.locked()
+def test_context_limit_drops_old_turns(server):
+    for index in range(3):
+        post(server, "/api/chat", {"message": f"第{index}轮" + "很长的内容" * 30,
+                                   "max_new_tokens": 2, "context_limit": 256})
+    _, data = post(server, "/api/chat", {"message": "最后一轮", "max_new_tokens": 2,
+                                          "context_limit": 256})
+    assert data["context_limit"] <= MINILLM_NANO.max_position_embeddings
+    assert data["dropped_turns"] >= 1
 
 
-def test_request_size_content_type_and_invalid_json(web_server):
-    base, _ = web_server
-    assert request(base, "/api/generate", raw=b"{}", headers={"Content-Type": "text/plain"})[0] == 415
-    assert request(base, "/api/generate", raw=b"bad json", headers={"Content-Type": "application/json"})[0] == 400
-    assert request(base, "/api/generate", raw=b"{}", headers={
-        "Content-Type": "application/json", "Content-Length": str(MAX_REQUEST_BYTES + 1)})[0] == 413
+def test_empty_message_is_rejected(server):
+    status, data = post(server, "/api/chat", {"message": "   "})
+    assert status == 400 and "empty" in data["error"]
 
 
-def test_phone_photo_orientation_is_applied():
-    image = Image.new("RGB", (20, 30), "red")
-    exif = image.getexif()
-    exif[274] = 6
-    buffer = io.BytesIO()
-    image.save(buffer, format="JPEG", exif=exif)
-    decoded = decode_image("data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode())
-    assert decoded.size == (30, 20) and decoded.mode == "RGB"
+def test_unknown_route_404(server):
+    with pytest.raises(urllib.error.HTTPError) as excinfo:
+        get(server, "/api/does-not-exist")
+    assert excinfo.value.code == 404

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MiniLLM · 本地对话</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">M</span>
+      <div>
+        <h1>MiniLLM</h1>
+        <p class="subtitle">87M 中文语言模型 · 纯文本本地对话</p>
+      </div>
+    </div>
+    <div class="badges" id="badges"><span class="badge muted">加载中…</span></div>
+  </header>
+
+  <main class="layout">
+    <section class="chat-panel">
+      <div class="banner hidden" id="banner"></div>
+      <div class="messages" id="messages">
+        <div class="empty" id="empty">
+          <h2>开始一段对话</h2>
+          <p>模型完全在本机 CPU / GPU 上运行，请求不会离开这台机器。</p>
+          <div class="suggestions">
+            <button data-prompt="用三句话介绍你自己。">介绍你自己</button>
+            <button data-prompt="解释一下什么是语言模型。">什么是语言模型</button>
+            <button data-prompt="写一句关于春天的诗。">写一句诗</button>
+          </div>
+        </div>
+      </div>
+      <form class="composer" id="composer">
+        <textarea id="input" rows="1" placeholder="输入消息，Enter 发送，Shift+Enter 换行" autocomplete="off"></textarea>
+        <button type="submit" id="send" class="primary">发送</button>
+      </form>
+      <p class="hint" id="hint">仅监听 127.0.0.1 · 无图片输入 · 无联网</p>
+    </section>
+
+    <aside class="sidebar">
+      <div class="card">
+        <h3>模型</h3>
+        <dl id="model-card"><dt>状态</dt><dd>加载中…</dd></dl>
+      </div>
+
+      <div class="card">
+        <h3>生成参数</h3>
+        <label class="field">
+          <span>系统提示词</span>
+          <textarea id="system" rows="3"></textarea>
+        </label>
+        <label class="field">
+          <span>温度 <output id="temperature-value">0.70</output></span>
+          <input type="range" id="temperature" min="0" max="1.5" step="0.05" value="0.7" />
+        </label>
+        <label class="field">
+          <span>Top-K <output id="top-k-value">40</output></span>
+          <input type="range" id="top-k" min="0" max="100" step="1" value="40" />
+        </label>
+        <label class="field">
+          <span>最大新 token <output id="max-tokens-value">256</output></span>
+          <input type="range" id="max-tokens" min="16" max="1024" step="16" value="256" />
+        </label>
+        <label class="field">
+          <span>上下文长度 <output id="context-value">2048</output></span>
+          <input type="range" id="context" min="256" max="2048" step="64" value="2048" />
+        </label>
+      </div>
+
+      <div class="card">
+        <h3>会话</h3>
+        <div class="actions">
+          <button id="clear">清空对话</button>
+          <button id="export-json">导出 JSON</button>
+          <button id="export-md">导出 Markdown</button>
+        </div>
+        <p class="hint" id="session-stats">0 轮对话</p>
+      </div>
+    </aside>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

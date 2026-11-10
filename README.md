@@ -1,503 +1,443 @@
-# tiny-vlm-50m
+# MiniLLM-87M
 
-一个**量化后权重文件小于 50 MB** 的多模态小语言模型。支持**纯文字、纯图片、图片＋文字**三种输入，统一输出文字。
+一个**中文优先的纯文本因果语言模型**：`86,528,640` 参数，INT4 权重文件小于 **50 MB**，
+纯 PyTorch 手写（不依赖 HuggingFace Transformers），CPU / CUDA 均可训练和推理。
 
-- 参数量：**46.95M**
-- INT8 权重文件：**46.30 MB** ✅（实测，group_size=128）
-- INT4 权重文件：**24.89 MB** ✅（实测，group_size=64）
-- 训练框架：PyTorch，纯手写，无 HuggingFace 依赖（只用到 `tokenizers` 训练 BPE）
-- CPU 可训练、可推理
-
-> 这不是一个能跟 GPT-4V 掰手腕的模型。它的定位是：**在 50 MB 的硬约束下，把「看图说话」这件事跑通**，
-> 适合端侧部署、嵌入到 App / 嵌入式设备、以及作为多模态训练流程的最小可运行参考实现。
+> 它不是一个能对标通用大模型的助手。它的定位是：**在「87M 参数 + 50 MB 权重」的硬约束下，
+> 把中文预训练、SFT、INT4 导出、KV-cache 推理、本地 Web 对话这条链路完整跑通**，
+> 适合作为端侧部署、教学和二次开发的最小可运行实现。
+>
+> 另外需要明确：仓库附带的演示 checkpoint 只训练了很少的步数（见 [训练记录](#训练记录)），
+> 它的困惑度和生成质量远未收敛，**不能**当作可用的中文助手。所有评测数字都按实测报告，
+> 没有训练过的模型会明确标注「未训练」。
 
 ---
 
-## 架构
+## 1. 硬性指标
 
-```
-        图像 (3, 336, 336)
-              │
-      ┌───────▼────────┐
-      │  ViT Encoder   │  patch 16×16 → 441 tokens
-      │  d=448, L=8    │  ~19.8M params
-      └───────┬────────┘
-              │ (B, 441, 448)
-      ┌───────▼────────┐
-      │ Linear 投影层   │  ~0.2M params
-      └───────┬────────┘
-              │ (B, 441, 448)
-              ▼
-   ┌──────────────────────────────────┐
-   │  拼接：[图像 tokens | 文字 tokens] │   → 441 + 256 = 697
-   └──────────────┬───────────────────┘
-                  │
-         ┌────────▼─────────┐
-         │  Causal Decoder  │  d=448, L=8, heads=7
-         │  d=448, L=8      │  ~19.4M params
-         └────────┬─────────┘
-                  │
-            ┌─────▼─────┐
-            │  LM Head  │  与 token embedding 共享权重
-            └─────┬─────┘
-                  ▼
-              文字输出
-```
-
-图像 token 作为**前缀**拼在文字序列前面，decoder 在 `[图像, 文字]` 整体上做因果注意力。
-于是每个文字 token 都能看到完整图像，而文字部分保持自回归。这是 LLaVA 式的前缀方案，
-但省掉了单独的 cross-attention 层——在这个规模下，每一层都得省着用。
+| 项目 | 目标 | 实测 |
+|---|---|---|
+| 参数量 | ~87M | **86,528,640** |
+| 词表 | 24,576 | 24,576（ByteLevel BPE，中文优先） |
+| 上下文 | 2,048 | 2,048（RoPE θ=10000） |
+| INT4 权重文件 | **< 50,000,000 字节** | 见 [INT4 体积](#int4-体积) |
+| 依赖 | 纯 PyTorch，无 HF Transformers | torch + tokenizers + numpy |
+| 视觉能力 | 无 | 无（旧 VLM 代码/依赖已删除） |
 
 ### 参数预算
 
-| 模块 | 参数量 | 说明 |
-|---|---:|---|
-| ViT Encoder | 19.82M | patch embed 0.34M + 441 位置编码 0.20M + 8 × block 19.27M |
-| 投影层 + 视觉位置编码 | 0.40M | Linear(448→448) 0.20M + vision_pos 0.20M |
-| Token Embedding | 7.34M | 16k BPE 词表 × 448 |
-| Text Decoder | 19.39M | 8 × Transformer block + 位置编码 |
-| LM Head | 0（共享） | 与 token embedding 绑定 |
-| **合计** | **46.95M** | |
+| 模块 | 每层 | 层数 | 小计 |
+|---|---:|---:|---:|
+| Token Embedding（与 LM Head 共享） | 15,728,640 | 1 | 15,728,640 |
+| Attention（GQA 10Q/2KV，head_dim 64） | 983,040 | 16 | 15,728,640 |
+| SwiGLU FFN（640 → 1792 → 640） | 3,440,640 | 16 | 55,050,240 |
+| RMSNorm | 1,280 | 16 | 20,480 |
+| Final RMSNorm | 640 | 1 | 640 |
+| **合计** | | | **86,528,640** |
 
-词表是单个模块里最大的一笔：16k 词表占 7.34M 参数，是整个文本侧的 27%。
-如果你的数据以中文为主，把这笔预算换到更大的词表（24k）通常比换到更多层更划算——
-16k BPE 在中文上分词效率明显偏低。这也是 Roadmap 里 `d448 L7/7 + 24k 词表` 那个变体的动机。
-
-**为什么是 336px 而不是 224px：** 分辨率几乎不吃参数预算（只多 0.19M 的 pos_embed，
-196 → 441 个 token），但图像 token 数涨 2.25 倍，对小目标和小字号文字的识别提升最直接。
-代价是注意力计算量按 token 数平方增长，CPU 训练明显变慢。
+INT4 只存一份 embedding（LM Head 通过 weight tying 复用），因此 50 MB 的预算刚好够用。
 
 ---
 
-## 快速开始
+## 2. 架构
 
-```bash
-git clone https://github.com/wangshaozheng522008/tiny-vlm-50m.git
-cd tiny-vlm-50m
-
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-pip install -e .
+```
+input ids (B, T)
+   │
+   ▼
+Embedding(24576, 640) ──────────────────────────┐
+   │                                            │ tied
+   ▼                                            │
+┌───────────────────────────────┐ × 16          │
+│ RMSNorm                       │               │
+│ Multi-Head Attention (GQA)    │               │
+│   q: 10 heads × 64 = 640      │               │
+│   k/v: 2 heads × 64 = 128     │               │
+│   RoPE（rotate-half）          │               │
+│   scaled_dot_product_attention │               │
+│ + residual                    │               │
+│ RMSNorm                       │               │
+│ SwiGLU: 640 → 1792 → 640      │               │
+│ + residual                    │               │
+└───────────────────────────────┘               │
+   │                                            │
+   ▼                                            │
+RMSNorm → LM Head(640, 24576) ◄─────────────────┘
+   │
+   ▼
+logits (B, T, 24576)
 ```
 
-一条命令验证训练、量化和三种输入的推理（使用合成数据，不需要外部数据集）：
+- **Pre-norm**，无 bias，dropout = 0，`tie_word_embeddings=True`。
+- GQA：10 个 query head 共享 2 组 KV，`num_kv_groups=5`。优先使用
+  `F.scaled_dot_product_attention(..., enable_gqa=True)`，旧版本 PyTorch 自动回退到
+  `repeat_kv`，两条路径在测试里逐元素对齐。
+- RoPE 表按 `(max_position, head_dim/2)` 预计算，作为 `persistent=False` 的 buffer，
+  **不进入 state_dict**，量化文件里也不会重复存储。
+- KV cache：prefill 一次，decode 每步单 token；cache 位置由已缓存的长度决定，
+  因此 `use_cache=True/False` 的 logits 与 greedy 输出完全一致（有测试）。
+
+---
+
+## 3. 安装
+
+```bash
+python -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt        # torch, tokenizers, numpy, pytest
+pip install -e .                       # 可选：安装 minillm-* 命令行
+```
+
+CPU 即可运行；CUDA 版 PyTorch 会自动使用 GPU。显存 4 GB 的卡建议
+`--batch-size 1 --grad-checkpointing`（见 [显存建议](#显存与-4-gb-显卡)）。
+
+---
+
+## 4. 五条命令跑通全流程
+
+```bash
+# 0) 数据：JSONL，每行 {"text": "..."}
+python scripts/prepare_text.py \
+    --input data/minimind/pretrain_t2t_mini.jsonl \
+    --out runs/minillm-87m/corpus --sample 24000 --max-records 40000
+
+# 1) 只用 train split 训练 tokenizer（val/test 通过 --forbid 强制隔离）
+python scripts/train_tokenizer.py \
+    --zh runs/minillm-87m/corpus/train.text.jsonl --weights 1 0 0 \
+    --vocab-size 24576 --out runs/minillm-87m/corpus/tokenizer.json \
+    --forbid runs/minillm-87m/corpus/val.text.jsonl runs/minillm-87m/corpus/test.text.jsonl
+
+# 2) 把三个 split 分别打包成 uint16 token 流
+python scripts/prepare_text.py --input data/minimind/pretrain_t2t_mini.jsonl \
+    --out runs/minillm-87m/corpus --tokenize-only \
+    --tokenizer runs/minillm-87m/corpus/tokenizer.json
+
+# 3) 预训练（可随时 Ctrl-C，用 --resume 继续）
+python -m minillm.train --data runs/minillm-87m/corpus/train.bin \
+    --val-data runs/minillm-87m/corpus/val.bin \
+    --tokenizer runs/minillm-87m/corpus/tokenizer.json --out runs/minillm-87m/run \
+    --batch-size 1 --grad-accum 16 --grad-checkpointing --device cuda
+
+# 4) SFT（assistant-only loss）
+python -m minillm.sft --init-from runs/minillm-87m/run/model.pt \
+    --data data/sft/train.jsonl --val-data data/sft/val.jsonl \
+    --tokenizer runs/minillm-87m/corpus/tokenizer.json --out runs/minillm-87m/sft
+
+# 5) INT4 导出 + 文件大小检查 + 重新加载 + 生成
+python -m minillm.quantize --ckpt runs/minillm-87m/sft/model.pt
+python -m minillm.generate --ckpt runs/minillm-87m/sft/model-int4.pt \
+    --tokenizer runs/minillm-87m/corpus/tokenizer.json --prompt "你好"
+```
+
+一条命令的端到端冒烟测试（默认用 `minillm-nano` 小模型，约 1 分钟）：
 
 ```bash
 ./scripts/smoke_test.sh
+CONFIG=minillm-87m SAMPLE=4000 SEQ_LEN=512 STEPS=20 SFT_STEPS=10 DEVICE=cuda \
+    ./scripts/smoke_test.sh      # 小规模真实 87M 全流程
 ```
 
 ---
 
-## 本地网页测试
+## 5. 数据格式
 
-在项目根目录运行：
-
-```bash
-.venv/bin/python -m tiny_vlm.web
-```
-
-浏览器打开 **http://127.0.0.1:8765**。默认加载 `runs/text-minimind-replay/model-int8.pt`
-（MiniMind 语料继续训练后的权重，40.07 MB），
-分词器从同目录读取；模型只在启动时加载一次，自动选择可用的 CUDA / MPS / CPU。
-网页和 API 均由 Python 标准库提供，无需安装前端框架或 Web 框架。
-
-- 三种模式：纯文字、纯图片描述、图片＋文字提问。
-- 支持选择、拖拽、粘贴图片，显示图片预览；单张图片最大 8 MB / 1600 万像素。
-- 可调整生成长度、随机程度和 Top-K，查看实际回答、生成 token 数和耗时。
-- 点击示例可自动填入测试数据；示例需要 `data/multimodal/test.jsonl` 和对应图片。
-- 保存本次页面中的最近 12 条测试记录，可回看、复制回答或导出 JSON。刷新页面会清空记录；导出文件不包含图片内容。
-- 每次请求独立推理，历史记录不会拼入上下文。模型返回空文字时，页面会明确提示。
-
-指定其他权重或运行设备：
-
-```bash
-.venv/bin/python -m tiny_vlm.web \
-  --ckpt runs/multimodal-tiny-stage2/model.pt \
-  --tokenizer runs/multimodal-tiny-stage2/tokenizer.json \
-  --device cpu --port 8765
-```
-
-`--threads` 控制 CPU 线程数（默认 4），`--examples-dir` 可指定示例数据目录。
-服务默认只监听本机；如需从局域网其他设备访问，可使用 `--host 0.0.0.0`，再用本机 IP 和端口打开。
-按 `Ctrl+C` 停止服务。
-
-API：`GET /api/status` 返回模型状态；`GET /api/examples` 返回示例；
-`POST /api/generate` 接受 `{mode, prompt, image, parameters}`。
-`image` 为图片 data URL 或 `null`，`parameters` 支持 `max_new_tokens`、`temperature`、`top_k`。
-同时只执行一个生成请求，忙碌时返回 HTTP 409，输入错误返回 HTTP 400。
-
-## 训练
-
-### 数据格式
-
-JSONL，每行一条监督样本。三种输入可以放在同一文件、同一批次中：
+预训练（`scripts/prepare_text.py` 的输入）：
 
 ```json
-{"prompt": "计算 2 + 3，只回答结果。", "answer": "5"}
-{"image": "images/red-circle.png", "answer": "1个红色圆形。"}
-{"image": "images/red-circle.png", "prompt": "图中的图形是什么颜色？", "answer": "红色"}
+{"text": "人工智能是研究如何让机器表现出智能行为的学科。"}
 ```
 
-- **纯文字**：`prompt`＋`answer`；另支持 `{"text": "完整语料段落"}`，对整段做下一 token 预测。
-- **纯图片**：`image`＋`answer`，不提供提示词，文字前缀只有 BOS。
-- **图文混合**：`image`＋`prompt`＋`answer`，回答根据图像和问题确定。
-- 兼容旧格式 `{"image": "...", "caption": "..."}`，默认提示词仍为 `Describe this image:`，也可以显式设置 `prompt`。
+SFT（`minillm.sft` 的输入）：
 
-`image` 相对各自 JSONL 文件所在目录解析。`--data` 可以接受多个文件。参考 `examples/multimodal.example.jsonl` 和 `examples/captions.example.jsonl`。
+```json
+{"messages": [
+  {"role": "system", "content": "你是一个有帮助的中文助手。"},
+  {"role": "user", "content": "什么是机器学习？"},
+  {"role": "assistant", "content": "机器学习是人工智能的一个分支……"}
+]}
+```
 
-### 自动生成数据并训练
+- 支持多轮、多文件；system 可省略（会用默认系统提示词补齐，保证格式一致）。
+- 预训练 split 在**原始文本层面**按 96/2/2 划分，之后才 tokenize，所以不会有文档跨 split；
+  每个文档以 EOS 结尾，训练窗口只在本 split 内滑动。
+- `prepare_text.py` 做质量过滤（长度、控制字符、可打印比例、重复字符/短语/行、字符多样性）、
+  精确去重、前缀近去重和蓄水池采样；`dataset.json` 记录来源 sha256、过滤计数和 token 统计。
 
-不需要下载数据，直接生成中英文数据、图片和独立的验证/测试集：
+### Tokenizer
+
+- ByteLevel BPE，24,576 词表，包含 256 个字节符号，**任意字符串都可编码**（不会退化成 UNK）。
+- 固定特殊 token id（模型配置里硬编码，加载时校验）：
+
+| id | token | 用途 |
+|---:|---|---|
+| 0 | `<pad>` | padding |
+| 1 | `<bos>` | 对话开头 |
+| 2 | `<eos>` | 文档/对话结束 |
+| 3 | `<unk>` | 保留 |
+| 4 | `<\|system\|>` | 系统提示 |
+| 5 | `<\|user\|>` | 用户 |
+| 6 | `<\|assistant\|>` | 助手 |
+| 7 | `<\|end_of_turn\|>` | 一轮结束（受监督） |
+
+- 语料不足时直接报错，**不会静默产出更小的词表**。
+- 训练脚本默认按 `0.8 / 0.15 / 0.05` 的中/英/代码权重采样，并可用 `--forbid` 拒绝验证集。
+- 实测中文效率：**0.528 token/字**（24,576 词表，真实中文语料上训练）。
+
+### 对话模板（训练与推理共用）
+
+```
+<bos><|system|>\n{system}<|end_of_turn|>\n
+<|user|>\n{user}<|end_of_turn|>\n
+<|assistant|>\n{reply}<|end_of_turn|>\n...
+```
+
+SFT 只对 assistant 内容与其后的 `<|end_of_turn|>` 计算 loss；system、user、
+角色标记和换行都被 `-100` 屏蔽。`--last-assistant-turn-only` 可只监督最后一轮。
+超长样本保留**尾部**（最近的 assistant 回复），保证截断后仍有有效监督。
+
+---
+
+## 6. 训练
+
+默认超参（可在命令行覆盖）：
+
+| 参数 | 默认值 |
+|---|---|
+| `--epochs` / `--max-steps` | 1 / 0（不限） |
+| `--batch-size` / `--grad-accum` | 2 / 16 |
+| `--seq-len` | `max_position_embeddings`（2048） |
+| `--lr` / `--min-lr` | 3e-4 / 3e-5 |
+| `--warmup-ratio` | 0.02（cosine 衰减） |
+| `--weight-decay` / `--grad-clip` | 0.1 / 1.0 |
+| `--precision` | `auto`（CPU→fp32，CUDA→bf16/fp16） |
+| `--grad-checkpointing` | 关闭 |
+
+- **token 加权 loss**：每个 microbatch 用 `loss_sum / 组内有效 token 数` 反传，
+  日志里的 loss 也是按 token 加权的交叉熵。
+- **断点续训**：`state.pt` 保存权重、优化器、GradScaler、step、epoch/epoch 内位置和
+  Python/NumPy/Torch/CUDA RNG 状态；`--resume` 从中恢复，CPU→CUDA 迁移时 scaler 会重新初始化。
+- AMP、梯度累积、梯度裁剪、周期性验证、`metrics.json`、`best.pt` 均已实现。
+- **精度实测**（T1200 Laptop，sm_75，batch 1 × seq 1024）：fp32 **1,864 tok/s**、
+  bf16 1,553 tok/s、fp16 620 tok/s。fp16 autocast 在这张 Turing 卡上反而最慢，
+  所以 `--precision auto` 在这台机器上选 bf16，正式训练建议显式 `--precision fp32`。
+- 训练中断（Ctrl-C 或 SIGINT）会在当前 step 结束后保存再退出。
+
+### 显存与 4 GB 显卡
+
+87M 参数 fp32 权重约 330 MiB，AdamW 状态约 660 MiB，加上梯度约 1 GB；
+1024 token、micro-batch 1 的激活在开启 `--grad-checkpointing` 后很小。
+实测 T1200 Laptop（3.6 GB）用 `--batch-size 1 --grad-accum 16 --grad-checkpointing` 可以训练，
+但这**不是**「任何 4 GB 卡都必然不 OOM」的承诺：驱动、PyTorch 版本、`--seq-len` 都会影响。
+OOM 时按提示依次尝试 `--batch-size 1`、`--seq-len 512`、`--grad-checkpointing`。
+
+---
+
+## 7. INT4 体积
+
+权重按 `group_size=128`、对称、per-group scale（fp16）做 weight-only 量化：
+
+- Linear 与 Embedding 权重 → INT4，两个 code 打包进一个字节；
+- RMSNorm 保持 FP16；
+- LM Head 与 Embedding 共享存储，**只存一份**；
+- 加载时整体反量化回 FP32 再前向（`load_quantized`），因此推理显存/内存与 fp32 相同，
+  **INT4 只减小磁盘体积，不减小运行时内存**——这是有意的取舍，本项目不做自定义 CUDA kernel。
+
+实测：fp32 checkpoint 409,066,855 字节（390.12 MiB），INT4 **44,730,004 字节（44.73 MB / 42.66 MiB）**，
+距 50,000,000 字节预算还有 5.27 MB 余量（详见[实测结果](#13-实测结果)）。
+`minillm.quantize` 会 `stat()` 真实文件大小，超过 50,000,000 字节直接退出码非 0。
+
+---
+
+## 8. 评测与性能
 
 ```bash
-python scripts/gen_multimodal.py --out data/multimodal
+python -m minillm.evaluate --ckpt runs/minillm-87m/sft/model.pt \
+    --int4 runs/minillm-87m/sft/model-int4.pt \
+    --tokenizer runs/minillm-87m/corpus/tokenizer.json \
+    --ppl-data runs/minillm-87m/corpus/val.text.jsonl --out runs/minillm-87m/eval.json
 
-python -m tiny_vlm.train \
-  --config tiny-50m \
-  --data data/multimodal/train.jsonl \
-  --val-data data/multimodal/val.jsonl \
-  --vocab-size 2048 \
-  --epochs 3 --batch-size 2 --grad-accum 4 \
-  --modality-weights 1 1 1 \
-  --out runs/multimodal
+python scripts/benchmark.py --ckpt runs/minillm-87m/sft/model.pt \
+    --int4 runs/minillm-87m/sft/model-int4.pt \
+    --tokenizer runs/minillm-87m/corpus/tokenizer.json --out runs/minillm-87m/bench.json
 ```
 
-默认生成 200 张训练图、40 张验证图、40 张测试图，分别有 **2600 / 520 / 520 条样本**。
-图片由程序绘制，监督标签直接来自颜色、形状、数量；每张图配中英文的颜色、形状和数量问题。
-图片单独输入时，描述统一用中文，避免相同输入对应两种语言的冲突。
-文字任务包括加减法、比较数字、原样输出、字母计数和字符串倒序。所有图片内容哈希和文字任务的完整提示词在三个集合间互不重复。
-任务模板和视觉类别在集合间共享，因此这些指标衡量的是该合成任务范围内的泛化。
-可用 `--train-scenes`、`--val-scenes`、`--test-scenes`、`--language zh|en|both` 调整规模和语言。
+`evaluate` 包含：语言/推理/指令跟随三类小基准（确定性贪心解码、精确匹配）、
+验证集困惑度、TTFT / prefill / decode 吞吐、峰值内存，以及若干开放式生成样例。
+**没有训练过的 checkpoint 会被标注 `trained: false`，分数仅供参考。**
 
-生成数据用于验证训练流程和学习基础任务，不能代替真实图片、OCR、通用知识和指令数据。
-`--text-corpus` 只参与 tokenizer 训练；文字要参与模型训练，必须以以上 JSONL 记录提供。
+---
 
-### 混合训练的处理
-
-- 没有图片的样本跳过 ViT，并在 decoder 中屏蔽所有图片前缀，混合批次中的纯文字结果与独立纯文字推理保持一致。
-- `--modality-weights TEXT IMAGE MIXED` 控制三类样本被抽取的相对概率。默认按原始比例打乱；`1 1 1` 对已有的三类均衡采样（有放回，单次批次不保证各类齐全）。
-- 损失只覆盖回答，长提示词截断时保留回答监督；梯度累积按实际回答 token 数归一化，最后不足一组的批次也会更新。
-- 每轮验证分别报告三种模式的 loss 和教师强制 token 准确率，按各模式平均 loss 保存 `best.pt`，同时保存最新的 `model.pt`、`tokenizer.json`、`config.json` 和 `metrics.json`。
-- 推理与训练共用提示词编码，提示词末尾不添加 EOS；图片编码在每次生成时只计算一次。
-
-继续微调现有权重：
+## 9. 本地 Web 对话
 
 ```bash
-python -m tiny_vlm.train \
-  --init-from runs/multimodal/model.pt \
-  --data data/multimodal/train.jsonl \
-  --val-data data/multimodal/val.jsonl \
-  --modality-weights 1 1 1 --lr 1e-4 \
-  --batch-size 2 --grad-accum 4 --epochs 2 \
-  --out runs/multimodal-finetune
+python -m minillm.web --ckpt runs/minillm-87m/sft/model-int4.pt \
+    --tokenizer runs/minillm-87m/corpus/tokenizer.json --port 8765
+# 浏览器打开 http://127.0.0.1:8765
 ```
 
-`--init-from` 加载权重和原 tokenizer，重新开始优化器与学习率计划；不是恢复中断时的优化器状态。
-不会为旧权重重新训练 tokenizer。若要冻结已有视觉编码器，可再加 `--freeze-vision`，投影层仍然训练。
-默认从 checkpoint 所在目录读取 tokenizer；也可显式传 `--tokenizer`。新 checkpoint 会校验 tokenizer 的完整指纹。
+- 只监听 `127.0.0.1`，无鉴权、无联网、无图片输入。
+- 多轮对话、系统提示词、温度 / Top-K / 最大新 token / 上下文长度调节、
+  每条回复的 TTFT、预填充与解码速度、总耗时、清空、导出 JSON / Markdown。
+- 服务端用标准库 `http.server`，不引入 Flask/FastAPI。
 
-### 用真实中文语料继续预训练
+---
 
-前面的数据都是程序生成的短句，模型没有真实语言能力。`data/minimind/pretrain_t2t_mini.jsonl`
-（MiniMind 预训练语料，127 万条）用来补语言部分，同时保留原 2048 词表 tokenizer 和视觉权重：
+## 10. 测试
 
 ```bash
-# 1) 清洗、去重、抽样 5 万条；按原始文本 96/2/2 划分后再切块（≤254 token，加 BOS/EOS=256）
-python scripts/prepare_text.py \
-  --input data/minimind/pretrain_t2t_mini.jsonl \
-  --out data/pretrain-minimind \
-  --tokenizer runs/multimodal-tiny-stage2/tokenizer.json \
-  --sample 50000 --seed 42
-
-# 2) 从现有 FP32 权重继续训练，结果存到新目录便于对比
-python -m tiny_vlm.train \
-  --indexed \
-  --data data/pretrain-minimind/train.jsonl \
-  --val-data data/pretrain-minimind/val.jsonl \
-  --init-from runs/multimodal-tiny-stage2/model.pt \
-  --out runs/text-minimind \
-  --batch-size 4 --grad-accum 4 --lr 1e-4 --warmup 100 \
-  --epochs 4 --max-steps 4800 \
-  --save-every 400 --val-every 200 --val-limit 512
+pytest                 # 80 个测试
+./scripts/smoke_test.sh
 ```
 
-- `--indexed` 只给每条记录建字节偏移索引，18.4 万块不常驻内存；`--save-every` 写
-  `state.pt`（权重＋优化器＋AMP＋进度），`--resume` 从该文件续训并校验 tokenizer 指纹，
-  `batch-size`/`grad-accum`/`seed` 中途不能改；`--max-minutes` 到点保存退出。
-- CPU（8 线程）实测 1.9–3.0 s/update；T1200 4GB 上 fp16 AMP 1.5 s/update、峰值显存 769 MB。
-- 5 万条文本切成 184,060 / 3,726 / 4,088 块（40.0M / 0.80M / 0.89M token），
-  划分与过滤统计见 `data/pretrain-minimind/dataset.json`。
+覆盖：参数预算与权重共享、RoPE 相对性、GQA 映射、cache/no-cache 等价、
+padding 不参与 loss、tokenizer 特殊 id 与往返、对话模板监督范围、数据打包与断点续训、
+SFT 截断与去重、INT4 打包/误差/文件大小、Web API 与路径穿越防护。
 
-完整 val（3,726 块）上 loss 从 9.98 降到 1.91，token 准确率 0.46% → 48.3%；
-test 从 9.99 降到 1.91。但 2048 词表把 72% 的汉字拆成 3 个 byte token
-（平均 2.68 token/字），模型能输出合法汉字却仍不成句，贪心解码还会退化成重复单字。
-文本训练同时覆盖了原来的合成视觉任务，于是又跑了一小段“文本＋图文”回放恢复视觉能力。
-完整数据、曲线、视觉回归和生成样例见 `runs/text-minimind/training-report.md`。
+---
 
-### 先训 tokenizer
+## 11. 目录
 
-从头训练时可以直接从训练集的提示词和答案自动训练 tokenizer（验证集不参与）。也可以提前训练：
-
-```bash
-python - <<'EOF'
-from tiny_vlm.tokenizer import TinyTokenizer
-texts = [l for l in open("corpus.txt", encoding="utf-8") if l.strip()]
-TinyTokenizer.train(texts, vocab_size=16384, save_path="runs/tiny-vlm/tokenizer.json")
-EOF
+```
+src/minillm/
+  config.py      模型配置 + 参数预算校验
+  model.py       RMSNorm / GQA / SwiGLU / RoPE / KV cache / generate
+  tokenizer.py   24k BPE、特殊 token、对话模板、效率统计
+  data.py        打包 token 流、SFT 数据集、批采样器
+  train.py       预训练 + 共用训练循环 + checkpoint/resume
+  sft.py         SFT 入口（assistant-only loss）
+  quantize.py    INT4/INT8 打包、体积检查、反量化加载
+  generate.py    CLI 生成
+  evaluate.py    小基准 / 困惑度 / 性能
+  web.py         本地对话服务
+  web_assets/    前端（纯文本）
+scripts/
+  prepare_text.py     过滤 / 去重 / 划分 / 打包
+  train_tokenizer.py  只用 train split 训练 BPE
+  benchmark.py        参数量 / 体积 / 延迟
+  smoke_test.sh       端到端冒烟测试
+tests/                pytest 测试
 ```
 
-### 训练
+---
 
-```bash
-python -m tiny_vlm.train \
-  --config tiny-50m \
-  --data data/captions.jsonl \
-  --tokenizer runs/tiny-vlm/tokenizer.json \
-  --epochs 3 \
-  --batch-size 16 \
-  --lr 3e-4 \
-  --out runs/tiny-vlm
-```
+## 12. 与旧版 tiny-vlm-50m 的差异
 
-（此例中的 `--batch-size 16` 在 4GB 显卡上会 OOM。默认 batch 为 8，实际配置应结合序列长度调整。）
+旧项目是「ViT + 文本 decoder」的多模态模型（46.95M 参数，INT8 46.30 MB）。
+本次按需求重构为纯文本 MiniLLM-87M：
 
-也可以在训练时直接传 `--text-corpus` 让脚本自己训 tokenizer。
+- 删除全部视觉代码：`ViT`、图像 token、投影层、`web_assets` 中的图片 UI；
+- 删除 `torchvision`、`pillow` 依赖；
+- 旧的 VLM checkpoint 在 `load_model_checkpoint` / `generate` / `web` 中都会因
+  `architecture` 字段不匹配而**明确报错**，不会出现「加载一半」的静默失败；
+- tokenizer 词表从 16,384 扩到 24,576，特殊 token 布局重新固定为 0–7；
+- 新增：真正的中文 tokenizer 训练脚本、SFT 模式、INT4 导出、本地 Web 对话、
+  评测与基准脚本、断点续训状态文件。
 
-**指令样本的 Loss 只算在回答部分。** prompt 对应的 label 被置为 `-100`，
-模型不会被训练去复述 prompt——这个细节在小模型上影响很明显，否则模型会把大部分容量
-浪费在记忆一个固定前缀上。
+---
 
-冒烟测试（合成数据，验证流程通不通）：
+## 13. 实测结果
 
-```bash
-python -m tiny_vlm.train --config nano-50m --synthetic 256 --epochs 1 --max-steps 20
-```
+以下数字全部来自本机真实运行，产物在 `runs/minillm-87m/`（不纳入 git）。
 
-### GPU 训练
+### 环境与数据
 
-`get_device()` 会自动选 CUDA，cuda 上自动开 AMP（fp16），无需额外参数。
-但 PyTorch 默认的 pip 包是 **CPU-only** 的，得先换成 CUDA 版：
+| 项目 | 值 |
+|---|---|
+| CPU | i7-11850H（16 线程），15 GB RAM |
+| GPU | NVIDIA T1200 Laptop，3.6 GB，sm_75 |
+| PyTorch | 2.14.1+cu126，Python 3.11 |
+| 语料 | `data/minimind/pretrain_t2t_mini.jsonl` 前 40,000 条 → 过滤后 24,000 篇 |
+| 划分 | train 23,040 / val 480 / test 480 篇（原始文本层面 96/2/2） |
+| token | train 3,963,438 / val 79,041 / test 85,609 |
+| tokenizer | 24,576 词表，24812 merges，训练语料 6.36M 字符，耗时 18 s，中文 **0.528 token/字** |
 
-```bash
-pip uninstall -y torch torchvision
-pip install --index-url https://download.pytorch.org/whl/cu126 torch torchvision
-```
+### 预训练（`minillm.train`，160 步）
 
-国内走 `download.pytorch.org` 可能很慢或断流（大 wheel 走 `download-r2.pytorch.org` CDN，
-代理容易在中途 SSL EOF）。加 `--retries 20 --timeout 300` 会好一些。
-
-#### 实测（NVIDIA T1200 Laptop, 4GB, sm_75）
-
-336px / 697 token / `tiny-50m` / AMP fp16 / AdamW：
-
-| batch | ms/step | 峰值显存 | samples/s |
+| step | train loss | val loss | val ppl |
 |---:|---:|---:|---:|
-| 1 | 1194 | 932 MB | 0.8 |
-| 2 | 993 | 1119 MB | 2.0 |
-| 4 | 1952 | 1592 MB | 2.0 |
-| **8** | **3872** | **2535 MB** | **2.1** |
-| 16 | OOM | — | — |
+| 10 | — | 7.693 | 2,193 |
+| 20 | — | 7.331 | 1,527 |
+| 40 | — | 7.031 | 1,132 |
+| 120 | 6.63 | 6.636 | 762 |
+| 160 | 6.55 | **6.562** | **707** |
 
-同样配置在 CPU 上是 0.53–0.74 samples/s，所以这块卡大约快 **3 倍**。
+- 2,618,880 tokens（约 0.66 个 epoch），17.1 min，1,864 tok/s，峰值 RSS 3.8 GB。
+- 训练 loss 从 ~7.1 降到 6.55，仍未收敛；这个规模的模型通常需要数十亿 token。
 
-**4GB 显存下 batch 最大就是 8。** 想要更大的等效 batch 用梯度累积：
+### 文件体积
 
-```bash
-python -m tiny_vlm.train --config tiny-50m --data data/captions.jsonl \
-  --batch-size 8 --grad-accum 4 --device cuda --out runs/tiny-vlm
-```
+| 文件 | 字节 | 人类可读 |
+|---|---:|---|
+| `model.pt`（fp32） | 409,066,855 | 409.07 MB / 390.12 MiB |
+| `model-int4.pt` | **44,730,004** | **44.73 MB / 42.66 MiB** ✅ |
+| `tokenizer.json` | 2,090,092 | 2.09 MB |
 
-训练结束会打印峰值显存占用，方便判断还能不能加 batch：
+INT4 组成：packed 权重 ≈ 42.4 MB + per-group fp16 scale ≈ 1.34 MB + FP16 norms ≈ 42 KB。
+LM Head 与 embedding 共享，只存一份；加载时反量化回 fp32（所以运行时内存与 fp32 相同）。
 
-```
-[mem] peak GPU allocation 1791 MB / 3715 MB (48%)
-```
+### 推理性能（`scripts/benchmark.py`，prefill 128 / decode 64，取中位数）
 
-两点注意：
+| 设备 | 精度 | TTFT | prefill | decode | 峰值内存 |
+|---|---|---:|---:|---:|---:|
+| CUDA T1200 | fp32 | 17.4 ms | 7,353 tok/s | **134.6 tok/s** | 1,358 MB RAM / 368 MB VRAM |
+| CUDA T1200 | INT4 反量化 | 17.4 ms | 7,338 tok/s | 98.7 tok/s | 2,076 MB RAM |
+| CPU i7-11850H | fp32 | 63.5 ms | 1,010 tok/s | **39.1 tok/s** | 1,277 MB |
+| CPU i7-11850H | INT4 反量化 | 67.2 ms | 961 tok/s | 38.4 tok/s | 1,958 MB |
 
-- 吞吐在 batch ≥ 2 之后就平了（~2 samples/s）。瓶颈是显存带宽不是算力，
-  加 batch 换不来吞吐，只换显存。
-- sm_75 是 Turing，**没有原生 BF16**，所以 AMP 用的是 fp16，不要手动切 bf16。
-  （`torch.cuda.is_bf16_supported()` 在这块卡上会返回 `True`，别信它。）
+> INT4 在 CUDA 上解码更慢，因为本项目在加载时整体反量化成 fp32，之后没有 INT4 计算 kernel；
+> 它的收益是**磁盘体积**，不是运行时速度或内存。这是需求里允许的「反量化加载」方案。
 
----
+### 质量评测（`minillm.evaluate`，贪心解码，确定性）
 
-## 量化
+| checkpoint | 语言 | 推理 | 指令跟随 | 验证集 PPL |
+|---|---:|---:|---:|---:|
+| 预训练 160 步 | 0% | 25% | 0% | **780.78**（loss 6.66） |
+| 预训练 + SFT 60 步 | 0% | 0% | 0% | **18,872,995**（loss 16.75） |
 
-权重仅量化（weight-only），每个 group 独立算 symmetric scale：
+- 12 道题里只答对 1 道（`3 × 4 =` → `12`），属于随机水平，**不构成任何能力证据**。
+- 生成样例（预训练模型，`--raw`）：「人工智能是」→ `2. \n2. \n,`；SFT 模型在 Web 里对
+  「什么是机器学习？」输出空字符串（24 个 token 全是换行）。这就是「远未收敛」的具体样子。
+- **SFT 出现了灾难性遗忘**：在 2,850 条「抽取式摘要/续写」合成数据上以 lr 1e-4 训练 60 步后，
+  SFT val loss 降到 0.0036（学到的是「抄输入」），但通用文本 PPL 从 781 崩到 1.9e7。
+  真实的 SFT 需要混入通用数据、更小的学习率、以及更多样的指令数据。
 
-```bash
-python -m tiny_vlm.quantize --ckpt runs/tiny-vlm/model.pt --bits 8 --group-size 128
-python -m tiny_vlm.quantize --ckpt runs/tiny-vlm/model.pt --bits 4 --group-size 64
-```
-
-输出会直接打印真实文件大小和是否超预算：
-
-```
-int8 (group_size<=128, effective [112, 128]) -> runs/tiny-vlm/model-int8.pt
-  46.30 MB / 50 MB budget  [OK]
-  reloaded and ran a forward pass: logits (1, 8, 16384)
-```
-
-几个设计取舍：
-
-- **只量化 `nn.Linear` 和 `nn.Embedding` 的 2D 权重**，norm / bias / 位置编码保持 fp16。
-  这些张量加起来不到 1 MB，量化它们省不了多少，反而更容易掉点。
-- **4-bit 真的做了打包**（两个 code 塞一个 byte），所以报出来的体积是真实文件大小，
-  不是「参数量 × 0.5」的估算。
-- **加载时反量化**回 fp32 再送进普通 `TinyVLM`，不依赖任何自定义 kernel。
-  代价是推理显存不省，收益是不用为不同后端各写一套算子——50M 参数以下这个交换是划算的。
-- **group 大小会自动取整除值，而不是补零。** 按 input 维分组要求 input 能均分。
-  `d_model=448` 配 `group_size=128` 时，天真的做法是把 448 补到 512，每个这样的权重
-  白白膨胀 14%——这一步把 INT8 推到了 **50.85 MB，直接超预算**。改成在 `(group_size/2, group_size]`
-  里找 448 的最大因数（112），体积降到 **46.30 MB**，精度不受影响。
-  只在上半区找是关键：如果允许很小的因数，素数长度的 input 会退化成「每个元素一个 scale」，
-  反而更大；找不到就回退到补零。有效 group 随张量而异，所以存在 payload 里。
-
-  > 两个都是实测踩出来的坑：`state_dict()` 返回的绑定权重是两个**不同的 tensor 对象**
-  > （`id()` 不同、`data_ptr()` 相同），用 `id()` 去重会失效导致 embedding 存两遍
-  > （33.90 MB → 27.81 MB）；而补零膨胀把 46.30 MB 顶到了 50.85 MB。
-
-用法：
-
-```python
-from tiny_vlm.quantize import load_quantized
-
-model = load_quantized("runs/tiny-vlm/model-int8.pt")
-```
-
----
-
-## 推理
+### 复现命令
 
 ```bash
-# 纯文字
-python -m tiny_vlm.generate --ckpt runs/multimodal/model.pt \
-  --tokenizer runs/multimodal/tokenizer.json --prompt "计算 2 + 3，只回答结果。"
+# 预训练（fp32 在 sm_75 上最快）
+python -m minillm.train --data runs/minillm-87m/corpus/train.bin \
+    --val-data runs/minillm-87m/corpus/val.bin \
+    --tokenizer runs/minillm-87m/corpus/tokenizer.json --out runs/minillm-87m/run \
+    --batch-size 1 --grad-accum 16 --precision fp32 --device cuda
 
-# 纯图片：不传 prompt
-python -m tiny_vlm.generate --ckpt runs/multimodal/model.pt \
-  --tokenizer runs/multimodal/tokenizer.json --image data/multimodal/images/test/000000.png
+# SFT（先用 scripts/make_sft_sample.py 造演示数据）
+python scripts/make_sft_sample.py --text runs/minillm-87m/corpus/train.text.jsonl \
+    --out runs/minillm-87m/sft --count 3000
+python -m minillm.sft --init-from runs/minillm-87m/run/model.pt \
+    --data runs/minillm-87m/sft/train.jsonl --val-data runs/minillm-87m/sft/val.jsonl \
+    --tokenizer runs/minillm-87m/corpus/tokenizer.json --out runs/minillm-87m/sft-run \
+    --batch-size 2 --grad-accum 8 --max-seq-len 512 --lr 1e-4 --grad-checkpointing
 
-# 图片＋文字
-python -m tiny_vlm.generate --ckpt runs/multimodal/model.pt \
-  --tokenizer runs/multimodal/tokenizer.json --image data/multimodal/images/test/000000.png \
-  --prompt "图中有几个图形？只回答数字。"
+# INT4 + 体积检查 + 重新加载
+python -m minillm.quantize --ckpt runs/minillm-87m/sft-run/model.pt --bits 4
 
-# 旧图片描述任务需显式传入训练时使用的提示词
-python -m tiny_vlm.generate \
-  --ckpt runs/tiny-vlm/model-int8.pt \
-  --tokenizer runs/tiny-vlm/tokenizer.json \
-  --image cat.jpg \
-  --prompt "Describe this image:"
+# 评测 / 性能
+python -m minillm.evaluate --ckpt runs/minillm-87m/run/model.pt \
+    --tokenizer runs/minillm-87m/corpus/tokenizer.json \
+    --ppl-data runs/minillm-87m/corpus/val.text.jsonl --out runs/minillm-87m/eval.json
+python scripts/benchmark.py --ckpt runs/minillm-87m/sft-run/model.pt \
+    --int4 runs/minillm-87m/sft-run/model-int4.pt \
+    --tokenizer runs/minillm-87m/corpus/tokenizer.json --device cuda
+
+# Web（本地）
+python -m minillm.web --ckpt runs/minillm-87m/sft-run/model-int4.pt \
+    --tokenizer runs/minillm-87m/corpus/tokenizer.json --port 8765
 ```
 
-`--temperature 0` 是贪心解码（默认），大于 0 走 top-k 采样。
+### 已知限制
 
-Python 里直接用：
-
-```python
-import torch
-from PIL import Image
-from tiny_vlm import TinyVLM, TinyTokenizer, get_config
-from tiny_vlm.data import build_prompt, build_transform
-from tiny_vlm.quantize import load_quantized
-
-cfg = get_config("tiny-50m")
-model = load_quantized("runs/tiny-vlm/model-int8.pt")
-tokenizer = TinyTokenizer.load("runs/tiny-vlm/tokenizer.json")
-
-image = Image.open("cat.jpg").convert("RGB")
-pixels = build_transform(cfg.vision.img_size)(image).unsqueeze(0)
-
-prompt = "Describe this image:"
-input_ids = torch.tensor([build_prompt(tokenizer, prompt)])
-out = model.generate(input_ids, pixel_values=pixels, max_new_tokens=32, temperature=0.0)
-print(tokenizer.decode(out[0, input_ids.shape[1]:].tolist()))
-```
-
-纯文字调用不传 `pixel_values`；纯图片调用使用 `build_prompt(tokenizer, "")`。
-以上命令都能使用量化权重。无参数输入会报错。
-
-### 三种模式的独立评估
-
-```bash
-python -m tiny_vlm.evaluate \
-  --ckpt runs/multimodal/best.pt \
-  --data data/multimodal/test.jsonl \
-  --generate-per-mode 10 \
-  --out runs/multimodal/test-metrics.json
-```
-
-分别输出教师强制 loss / token 准确率，以及贪心生成的完整答案匹配率和样例。
-后者才直接检验实际生成结果；小规模抽样结果不代表通用模型质量。
-
----
-
-## 项目结构
-
-```
-src/tiny_vlm/
-├── config.py     # 模型配置 + PRESETS（tiny-50m / nano-50m）
-├── model.py      # ViT encoder + 投影层 + causal decoder + generate
-├── tokenizer.py  # ByteLevel BPE 封装，固定 special token id
-├── data.py       # 三种输入的数据解析、提示词构建、混合 collate
-├── train.py      # 混合训练、梯度累积、分模式验证、权重微调
-├── evaluate.py   # 分模式测试 loss 和实际生成结果
-├── quantize.py   # int8 / int4 权重量化、打包、反量化加载
-├── generate.py   # 纯文字 / 纯图片 / 图文推理 CLI
-├── web.py        # 本地网页与模型推理 API
-├── web_assets/   # 无需构建的 HTML / CSS / JavaScript 页面
-└── utils.py      # 设备选择、显存/体积估算
-tests/                   # 模型、混合数据、训练/推理和数据隔离测试
-scripts/gen_multimodal.py # 中英文三种模式合成数据生成
-scripts/smoke_test.sh     # 端到端冒烟测试
-```
-
----
-
-## 已知取舍
-
-这些不是 bug，是在 50 MB 预算下有意做的妥协：
-
-1. **图像 token 之间也是因果注意力。** 真正的 ViT 里 patch 之间是双向的。
-   这里为了复用同一套 decoder block，图像前缀内部也走因果掩码。
-   代价是前面的 patch 看不到后面的——信息流是单向的，能 work，但不是最优。
-   336px 下前缀有 441 个 token，这个限制比 224px 时更值得修。
-   要修的话，得给图像段单独跑一遍双向注意力再拼进去。
-
-2. **没有 KV cache。** `generate` 每步重算整个前缀。
-   好处是代码短、不会有 cache 实现 bug；代价是长序列生成慢——697 的前缀长度下比 384 配置明显。
-   但 ViT 编码只做一次（`encode_images` 的结果被缓存复用），所以每步重算的主要是 decoder。
-   目标是端侧小模型的话，这里值得补。
-
-3. **单轮对话。** 没有多轮历史拼接的逻辑，每次调用独立。
-
-4. **加载时反量化**，推理内存不省（见上文「量化」一节）。
-
-5. **2048 词表对中文太小（已实测）。** MiniMind 语料上平均 2.68 token/字，
-   72% 的汉字要 3 个 byte token，自由生成因此不成句。扩到 24k 级别是 Roadmap 里
-   优先级最高的一项。
-
-6. **语言部分只补了一小步。** 权重现在在 4.8 万条 MiniMind 文本上继续训练过
-   （见“用真实中文语料继续预训练”），但只有 1,680 万 token，生成仍不可读；
-   视觉任务仍在小型合成数据上，且会被纯文本训练覆盖，需要混合回放。
-
-7. **`nano-50m` 预设没验证过效果**，只是给冒烟测试用的更小配置。
-
----
-
-## Roadmap
-
-- [ ] KV cache + 增量解码
-- [ ] 图像段双向注意力（把 ViT 输出和文本段解耦）
-- [ ] 词表扩到 24k，改善中文分词
-- [ ] 多图交错输入（`<image>` 占位 token 方案）
-- [ ] ONNX / GGUF 导出
-- [ ] 在 COCO Captions 子集上训一个可用的公开 checkpoint
-
----
-
-## License
-
-MIT
+1. **演示 checkpoint 远未收敛**，PPL 780、12 题对 1 题，生成结果没有实际可用性。
+2. SFT 演示数据是脚本合成的抽取式任务，SFT 后出现灾难性遗忘（PPL 781 → 1.9e7）。
+3. INT4 只减体积，不减推理内存；没有实现 INT4 计算 kernel（需求允许反量化加载）。
+4. 训练脚本没有实现多卡 / FSDP / ZeRO；单卡 4 GB 以内可用，但更大规模需要另做并行。
+5. Web 端是单会话、无鉴权，只适合 `127.0.0.1` 本地使用。
+6. 没有做安全对齐（拒答、越狱防护等）。
