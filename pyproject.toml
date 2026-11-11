@@ -3,30 +3,31 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "tiny-vlm"
+name = "minillm"
 version = "0.1.0"
-description = "A ~47M-parameter vision-language model that quantises under 50 MB"
+description = "An 86.5M-parameter Chinese-first decoder-only language model that quantises under 50 MB"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = [
-    "torch>=2.2",
-    "torchvision>=0.17",
+    "torch>=2.4",
     "tokenizers>=0.15",
-    "pillow>=10.0",
+    "numpy>=1.24",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=7.4"]
 
 [project.scripts]
-tiny-vlm-train = "tiny_vlm.train:main"
-tiny-vlm-quantize = "tiny_vlm.quantize:main"
-tiny-vlm-generate = "tiny_vlm.generate:main"
-tiny-vlm-web = "tiny_vlm.web:main"
+minillm-train = "minillm.train:main"
+minillm-sft = "minillm.sft:main"
+minillm-generate = "minillm.generate:main"
+minillm-quantize = "minillm.quantize:main"
+minillm-evaluate = "minillm.evaluate:main"
+minillm-web = "minillm.web:main"
 
 [tool.setuptools.package-data]
-tiny_vlm = ["web_assets/*"]
+minillm = ["web_assets/*"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -34,3 +35,4 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+addopts = "-q"
