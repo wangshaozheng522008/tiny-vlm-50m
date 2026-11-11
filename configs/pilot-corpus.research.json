@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "dataset_name": "minillm-pilot-research-v1",
+  "dataset_name": "minillm-pilot-research-v2",
   "seed": 42,
-  "max_records": 160000,
+  "max_records": 0,
   "sample": 120000,
   "split": [
     0.96,
@@ -13,7 +13,7 @@
     {
       "name": "minimind-mini-312afb4",
       "paths": [
-        "../data/minimind/pretrain_t2t_mini.jsonl"
+        "../data/pilot-sources/minimind-unexposed-v2/source.jsonl"
       ],
       "license": "Apache-2.0 AND CC-BY-NC-2.0; upstream declaration",
       "category": "auto",

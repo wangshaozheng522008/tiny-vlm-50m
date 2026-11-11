@@ -1,165 +1,75 @@
 {
-  "status": "READY_FOR_PILOT",
-  "scope": "Actual 87M/T1200 engineering checks; pilot result to be appended after completion",
+  "status": "PREPARING_V2",
   "source_usage": "User-confirmed noncommercial research; combined upstream license declaration, no per-record mapping",
-  "dataset": {
-    "content_id": "4fbf01e12669bf629a3d2267c7a7d2829386ff453798b8284f58d42e26873fc4",
-    "tokenizer_fingerprint": "42155349a7a25cfd7a394f6db70fd2443d5f0a1ac98a75738e2abbeee663c33d",
-    "splits": {
-      "test": {
-        "documents": 2375,
-        "tokens": 369472,
-        "sha256": "b5aec471dbe5ea10ff8c34fc38d17339b34c51ec4e0d91111eca7668483107d7"
+  "rejected_v1": {
+    "reason": "Known historical split exposure; within-version audit alone was insufficient for a warm start",
+    "stopped_global_step": 65,
+    "stopped_tokens": 1063920,
+    "historical_overlap": {
+      "old_train/new_val": 360,
+      "old_train/new_test": 369,
+      "old_val/new_train": 378,
+      "old_test/new_train": 364
+    },
+    "preserved_local_run": "runs/pilot-10m-t1200-v1",
+    "not_part_of_pilot_acceptance": true
+  },
+  "historical_exclusion": {
+    "schema_version": 1,
+    "inputs": [
+      {
+        "path": "/home/voyah/work_space/git_ws/min_llm/data/minimind/pretrain_t2t_mini.jsonl",
+        "bytes": 1241043656,
+        "sha256": "6dd6716c84ab36897bdbfc7f88e04f4441c48c1ab7ecee88ce0b0e7d4685560c"
       },
-      "train": {
-        "documents": 115257,
-        "tokens": 18144973,
-        "sha256": "cdd2a535365a07e16ea4968b1f1e9e8e4a5cd202edc0b6a00c865e7a45b4d75a"
+      {
+        "path": "/home/voyah/work_space/git_ws/min_llm/runs/minillm-87m/corpus/test.text.jsonl",
+        "bytes": 374760,
+        "sha256": "3602b7adb75f54b2d26e88332f627783f2246d63a3cf09e566008817549d686b"
       },
-      "val": {
-        "documents": 2368,
-        "tokens": 377582,
-        "sha256": "213400519f1b11096612db2e693247038e86bf949b4db3929cb9ea5f765e2e39"
+      {
+        "path": "/home/voyah/work_space/git_ws/min_llm/runs/minillm-87m/corpus/train.text.jsonl",
+        "bytes": 17662512,
+        "sha256": "9f66c79286f3c2d0a7c253cfd2755546038997c61f1c136225a86f5f166a9d63"
+      },
+      {
+        "path": "/home/voyah/work_space/git_ws/min_llm/runs/minillm-87m/corpus/val.text.jsonl",
+        "bytes": 353483,
+        "sha256": "885a39ef23a5580489ab2a2f5dc95b1c180bd35d63709f6af67360d8b3d32c6e"
       }
-    },
-    "audit_ok": true,
-    "exact_overlap": {
-      "train/test": 0,
-      "train/val": 0,
-      "val/test": 0
-    },
-    "category_independent_overlap": {
-      "train/test": 0,
-      "train/val": 0,
-      "val/test": 0
-    }
-  },
-  "contamination": {
-    "status": "CHECKED_KNOWN_SOURCES",
-    "scope": "no substring, semantic or unknown training-corpus exclusion; short-answer coincidences are not proof of memorization; no exhaustive contamination guarantee",
-    "matches": [
-      {
-        "kind": "pretrain/train",
-        "records_scanned": 115257,
-        "exact_task_ids": [],
-        "near_task_ids": []
-      },
-      {
-        "kind": "pretrain/val",
-        "records_scanned": 2368,
-        "exact_task_ids": [],
-        "near_task_ids": []
-      },
-      {
-        "kind": "pretrain/test",
-        "records_scanned": 2375,
-        "exact_task_ids": [],
-        "near_task_ids": []
-      }
-    ]
-  },
-  "workload": {
-    "content_id": "672a2bf8510f4234f0e47ed684cad40bc59b1465802a941540f5dcadc72a1c3f",
-    "environment": {
-      "python_version": "3.11.17",
-      "torch_version": "2.14.1+cu126",
-      "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.35",
-      "device": "cuda",
-      "device_name": "NVIDIA T1200 Laptop GPU",
-      "cuda_version": "12.6",
-      "threads": 1,
-      "numerical_scope": "same software/device; cross-GPU/version bitwise equality is not guaranteed",
-      "total_memory_bytes": 3895132160,
-      "capability": [
-        7,
-        5
-      ],
-      "uuid": "5e773842-5d12-25ad-eb67-f4788fb7f718",
-      "driver": "GPU-5e773842-5d12-25ad-eb67-f4788fb7f718, 580.178.04"
-    },
-    "initialization": {
-      "sha256": "dab85a443d77fc8d54adcd517fe687f4cd3381282c0cc314cde4a18fbb37688a",
-      "kind": "weights_only"
-    },
-    "measurements": {
-      "updates": [
-        {
-          "global_step": 1,
-          "loss": 6.71126779386608,
-          "tokens": 16368,
-          "seconds": 10.553165096000157,
-          "tokens_per_second": 1551.0038790356623
-        },
-        {
-          "global_step": 2,
-          "loss": 6.769735177824108,
-          "tokens": 16368,
-          "seconds": 10.297302612998465,
-          "tokens_per_second": 1589.5424865283057
-        },
-        {
-          "global_step": 3,
-          "loss": 6.596532737754307,
-          "tokens": 16368,
-          "seconds": 10.34287639300237,
-          "tokens_per_second": 1582.5384910404632
-        }
-      ],
-      "optimizer_steps": 3,
-      "validation": {
-        "loss": 6.752502562029089,
-        "perplexity": 856.1987741949572,
-        "tokens": 376464,
-        "batches": 368
-      },
-      "checkpoint_roundtrip": true,
-      "checkpoint_seconds": 2.5674345020015608,
-      "peak_allocated_bytes": 1902630912,
-      "peak_reserved_bytes": 2239758336,
-      "device_total_bytes": 3895132160,
-      "free_before_bytes": 3827236864,
-      "limit_bytes": 3116105728,
-      "effective_tokens": 49104,
-      "training_tokens_per_second": 1574.1819741875663,
-      "scope": "full configured micro-batches/sequence/accumulation, AdamW updates, validation and state roundtrip; not a guarantee against future OOM"
-    }
-  },
-  "recovery": {
-    "status": "PASS",
-    "steps": 20,
-    "interruptions": [
-      5,
-      12
     ],
-    "maximum_parameter_difference": 0.0,
-    "atol": 1e-06,
-    "rtol": 1e-05,
-    "sample_order_equal": true,
-    "lr_equal": true,
-    "progress": {
-      "global_step": 20,
-      "epoch": 0,
-      "micro_batches_consumed_in_epoch": 320,
-      "samples_seen": 320,
-      "tokens_seen": 327360
+    "selection": {
+      "skip_records": 40000,
+      "take_records": 200000
     },
-    "initial_checkpoint": {
-      "bytes": 409066663,
-      "sha256": "dab85a443d77fc8d54adcd517fe687f4cd3381282c0cc314cde4a18fbb37688a"
+    "algorithm": {
+      "exact": "category-neutral whitespace-normalized SHA256 before/after cleaning",
+      "near": "64-bit full-document character 4-gram SimHash and Jaccard confirmation, including code",
+      "hamming_distance": 4,
+      "jaccard_threshold": 0.85,
+      "max_candidates": 20000
     },
-    "scope": "isolated recovery experiment; not part of pilot token count"
+    "counts": {
+      "historical_records": 24000,
+      "candidates": 200000,
+      "excluded_exact": 0,
+      "excluded_near": 2,
+      "emitted": 199998
+    },
+    "source": {
+      "bytes": 101654697,
+      "sha256": "dc210d35fb7fcfa8fa2c0cb0318179d7adb5b499bfd99866ff5a173f266da89b"
+    },
+    "implementation_sha256": "2525414a3ec8565cad543d6714e612422c946a307e6714e3f65b00b3cfb11911",
+    "scope": "known supplied historical records only; no exhaustive semantic, substring or unknown-source contamination guarantee",
+    "content_id": "3780ae609fb1f89d2dc024dd279cf2eaa6ec70d80c0d94dadc2602a3ea624619"
   },
   "tests": {
-    "pytest": "349 passed in 129.01s",
+    "pytest": "352 passed in 99.08s",
     "smoke": "PASS",
     "synthetic_smoke": "PASS",
     "training_reliability": "11 PASS",
     "evaluation_workflow": "PASS"
   },
-  "limitations": [
-    "No commercial license clearance",
-    "Prefix-based pilot corpus, not a balanced zh/en/code mixture",
-    "3-update full-load probe does not guarantee future OOM-free operation",
-    "Recovery experiment excluded from pilot token count"
-  ]
+  "scope": "V2 data preparation in progress; no completed pilot claim"
 }
