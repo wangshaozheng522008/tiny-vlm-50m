@@ -1,0 +1,22 @@
+{
+  "out": "runs/pilot-10m",
+  "seq_len": 1024,
+  "batch_size": 1,
+  "grad_accum": 16,
+  "max_steps": 611,
+  "target_tokens": 10000000,
+  "allow_data_repetition": false,
+  "lr": 0.0003,
+  "min_lr": 0.00003,
+  "warmup_ratio": 0.02,
+  "weight_decay": 0.1,
+  "grad_clip": 1.0,
+  "seed": 42,
+  "precision": "fp32",
+  "device": "cpu",
+  "threads": 1,
+  "log_every": 10,
+  "save_every": 100,
+  "val_every": 100,
+  "disk_margin_factor": 1.2
+}

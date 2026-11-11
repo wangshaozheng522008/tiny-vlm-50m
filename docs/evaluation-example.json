@@ -1,0 +1,610 @@
+{
+  "scope": "Synthetic Nano context512, 8 CPU updates; NOT a 10M-token pilot or 87M capability result",
+  "initial_lm": {
+    "loss": 5.5809734761714935,
+    "loss_sum": 1428.7292098999023,
+    "tokens": 256,
+    "perplexity": 265.32977231729467,
+    "perplexity_status": "finite",
+    "display_clipped": false,
+    "batches": 9
+  },
+  "final_lm": {
+    "loss": 5.076254919171333,
+    "loss_sum": 1299.5212593078613,
+    "tokens": 256,
+    "perplexity": 160.17307016656346,
+    "perplexity_status": "finite",
+    "display_clipped": false,
+    "batches": 9
+  },
+  "initial_scores": {
+    "raw": {
+      "categories": {
+        "code": {
+          "correct": 0,
+          "scored": 7,
+          "manual_review": 0,
+          "accuracy": 0.0
+        },
+        "english": {
+          "correct": 0,
+          "scored": 7,
+          "manual_review": 0,
+          "accuracy": 0.0
+        },
+        "knowledge": {
+          "correct": 0,
+          "scored": 10,
+          "manual_review": 0,
+          "accuracy": 0.0
+        },
+        "language": {
+          "correct": 0,
+          "scored": 15,
+          "manual_review": 0,
+          "accuracy": 0.0
+        },
+        "logic": {
+          "correct": 0,
+          "scored": 13,
+          "manual_review": 0,
+          "accuracy": 0.0
+        },
+        "math": {
+          "correct": 0,
+          "scored": 12,
+          "manual_review": 0,
+          "accuracy": 0.0
+        }
+      },
+      "tasks": 64,
+      "interpretation": "completion ability"
+    },
+    "chat": {
+      "categories": {
+        "code": {
+          "correct": 0,
+          "scored": 8,
+          "manual_review": 0,
+          "accuracy": 0.0
+        },
+        "english": {
+          "correct": 0,
+          "scored": 8,
+          "manual_review": 0,
+          "accuracy": 0.0
+        },
+        "instruction": {
+          "correct": 0,
+          "scored": 25,
+          "manual_review": 0,
+          "accuracy": 0.0
+        },
+        "knowledge": {
+          "correct": 0,
+          "scored": 15,
+          "manual_review": 0,
+          "accuracy": 0.0
+        },
+        "language": {
+          "correct": 0,
+          "scored": 15,
+          "manual_review": 0,
+          "accuracy": 0.0
+        },
+        "logic": {
+          "correct": 0,
+          "scored": 12,
+          "manual_review": 0,
+          "accuracy": 0.0
+        },
+        "math": {
+          "correct": 0,
+          "scored": 13,
+          "manual_review": 0,
+          "accuracy": 0.0
+        }
+      },
+      "tasks": 96,
+      "interpretation": "instruction following; pretrain-only low scores require stage context"
+    }
+  },
+  "final_scores": {
+    "raw": {
+      "categories": {
+        "code": {
+          "correct": 0,
+          "scored": 7,
+          "manual_review": 0,
+          "accuracy": 0.0
+        },
+        "english": {
+          "correct": 0,
+          "scored": 7,
+          "manual_review": 0,
+          "accuracy": 0.0
+        },
+        "knowledge": {
+          "correct": 0,
+          "scored": 10,
+          "manual_review": 0,
+          "accuracy": 0.0
+        },
+        "language": {
+          "correct": 0,
+          "scored": 15,
+          "manual_review": 0,
+          "accuracy": 0.0
+        },
+        "logic": {
+          "correct": 0,
+          "scored": 13,
+          "manual_review": 0,
+          "accuracy": 0.0
+        },
+        "math": {
+          "correct": 0,
+          "scored": 12,
+          "manual_review": 0,
+          "accuracy": 0.0
+        }
+      },
+      "tasks": 64,
+      "interpretation": "completion ability"
+    },
+    "chat": {
+      "categories": {
+        "code": {
+          "correct": 0,
+          "scored": 8,
+          "manual_review": 0,
+          "accuracy": 0.0
+        },
+        "english": {
+          "correct": 0,
+          "scored": 8,
+          "manual_review": 0,
+          "accuracy": 0.0
+        },
+        "instruction": {
+          "correct": 0,
+          "scored": 25,
+          "manual_review": 0,
+          "accuracy": 0.0
+        },
+        "knowledge": {
+          "correct": 0,
+          "scored": 15,
+          "manual_review": 0,
+          "accuracy": 0.0
+        },
+        "language": {
+          "correct": 0,
+          "scored": 15,
+          "manual_review": 0,
+          "accuracy": 0.0
+        },
+        "logic": {
+          "correct": 0,
+          "scored": 12,
+          "manual_review": 0,
+          "accuracy": 0.0
+        },
+        "math": {
+          "correct": 0,
+          "scored": 13,
+          "manual_review": 0,
+          "accuracy": 0.0
+        }
+      },
+      "tasks": 96,
+      "interpretation": "instruction following; pretrain-only low scores require stage context"
+    }
+  },
+  "actual_training_tokens": 992,
+  "global_step": 8,
+  "readiness": [
+    "READY",
+    "BLOCKED",
+    "INCOMPLETE"
+  ],
+  "engineering": "ENGINEERING_PASS",
+  "convergence": "CONVERGENCE_IMPROVING",
+  "capability": "CAPABILITY_INCONCLUSIVE",
+  "curve_rows": [
+    {
+      "global_step": 1,
+      "tokens_seen": 124,
+      "loss": 5.5961909140309976,
+      "learning_rate": 0.0003,
+      "gradient_norm": 4.509747505187988,
+      "tokens_per_second": 713.0497312965152,
+      "step_seconds": 0.17346586499843397,
+      "validation_loss": 5.455418827624992,
+      "validation_train_gap": -0.14077208640600514
+    },
+    {
+      "global_step": 2,
+      "tokens_seen": 248,
+      "loss": 5.431180892452117,
+      "learning_rate": 0.0002897237368890237,
+      "gradient_norm": 4.158943176269531,
+      "tokens_per_second": 358.3103844918873,
+      "step_seconds": 0.013057755997579079,
+      "validation_loss": 5.341525456734729,
+      "validation_train_gap": -0.08965543571738799
+    },
+    {
+      "global_step": 3,
+      "tokens_seen": 372,
+      "loss": 5.315478909400202,
+      "learning_rate": 0.0002604594154601839,
+      "gradient_norm": 3.813357353210449,
+      "tokens_per_second": 318.49862296897686,
+      "step_seconds": 0.011831348998384783,
+      "validation_loss": 5.2503790207253855,
+      "validation_train_gap": -0.06509988867481642
+    },
+    {
+      "global_step": 4,
+      "tokens_seen": 496,
+      "loss": 5.185874692855343,
+      "learning_rate": 0.00021666226336928708,
+      "gradient_norm": 3.2472076416015625,
+      "tokens_per_second": 374.37205880288707,
+      "step_seconds": 0.009338140000181738,
+      "validation_loss": 5.183165440858332,
+      "validation_train_gap": -0.0027092519970111084
+    },
+    {
+      "global_step": 5,
+      "tokens_seen": 620,
+      "loss": 5.206024169921875,
+      "learning_rate": 0.00016499999999999997,
+      "gradient_norm": 3.0281498432159424,
+      "tokens_per_second": 424.16895552499113,
+      "step_seconds": 0.009134890999121126,
+      "validation_loss": 5.136271110075707,
+      "validation_train_gap": -0.06975305984616842
+    },
+    {
+      "global_step": 6,
+      "tokens_seen": 744,
+      "loss": 5.145308956023185,
+      "learning_rate": 0.00011333773663071286,
+      "gradient_norm": 2.9916088581085205,
+      "tokens_per_second": 444.46683187322725,
+      "step_seconds": 0.010900593002588721,
+      "validation_loss": 5.106156833464553,
+      "validation_train_gap": -0.03915212255863221
+    },
+    {
+      "global_step": 7,
+      "tokens_seen": 868,
+      "loss": 5.0844721640309976,
+      "learning_rate": 6.954058453981609e-05,
+      "gradient_norm": 3.187366485595703,
+      "tokens_per_second": 376.60894478737504,
+      "step_seconds": 0.018372796999756247,
+      "validation_loss": 5.088106316092313,
+      "validation_train_gap": 0.0036341520613154543
+    },
+    {
+      "global_step": 8,
+      "tokens_seen": 992,
+      "loss": 5.160859877063382,
+      "learning_rate": 4.027626311097629e-05,
+      "gradient_norm": 3.061275005340576,
+      "tokens_per_second": 262.18587842907755,
+      "step_seconds": 0.011155127998790704,
+      "validation_loss": 5.077746322739471,
+      "validation_train_gap": -0.08311355432391121
+    }
+  ],
+  "cuda_probe": {
+    "python_version": "3.11.17",
+    "torch_version": "2.14.1+cu126",
+    "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.35",
+    "device": "cuda",
+    "device_name": "NVIDIA T1200 Laptop GPU",
+    "cuda_version": "12.6",
+    "threads": 1,
+    "numerical_scope": "same software/device; cross-GPU/version bitwise equality is not guaranteed",
+    "model": "minillm-nano",
+    "peak_vram_mib": 19.60009765625,
+    "scope": "small operator probe; does not estimate 87M production VRAM"
+  },
+  "files": {
+    "initial": "initial-evaluation/evaluation.json",
+    "final": "final-evaluation/evaluation.json",
+    "comparison": "comparison/comparison.md",
+    "curves": "training-analysis/curves/training.csv"
+  },
+  "generation_samples": [
+    {
+      "id": "fixed-raw-001",
+      "generation_mode": "raw",
+      "prompt": "我叫小林，今天想介绍一下自己。",
+      "decoded_text": "��������",
+      "generated_token_ids": [
+        170,
+        170,
+        170,
+        170,
+        170,
+        170,
+        170,
+        170
+      ],
+      "generated_tokens": 8,
+      "stop_reason": "max_new_tokens",
+      "seconds": 0.005532271999982186,
+      "diagnostics": {
+        "token_4gram_repeat_ratio": 0.8,
+        "character_3gram_repeat_ratio": 0.8333333333333334,
+        "sentence_repeat_ratio": 0.0
+      }
+    },
+    {
+      "id": "fixed-raw-014",
+      "generation_mode": "raw",
+      "prompt": "def add(a, b):\n    ",
+      "decoded_text": "        ",
+      "generated_token_ids": [
+        228,
+        228,
+        228,
+        228,
+        228,
+        228,
+        228,
+        228
+      ],
+      "generated_tokens": 8,
+      "stop_reason": "max_new_tokens",
+      "seconds": 0.00516644899835228,
+      "diagnostics": {
+        "token_4gram_repeat_ratio": 0.8,
+        "character_3gram_repeat_ratio": 0.8333333333333334,
+        "sentence_repeat_ratio": 0.0
+      }
+    },
+    {
+      "id": "fixed-chat-001",
+      "generation_mode": "chat",
+      "prompt": "请用两句话介绍你自己。",
+      "decoded_text": "��������",
+      "generated_token_ids": [
+        170,
+        170,
+        170,
+        170,
+        170,
+        170,
+        170,
+        170
+      ],
+      "generated_tokens": 8,
+      "stop_reason": "max_new_tokens",
+      "seconds": 0.006257496999751311,
+      "diagnostics": {
+        "token_4gram_repeat_ratio": 0.8,
+        "character_3gram_repeat_ratio": 0.8333333333333334,
+        "sentence_repeat_ratio": 0.0
+      }
+    },
+    {
+      "id": "fixed-chat-010",
+      "generation_mode": "chat",
+      "prompt": "用英文介绍一本书。",
+      "decoded_text": "��������",
+      "generated_token_ids": [
+        170,
+        170,
+        170,
+        170,
+        170,
+        170,
+        170,
+        170
+      ],
+      "generated_tokens": 8,
+      "stop_reason": "max_new_tokens",
+      "seconds": 0.0060802059997513425,
+      "diagnostics": {
+        "token_4gram_repeat_ratio": 0.8,
+        "character_3gram_repeat_ratio": 0.8333333333333334,
+        "sentence_repeat_ratio": 0.0
+      }
+    }
+  ],
+  "readiness_examples": {
+    "ready": [
+      {
+        "check": "Configuration parsing",
+        "status": "PASS",
+        "required": true,
+        "detail": "strict TrainingOptions; explicit sequence and budget policy"
+      },
+      {
+        "check": "Dataset integrity",
+        "status": "PASS",
+        "required": true,
+        "detail": "full PR3 file, token, identity and known-group audit"
+      },
+      {
+        "check": "Tokenizer identity",
+        "status": "PASS",
+        "required": true,
+        "detail": "10586a2f8ae99e7845e3a7dcd30f7388863054d330170e7f05ed9f9ac354831f"
+      },
+      {
+        "check": "Train/Validation windows",
+        "status": "PASS",
+        "required": true,
+        "detail": "996 / 407 complete windows; L-1 targets each"
+      },
+      {
+        "check": "Training configuration",
+        "status": "PASS",
+        "required": true,
+        "detail": "{'planned_effective_tokens': 992, 'unique_effective_tokens': 30876, 'target_tokens': None, 'allow_data_repetition': False, 'target_optimizer_updates': 8}"
+      },
+      {
+        "check": "Checkpoint compatibility",
+        "status": "PASS",
+        "required": true,
+        "detail": "fresh task with protected empty output"
+      },
+      {
+        "check": "Disk space",
+        "status": "PASS",
+        "required": true,
+        "detail": "{'available_bytes': 488934240256, 'estimated_required_bytes': 17821900, 'margin_factor': 1.2, 'scope': 'conservative full state/model/best/atomic rotation, not dataset growth'}"
+      },
+      {
+        "check": "CUDA compatibility",
+        "status": "PASS",
+        "required": false,
+        "detail": "{'python_version': '3.11.17', 'torch_version': '2.14.1+cu126', 'platform': 'Linux-6.8.0-138-generic-x86_64-with-glibc2.35', 'device': 'cuda', 'device_name': 'NVIDIA T1200 Laptop GPU', 'cuda_version': '12.6', 'threads': 1, 'numerical_scope': 'same software/device; cross-GPU/version bitwise equality is not guaranteed', 'model': 'minillm-nano', 'peak_vram_mib': 19.60009765625, 'scope': 'small operator probe; does not estimate 87M production VRAM'}"
+      },
+      {
+        "check": "Model Forward/Backward",
+        "status": "PASS",
+        "required": true,
+        "detail": "{'device': 'cpu', 'sequence_length': 16, 'batch_size': 1, 'loss': 5.556807518005371, 'peak_vram_mib': None, 'scope': 'configured model forward/backward only; no production batch/sequence or AdamW step OOM guarantee'}"
+      }
+    ],
+    "blocked": [
+      {
+        "check": "Configuration parsing",
+        "status": "PASS",
+        "required": true,
+        "detail": "strict TrainingOptions; explicit sequence and budget policy"
+      },
+      {
+        "check": "Dataset integrity",
+        "status": "FAIL",
+        "required": true,
+        "detail": "file missing or SHA256/size mismatch: /tmp/minillm-pr4-final-evidence/fault-injection-dataset/val.bin"
+      },
+      {
+        "check": "Tokenizer identity",
+        "status": "PASS",
+        "required": true,
+        "detail": "10586a2f8ae99e7845e3a7dcd30f7388863054d330170e7f05ed9f9ac354831f"
+      },
+      {
+        "check": "Training configuration / Checkpoint compatibility",
+        "status": "FAIL",
+        "required": true,
+        "detail": "Size of available data is not a multiple of the data-type size."
+      },
+      {
+        "check": "Disk space",
+        "status": "PASS",
+        "required": true,
+        "detail": "{'available_bytes': 488927285248, 'estimated_required_bytes': 17821900, 'margin_factor': 1.2, 'scope': 'conservative full state/model/best/atomic rotation, not dataset growth'}"
+      },
+      {
+        "check": "CUDA compatibility",
+        "status": "PASS",
+        "required": false,
+        "detail": "{'python_version': '3.11.17', 'torch_version': '2.14.1+cu126', 'platform': 'Linux-6.8.0-138-generic-x86_64-with-glibc2.35', 'device': 'cuda', 'device_name': 'NVIDIA T1200 Laptop GPU', 'cuda_version': '12.6', 'threads': 1, 'numerical_scope': 'same software/device; cross-GPU/version bitwise equality is not guaranteed', 'model': 'minillm-nano', 'peak_vram_mib': 19.60009765625, 'scope': 'small operator probe; does not estimate 87M production VRAM'}"
+      },
+      {
+        "check": "Model Forward/Backward",
+        "status": "PASS",
+        "required": true,
+        "detail": "{'device': 'cpu', 'sequence_length': 16, 'batch_size': 1, 'loss': 5.556807518005371, 'peak_vram_mib': None, 'scope': 'configured model forward/backward only; no production batch/sequence or AdamW step OOM guarantee'}"
+      }
+    ],
+    "incomplete": [
+      {
+        "check": "Configuration parsing",
+        "status": "PASS",
+        "required": true,
+        "detail": "strict TrainingOptions; explicit sequence and budget policy"
+      },
+      {
+        "check": "Dataset integrity",
+        "status": "PASS",
+        "required": true,
+        "detail": "full PR3 file, token, identity and known-group audit"
+      },
+      {
+        "check": "Tokenizer identity",
+        "status": "PASS",
+        "required": true,
+        "detail": "10586a2f8ae99e7845e3a7dcd30f7388863054d330170e7f05ed9f9ac354831f"
+      },
+      {
+        "check": "Train/Validation windows",
+        "status": "PASS",
+        "required": true,
+        "detail": "996 / 407 complete windows; L-1 targets each"
+      },
+      {
+        "check": "Training configuration",
+        "status": "PASS",
+        "required": true,
+        "detail": "{'planned_effective_tokens': 992, 'unique_effective_tokens': 30876, 'target_tokens': None, 'allow_data_repetition': False, 'target_optimizer_updates': 8}"
+      },
+      {
+        "check": "Checkpoint compatibility",
+        "status": "PASS",
+        "required": true,
+        "detail": "fresh task with protected empty output"
+      },
+      {
+        "check": "Disk space",
+        "status": "PASS",
+        "required": true,
+        "detail": "{'available_bytes': 488928956416, 'estimated_required_bytes': 17821900, 'margin_factor': 1.2, 'scope': 'conservative full state/model/best/atomic rotation, not dataset growth'}"
+      },
+      {
+        "check": "CUDA compatibility",
+        "status": "PASS",
+        "required": false,
+        "detail": "{'python_version': '3.11.17', 'torch_version': '2.14.1+cu126', 'platform': 'Linux-6.8.0-138-generic-x86_64-with-glibc2.35', 'device': 'cuda', 'device_name': 'NVIDIA T1200 Laptop GPU', 'cuda_version': '12.6', 'threads': 1, 'numerical_scope': 'same software/device; cross-GPU/version bitwise equality is not guaranteed', 'model': 'minillm-nano', 'peak_vram_mib': 19.60009765625, 'scope': 'small operator probe; does not estimate 87M production VRAM'}"
+      },
+      {
+        "check": "GPU memory probe limit",
+        "status": "UNKNOWN",
+        "required": true,
+        "detail": "configured-model CUDA probe required for specified limit; select device=cuda"
+      },
+      {
+        "check": "Model Forward/Backward",
+        "status": "PASS",
+        "required": true,
+        "detail": "{'device': 'cpu', 'sequence_length': 16, 'batch_size': 1, 'loss': 5.556807518005371, 'peak_vram_mib': None, 'scope': 'configured model forward/backward only; no production batch/sequence or AdamW step OOM guarantee'}"
+      }
+    ]
+  },
+  "cuda_fixed_window_check": {
+    "environment": {
+      "python_version": "3.11.17",
+      "torch_version": "2.14.1+cu126",
+      "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.35",
+      "device": "cuda",
+      "device_name": "NVIDIA T1200 Laptop GPU",
+      "cuda_version": "12.6",
+      "threads": 1,
+      "numerical_scope": "same software/device; cross-GPU/version bitwise equality is not guaranteed"
+    },
+    "language_model": {
+      "loss": 5.076255023479462,
+      "loss_sum": 1299.5212860107422,
+      "tokens": 256,
+      "perplexity": 160.1730868739175,
+      "perplexity_status": "finite",
+      "display_clipped": false,
+      "batches": 9
+    },
+    "cpu_loss": 5.076254919171333,
+    "absolute_loss_difference": 1.043081283569336e-07,
+    "scope": "Nano checkpoint only; same 256-token held-out subset, FP32"
+  }
+}

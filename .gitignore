@@ -16,8 +16,10 @@ checkpoints/
 *.bin
 
 # Data
-data/
+/data/*
+!/data/evaluation/
 *.jsonl
+!/data/evaluation/*.jsonl
 !examples/**/*.jsonl
 
 # Editors / OS

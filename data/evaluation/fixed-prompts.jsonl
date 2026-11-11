@@ -1,0 +1,40 @@
+{"id": "fixed-raw-001", "category": "observation", "generation_mode": "raw", "prompt": "我叫小林，今天想介绍一下自己。", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-raw-002", "category": "observation", "generation_mode": "raw", "prompt": "人工智能是一种", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-raw-003", "category": "observation", "generation_mode": "raw", "prompt": "清晨，我走进公园，看见", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-raw-004", "category": "observation", "generation_mode": "raw", "prompt": "雨后的小路上", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-raw-005", "category": "observation", "generation_mode": "raw", "prompt": "水为什么会结冰？一个简单解释是", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-raw-006", "category": "observation", "generation_mode": "raw", "prompt": "植物生长需要", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-raw-007", "category": "observation", "generation_mode": "raw", "prompt": "夜空中的月亮", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-raw-008", "category": "observation", "generation_mode": "raw", "prompt": "小猫在窗边等了一会儿，忽然", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-raw-009", "category": "observation", "generation_mode": "raw", "prompt": "周末，我和家人一起", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-raw-010", "category": "observation", "generation_mode": "raw", "prompt": "学习一门语言时", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-raw-011", "category": "observation", "generation_mode": "raw", "prompt": "12 + 8 =", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-raw-012", "category": "observation", "generation_mode": "raw", "prompt": "The morning sun", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-raw-013", "category": "observation", "generation_mode": "raw", "prompt": "A small dog", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-raw-014", "category": "observation", "generation_mode": "raw", "prompt": "def add(a, b):\n    ", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-raw-015", "category": "observation", "generation_mode": "raw", "prompt": "for i in range(3):\n    ", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-raw-016", "category": "observation", "generation_mode": "raw", "prompt": "中文语言模型可以", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-raw-017", "category": "observation", "generation_mode": "raw", "prompt": "整理房间的第一步是", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-raw-018", "category": "observation", "generation_mode": "raw", "prompt": "科学实验需要记录", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-raw-019", "category": "observation", "generation_mode": "raw", "prompt": "春天的校园里", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-raw-020", "category": "observation", "generation_mode": "raw", "prompt": "一个小故事从这里开始：", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-chat-001", "category": "observation", "generation_mode": "chat", "prompt": "请用两句话介绍你自己。", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-chat-002", "category": "observation", "generation_mode": "chat", "prompt": "简单解释人工智能。", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-chat-003", "category": "observation", "generation_mode": "chat", "prompt": "描述一个安静的早晨。", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-chat-004", "category": "observation", "generation_mode": "chat", "prompt": "解释为什么要洗手。", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-chat-005", "category": "observation", "generation_mode": "chat", "prompt": "说说植物为什么需要阳光。", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-chat-006", "category": "observation", "generation_mode": "chat", "prompt": "写一个关于小猫的故事开头。", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-chat-007", "category": "observation", "generation_mode": "chat", "prompt": "写一句关于春天的话。", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-chat-008", "category": "observation", "generation_mode": "chat", "prompt": "解释地球和月球的关系。", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-chat-009", "category": "observation", "generation_mode": "chat", "prompt": "计算12加8，只回答数字。", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-chat-010", "category": "observation", "generation_mode": "chat", "prompt": "用英文介绍一本书。", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-chat-011", "category": "observation", "generation_mode": "chat", "prompt": "把“谢谢”翻译成英文。", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-chat-012", "category": "observation", "generation_mode": "chat", "prompt": "写一个Python加法函数。", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-chat-013", "category": "observation", "generation_mode": "chat", "prompt": "描述做早餐的过程。", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-chat-014", "category": "observation", "generation_mode": "chat", "prompt": "用三句话描述公园。", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-chat-015", "category": "observation", "generation_mode": "chat", "prompt": "给初学者一条学习建议。", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-chat-016", "category": "observation", "generation_mode": "chat", "prompt": "解释什么是天气预报。", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-chat-017", "category": "observation", "generation_mode": "chat", "prompt": "用中文写一小段自我介绍。", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-chat-018", "category": "observation", "generation_mode": "chat", "prompt": "说明如何保持书桌整洁。", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-chat-019", "category": "observation", "generation_mode": "chat", "prompt": "讲一个简单的生活常识。", "max_new_tokens": 128, "source": "repository-original-v1"}
+{"id": "fixed-chat-020", "category": "observation", "generation_mode": "chat", "prompt": "写一段关于阅读的中文短文。", "max_new_tokens": 128, "source": "repository-original-v1"}
