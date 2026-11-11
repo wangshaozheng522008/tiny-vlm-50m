@@ -17,6 +17,7 @@ import math
 import random
 import signal
 import time
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterator, Sequence
@@ -296,6 +297,46 @@ def _validate_progress(state: dict, manifest: dict, dataset: Dataset, sampler: E
         raise CheckpointError("resume tokens_seen contradicts the data cursor")
 
 
+def _prepare_run_manifest(out: Path, manifest: dict, resumed: dict | None = None) -> dict:
+    """Check directory ownership before writing any artifacts, including logs.
+
+    A configuration fingerprint is not a run identity: separate starts using
+    the same seed and data must still own separate output directories.
+    """
+    run_id = None
+    if resumed is not None:
+        compare_manifests({k: v for k, v in resumed.items() if k != "run_id"}, manifest)
+        run_id = resumed.get("run_id")
+        if "run_id" in resumed and (not isinstance(run_id, str) or not run_id):
+            raise CheckpointError("resume manifest has an invalid run_id")
+    if out.exists():
+        if not out.is_dir():
+            raise CheckpointError(f"{out}: training output must be a directory")
+        if any(out.iterdir()):
+            if resumed is None:
+                raise CheckpointError(
+                    f"{out}: non-empty training output directory; refusing to overwrite existing files. "
+                    "Use --resume for this run, or select a new empty --out (also for --init-from)."
+                )
+            if run_id is None:
+                raise CheckpointError(
+                    f"{out}: resume checkpoint has no run_id; cannot verify output directory ownership. "
+                    "Resume into a new empty --out to migrate this v2 state without overwriting old results."
+                )
+            try:
+                existing = json.loads((out / "training-manifest.json").read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                raise CheckpointError(
+                    f"{out}: cannot verify output directory ownership: missing/unreadable training-manifest.json. "
+                    "Select a new empty --out."
+                ) from exc
+            if not isinstance(existing, dict) or existing.get("run_id") != run_id:
+                raise CheckpointError(f"{out}: output directory belongs to another training run (run_id mismatch)")
+            compare_manifests(resumed, existing)
+    # uuid4 uses OS entropy, without advancing Python/NumPy/Torch training RNG.
+    return {**manifest, "run_id": run_id or uuid.uuid4().hex}
+
+
 def fit(
     opts: TrainingOptions,
     model: MiniLLM,
@@ -335,6 +376,9 @@ def fit(
         opts, model, tokenizer, train_dataset, val_dataset, mode=mode,
         sampler=sampler, precision=precision, device=device,
     )
+    out = Path(opts.out)
+    if not opts.resume:
+        manifest = _prepare_run_manifest(out, manifest)
     plan = manifest["training"]
     total_steps = plan["target_optimizer_updates"]
     warmup = plan["warmup_steps"]
@@ -350,7 +394,7 @@ def fit(
     history: list[dict] = []
     if opts.resume:
         state = load_training_state(opts.resume)
-        compare_manifests(state["manifest"], manifest)
+        manifest = _prepare_run_manifest(out, manifest, state["manifest"])
         _validate_progress(state, manifest, train_dataset, sampler)
         try:
             model.load_state_dict(state["model"])
@@ -369,7 +413,6 @@ def fit(
         del state
         print(f"[resume] {opts.resume}: global_step {global_step}, epoch {epoch}, micro-batch {cursor}")
 
-    out = Path(opts.out)
     out.mkdir(parents=True, exist_ok=True)
     write_json(out / "training-manifest.json", manifest)
     tokenizer.save(out / "tokenizer.json")

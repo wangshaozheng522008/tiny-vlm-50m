@@ -488,3 +488,119 @@ def test_backup_resume_retains_chosen_backup_on_failed_replace(partial_run, tiny
     assert backup.read_bytes() == previous
     assert load_training_state(backup)["global_step"] == 1
     assert not list(primary.parent.glob(".*.tmp"))
+
+
+def snapshot(directory):
+    return {str(p.relative_to(directory)): p.read_bytes() for p in directory.rglob("*") if p.is_file()}
+
+
+@pytest.mark.parametrize("init_from", [None, "previous-model.pt"])
+def test_fresh_run_cannot_overwrite_existing_training(partial_run, tiny_tokenizer, small_data, init_from):
+    opts, model = partial_run
+    out = Path(opts.out)
+    before = snapshot(out)
+    with patch.object(training, "_train_step", side_effect=AssertionError("must not train")):
+        with pytest.raises(CheckpointError, match="non-empty.*output directory"):
+            fit(replace(opts, resume=None, init_from=init_from), model, tiny_tokenizer, small_data, None)
+    assert snapshot(out) == before
+
+
+@pytest.mark.parametrize("artifact", [
+    "training-manifest.json", "state.pt", "state.prev.pt", "model.pt", "best.pt",
+    "training-log.jsonl", "tokenizer.json", "config.json",
+])
+def test_fresh_run_refuses_individual_artifacts(tmp_path, tiny_tokenizer, nano_cfg, small_data, artifact):
+    out = tmp_path / "occupied"
+    out.mkdir()
+    (out / artifact).write_bytes(b"existing artifact; do not replace")
+    before = snapshot(out)
+    with pytest.raises(CheckpointError, match="non-empty.*output directory"):
+        fit(options(out), new_model(nano_cfg), tiny_tokenizer, small_data, None)
+    assert snapshot(out) == before
+
+
+def test_resume_cannot_mix_independent_runs_with_identical_configuration(
+    partial_run, tiny_tokenizer, nano_cfg, small_data, tmp_path,
+):
+    source, _ = partial_run
+    other = replace(source, out=str(tmp_path / "other-run"), resume=None)
+    run_segment(other, new_model(nano_cfg), tiny_tokenizer, small_data, stop_at=1)
+    source_id = load_training_state(source.resume)["manifest"]["run_id"]
+    target_id = load_training_state(Path(other.out) / "state.pt")["manifest"]["run_id"]
+    assert source_id != target_id
+    source_before, target_before = snapshot(Path(source.out)), snapshot(Path(other.out))
+    with pytest.raises(CheckpointError, match="another training run"):
+        fit(replace(source, out=other.out), new_model(nano_cfg), tiny_tokenizer, small_data, None)
+    assert snapshot(Path(source.out)) == source_before
+    assert snapshot(Path(other.out)) == target_before
+
+
+@pytest.mark.parametrize("manifest_contents", [None, "broken JSON", "[]", "{}", '{"run_id": "another-run"}'])
+def test_resume_refuses_unverifiable_output_directory(
+    partial_run, tiny_tokenizer, nano_cfg, small_data, tmp_path, manifest_contents,
+):
+    opts, _ = partial_run
+    out = tmp_path / "unverified"
+    out.mkdir()
+    (out / "training-log.jsonl").write_text("existing log\n")
+    if manifest_contents is not None:
+        (out / "training-manifest.json").write_text(manifest_contents)
+    before = snapshot(out)
+    with pytest.raises(CheckpointError, match="ownership|another training run"):
+        fit(replace(opts, out=str(out)), new_model(nano_cfg), tiny_tokenizer, small_data, None)
+    assert snapshot(out) == before
+
+
+def test_resume_refuses_changed_destination_manifest(partial_run, tiny_tokenizer, small_data):
+    opts, model = partial_run
+    out = Path(opts.out)
+    path = out / "training-manifest.json"
+    manifest = json.loads(path.read_text())
+    manifest["training"]["learning_rate"] *= 2
+    path.write_text(json.dumps(manifest))
+    before = snapshot(out)
+    with pytest.raises(CheckpointError, match="learning_rate"):
+        fit(opts, model, tiny_tokenizer, small_data, None)
+    assert snapshot(out) == before
+
+
+def test_resume_into_empty_directory_inherits_run_identity(partial_run, tiny_tokenizer, nano_cfg, small_data, tmp_path):
+    opts, _ = partial_run
+    source_before = snapshot(Path(opts.out))
+    resumed = replace(opts, out=str(tmp_path / "continued"))
+    Path(resumed.out).mkdir()
+    summary = fit(resumed, new_model(nano_cfg), tiny_tokenizer, small_data, None)
+    assert summary["steps"] == 4
+    manifest = json.loads((Path(resumed.out) / "training-manifest.json").read_text())
+    assert manifest["run_id"] == load_training_state(opts.resume)["manifest"]["run_id"]
+    assert load_training_state(Path(resumed.out) / "state.pt")["manifest"] == manifest
+    assert snapshot(Path(opts.out)) == source_before
+
+
+def test_early_v2_without_run_identity_requires_empty_destination(
+    partial_run, tiny_tokenizer, nano_cfg, small_data, tmp_path,
+):
+    opts, _ = partial_run
+    state = load_training_state(opts.resume)
+    del state["manifest"]["run_id"]
+    torch.save(state, opts.resume)
+    before = snapshot(Path(opts.out))
+    with pytest.raises(CheckpointError, match="no run_id.*ownership"):
+        fit(opts, new_model(nano_cfg), tiny_tokenizer, small_data, None)
+    assert snapshot(Path(opts.out)) == before
+    migrated = replace(opts, out=str(tmp_path / "migrated"))
+    summary = fit(migrated, new_model(nano_cfg), tiny_tokenizer, small_data, None)
+    assert summary["steps"] == 4
+    manifest = json.loads((Path(migrated.out) / "training-manifest.json").read_text())
+    assert manifest["run_id"]
+    assert snapshot(Path(opts.out)) == before
+
+
+
+def test_fresh_run_accepts_existing_empty_directory(tmp_path, tiny_tokenizer, nano_cfg, small_data):
+    out = tmp_path / "empty"
+    out.mkdir()
+    result = fit(options(out, max_steps=1), new_model(nano_cfg), tiny_tokenizer, small_data, None)
+    assert result["steps"] == 1
+    manifest = json.loads((out / "training-manifest.json").read_text())
+    assert manifest["run_id"] == load_training_state(out / "state.pt")["manifest"]["run_id"]

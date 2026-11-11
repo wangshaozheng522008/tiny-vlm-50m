@@ -90,6 +90,13 @@ def check(directory: Path) -> dict:
     assert resumed["steps"] == 7 > resumed["optimizer_updates_per_epoch"] == 2
     with patch.object(training, "_train_step", side_effect=AssertionError("completed step repeated")):
         fit(split, current, tokenizer, data, None)
+    for unsafe in (replace(split, resume=None), replace(split, out=base.out)):
+        try:
+            fit(unsafe, current, tokenizer, data, None)
+        except CheckpointError:
+            pass
+        else:
+            raise AssertionError("occupied output directory accepted for a different training run")
     try:
         fit(replace(split, grad_accum=2), current, tokenizer, data, None)
     except CheckpointError:
@@ -138,7 +145,8 @@ def check(directory: Path) -> dict:
         "updates_per_epoch": 2, "target_updates": 7, "backup_recovery_step": backup_step,
         "checks": ["continuous_vs_two_resumes", "SIGINT_and_SIGTERM", "incomplete_group_and_epoch_boundary",
                    "max_steps_beyond_one_epoch", "completed_resume_no_extra_step", "configuration_rejected",
-                   "dataset_hash_rejected", "corrupt_primary_explicit_backup", "both_invalid_rejected"],
+                   "dataset_hash_rejected", "fresh_output_reuse_rejected", "cross_run_resume_rejected",
+                   "corrupt_primary_explicit_backup", "both_invalid_rejected"],
     }
 
 

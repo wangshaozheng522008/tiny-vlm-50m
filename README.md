@@ -251,6 +251,12 @@ SFT 还校验实际编码后的数据、System Prompt 和监督选项。
 `--resume` 必须使用相同模型配置、Tokenizer Fingerprint、数据路径与内容、序列长度、
 Batch Size、Gradient Accumulation、Seed、AdamW 参数和 LR 计划。
 原训练命令保留这些参数，添加 `--resume .../state.pt` 即可继续。
+
+新任务（含 `--init-from`）要求 `--out` 不存在或为空；目录中已有任何文件均拒绝启动，
+避免覆盖已有结果或混合日志。每个新任务生成独立 `run_id`，保存在 Manifest 和完整训练状态中。
+Resume 到非空目录时，必须先验证目录 Manifest 与 Checkpoint 的 `run_id` 及完整配置均一致；
+缺失、损坏或不匹配时拒绝写入。也可 Resume 到新的空目录，继承同一任务的 `run_id`。
+早期 v2 状态若有完整计划但缺少 `run_id`，只允许恢复到新的空目录并补充标识，保留原目录不动。
 日志、保存和验证频率、验证批数上限、运行时间预算允许改变。
 精度、设备、线程数及 Activation Checkpointing 改变会被拒绝；本 PR 未实现 `extend`，
 改变目标步数或 Warmup/LR 需要明确用 `--init-from` 开启新的仅权重训练任务，优化器和统计重新开始。
