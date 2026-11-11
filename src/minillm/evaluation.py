@@ -231,6 +231,40 @@ def generate_prediction(model, tokenizer, task, config):
             "diagnostics": repetition(text, kept)}
 
 
+def task_asset_provenance(path, count):
+    """A declaration activates strict freezing for every asset in its directory."""
+    if not path:
+        return None
+    path=Path(path)
+    actual=file_info(path)
+    version_path=path.parent/"benchmark-version.json"
+    if not version_path.exists() and not version_path.is_symlink():
+        return {"status":"CUSTOM_UNFROZEN","source":"custom; caller supplied",
+                "sha256":actual["sha256"],"records":count,"version":"content SHA256"}
+    try:
+        version=read_json(version_path)
+        if (not isinstance(version,dict) or type(version.get("schema_version")) is not int
+                or version["schema_version"]!=1 or not isinstance(version.get("version"),str)
+                or not version["version"].strip() or not isinstance(version.get("files"),dict)
+                or not version["files"]):
+            raise ValueError("expected schema_version=1, version and nonempty files mapping")
+        for name,info in version["files"].items():
+            if (not isinstance(name,str) or Path(name).name!=name or name in (".","..")
+                    or not isinstance(info,dict) or not isinstance(info.get("sha256"),str)
+                    or not re.fullmatch(r"[0-9a-f]{64}",info["sha256"])
+                    or type(info.get("records")) is not int or info["records"]<=0):
+                raise ValueError("invalid registered filename, SHA256 or record count")
+        if path.name not in version["files"]:
+            raise ValueError(f"filename {path.name!r} is not registered in benchmark-version.json")
+        info=version["files"][path.name]
+        if actual["sha256"]!=info["sha256"] or count!=info["records"]:
+            raise ValueError(f"frozen evaluation version hash/count mismatch: {path.name}; publish a new version")
+    except (OSError,ValueError,TypeError) as exc:
+        raise ValueError(f"invalid frozen evaluation declaration {version_path}: {exc}") from exc
+    return {"status":"FROZEN","sha256":actual["sha256"],"records":count,
+            "declaration_sha256":file_info(version_path)["sha256"],"declaration":version}
+
+
 def load_tasks(path, *, scored):
     tasks, seen = [], set()
     for task in records(path) if path else ():
@@ -246,12 +280,7 @@ def load_tasks(path, *, scored):
             raise ValueError("evaluation task limit 10000 exceeded")
     if path and not tasks:
         raise ValueError("empty benchmark/prompts")
-    version_path = Path(path).parent/"benchmark-version.json" if path else None
-    if version_path and version_path.exists():
-        version = read_json(version_path)
-        info = version.get("files",{}).get(Path(path).name)
-        if info and (file_info(Path(path))["sha256"] != info["sha256"] or len(tasks) != info["records"]):
-            raise ValueError("frozen evaluation version hash/count mismatch; publish a new version")
+    task_asset_provenance(path,len(tasks))
     return tasks
 
 
@@ -265,8 +294,9 @@ def evaluate_model(ckpt, tokenizer_path, out, *, dataset=None, bin_path=None, sp
     device = get_device(device)
     with report_directory(out) as directory:
         paths = [Path(p) for p in (ckpt, tokenizer_path, benchmark, prompts, *sft_data) if p]
-        if benchmark and (Path(benchmark).parent/"benchmark-version.json").exists():
-            paths.append(Path(benchmark).parent/"benchmark-version.json")
+        for asset in (benchmark,prompts):
+            if asset and (Path(asset).parent/"benchmark-version.json").exists():
+                paths.append(Path(asset).parent/"benchmark-version.json")
         before = {str(p.resolve()): file_info(p) for p in paths}
         try:
             tokenizer = MiniLLMTokenizer.load(tokenizer_path)
@@ -282,8 +312,8 @@ def evaluate_model(ckpt, tokenizer_path, out, *, dataset=None, bin_path=None, sp
                   "benchmark_sha256": file_info(Path(benchmark))["sha256"] if benchmark else None,
                   "fixed_prompts_sha256": file_info(Path(prompts))["sha256"] if prompts else None,
                   "tokenizer_fingerprint": tokenizer.fingerprint,
-                  "benchmark_provenance": read_json(Path(benchmark).parent/"benchmark-version.json")
-                      if benchmark and (Path(benchmark).parent/"benchmark-version.json").exists() else {"source":"custom; caller supplied","version":"content SHA256"},
+                  "benchmark_provenance": task_asset_provenance(benchmark,len(tasks)),
+                  "fixed_prompts_provenance": task_asset_provenance(prompts,len(fixed)),
                   "implementation": identity({name: file_info(Path(__file__).with_name(name)) for name in
                       ("evaluation.py", "evaluation_scoring.py", "evaluation_contamination.py", "assessment_io.py",
                        "generate.py", "model.py", "tokenizer.py", "data.py", "config.py")})}

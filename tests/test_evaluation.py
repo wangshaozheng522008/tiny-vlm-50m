@@ -267,7 +267,7 @@ def test_manual_tasks_and_sft_checkpoint_metadata(eval_assets,tmp_path,tiny_toke
 def test_frozen_version_rejects_changed_answers(tmp_path):
     from minillm.training_manifest import write_json
     path=jsonl(tmp_path/"benchmark.jsonl",[task()])
-    write_json(tmp_path/"benchmark-version.json",{"files":{"benchmark.jsonl":{"sha256":file_info(path)["sha256"],"records":1}}})
+    write_json(tmp_path/"benchmark-version.json",{"schema_version":1,"version":"test-v1","files":{"benchmark.jsonl":{"sha256":file_info(path)["sha256"],"records":1}}})
     jsonl(path,[task(reference="wrong")])
     with pytest.raises(ValueError,match="frozen"):
         load_tasks(path,scored=True)
@@ -279,3 +279,63 @@ def test_cuda_fp32_loss_matches_cpu(eval_model):
     cpu=evaluate_batches(eval_model,[batch],torch.device("cpu"))
     gpu=evaluate_batches(eval_model.to("cuda"),[batch],torch.device("cuda"))
     assert gpu["tokens"]==cpu["tokens"] and gpu["loss"]==pytest.approx(cpu["loss"],abs=1e-4)
+
+
+@pytest.mark.parametrize("scored",[True,False])
+def test_registered_assets_are_verified(tmp_path,scored):
+    from minillm.training_manifest import write_json
+    name="benchmark.jsonl" if scored else "prompts.jsonl"
+    path=jsonl(tmp_path/name,[task()])
+    write_json(tmp_path/"benchmark-version.json",{"schema_version":1,"version":"test-v1",
+        "files":{name:{"sha256":file_info(path)["sha256"],"records":1}}})
+    assert len(load_tasks(path,scored=scored))==1
+    renamed=tmp_path/"renamed.jsonl";renamed.write_bytes(path.read_bytes())
+    with pytest.raises(ValueError,match="renamed.jsonl.*not registered"):
+        load_tasks(renamed,scored=scored)
+
+
+@pytest.mark.parametrize("failure",["sha","count","unregistered","json","root","schema_missing",
+                                  "schema_unsupported","schema_bool","version_missing","files_missing",
+                                  "files_list","bad_sha","bad_count","broken_declaration"])
+def test_invalid_frozen_declarations_are_rejected(tmp_path,failure):
+    path=jsonl(tmp_path/"benchmark.jsonl",[task()])
+    version={"schema_version":1,"version":"test-v1","files":{"benchmark.jsonl":{
+        "sha256":file_info(path)["sha256"],"records":1}}}
+    if failure=="sha":version["files"]["benchmark.jsonl"]["sha256"]="0"*64
+    elif failure=="count":version["files"]["benchmark.jsonl"]["records"]=2
+    elif failure=="unregistered":version["files"]={"different.jsonl":version["files"]["benchmark.jsonl"]}
+    elif failure=="root":version=[]
+    elif failure=="schema_missing":del version["schema_version"]
+    elif failure=="schema_unsupported":version["schema_version"]=2
+    elif failure=="schema_bool":version["schema_version"]=True
+    elif failure=="version_missing":del version["version"]
+    elif failure=="files_missing":del version["files"]
+    elif failure=="files_list":version["files"]=[]
+    elif failure=="bad_sha":version["files"]["benchmark.jsonl"]["sha256"]="invalid"
+    elif failure=="bad_count":version["files"]["benchmark.jsonl"]["records"]=True
+    declaration=tmp_path/"benchmark-version.json"
+    if failure=="broken_declaration":
+        declaration.symlink_to(tmp_path/"missing.json")
+    else:
+        declaration.write_text("{" if failure=="json" else json.dumps(version))
+    before=path.read_bytes()
+    with pytest.raises(ValueError,match="frozen"):
+        load_tasks(path,scored=True)
+    assert path.read_bytes()==before
+
+
+def test_custom_unfrozen_identity_and_independent_prompt_version(eval_assets,tmp_path):
+    from minillm.training_manifest import write_json
+    # Benchmark has no declaration; Fixed Prompts has its own strict version.
+    directory=tmp_path/"frozen-prompts";directory.mkdir()
+    prompts=jsonl(directory/"prompts.jsonl",[{"id":"p","prompt":"hi","generation_mode":"raw","max_new_tokens":4}])
+    declaration=directory/"benchmark-version.json"
+    write_json(declaration,{"schema_version":1,"version":"prompts-v1","files":{
+        prompts.name:{"sha256":file_info(prompts)["sha256"],"records":1}}})
+    run_evaluation(eval_assets,tmp_path/"custom-report",prompts=prompts)
+    manifest=read_json(tmp_path/"custom-report/evaluation-manifest.json")
+    policy=manifest["comparison_policy"]
+    assert policy["benchmark_provenance"]["status"]=="CUSTOM_UNFROZEN"
+    assert policy["benchmark_provenance"]["sha256"]==file_info(eval_assets["benchmark"])["sha256"]
+    assert policy["fixed_prompts_provenance"]["status"]=="FROZEN"
+    assert str(declaration.resolve()) in manifest["inputs"]

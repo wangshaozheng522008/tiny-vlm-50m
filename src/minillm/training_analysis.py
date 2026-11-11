@@ -51,6 +51,41 @@ def safe_tree(value):
     return str(value) if isinstance(value, float) and not math.isfinite(value) else value
 
 
+def validation_status(manifest, summary, metrics, validation, history, present, errors):
+    """Infer required artifacts from PR2's final/interrupted validation behavior."""
+    dataset=manifest.get("dataset",{})
+    configured=isinstance(dataset,dict) and isinstance(dataset.get("val"),dict)
+    if not isinstance(dataset,dict) or "val" not in dataset or dataset["val"] is not None and not configured:
+        errors.append("invalid/missing validation dataset declaration")
+    final=summary.get("final_val")
+    observed=bool(metrics or validation or history or final is not None)
+    if not configured and observed:
+        errors.append("validation results exist without a configured validation dataset")
+    if configured and summary.get("stop_reason") not in ("target_reached","SIGINT","SIGTERM","time_budget"):
+        errors.append("cannot determine final validation requirement: missing/invalid stop_reason")
+    final_required=configured and summary.get("stop_reason")=="target_reached"
+    if not present and (observed or final_required):
+        errors.append("metrics.json missing although validation results are required")
+    if history is not None and history!=metrics:
+        errors.append("validation metrics.json disagrees with checkpoint history")
+    for v in validation:
+        payload={k:value for k,value in v.items() if k not in ("event","global_step","step")}
+        if not any(isinstance(m,dict) and m.get("step")==v["step"] and
+                   all(m.get(k)==value for k,value in payload.items()) for m in metrics):
+            errors.append(f"validation log step {v['step']} missing/mismatched in metrics.json")
+    if final_required:
+        step=summary.get("global_step")
+        if not isinstance(final,dict) or not final:
+            errors.append("completed run is missing required final validation")
+        elif not any(v["step"]==step and all(v.get(k)==value for k,value in final.items()) for v in validation):
+            errors.append("final validation summary is missing/mismatched in append log")
+    return {"configured":configured,"status":"ERROR" if errors else "COMPLETED" if observed else "NOT_RUN",
+            "reason":"validation_artifacts_missing_or_invalid" if errors else "validation_completed" if observed else
+                     "not_configured" if not configured else "configured_but_not_executed",
+            "observations":len(validation),"metrics_file":"PRESENT" if present else "MISSING",
+            "final_status":("MISSING_OR_INVALID" if errors else "COMPLETED") if final_required else "NOT_RUN"}
+
+
 def trends(train, validation, cfg):
     result = []
     def smoothed(values):
@@ -81,7 +116,7 @@ def analyze_training(run, out, config=None):
     run = Path(run)
     errors, warnings, inputs, logs = [], [], {}, []
     artifacts = {}
-    for name in ("training-manifest.json", "metrics.json", "train-summary.json"):
+    for name in ("training-manifest.json", "train-summary.json"):
         try:
             artifacts[name] = read_json(run/name); inputs[name] = file_info(run/name)
         except (OSError, ValueError) as exc:
@@ -93,6 +128,14 @@ def analyze_training(run, out, config=None):
         errors.append("training summary must be an object");summary={}
     if not all(k in manifest for k in ("training","dataset","model_config","tokenizer_fingerprint","run_id")):
         errors.append("incomplete training manifest")
+    validation_errors=[]
+    metrics_present=(run/"metrics.json").exists() or (run/"metrics.json").is_symlink()
+    if metrics_present:
+        try:
+            artifacts["metrics.json"]=read_json(run/"metrics.json")
+            inputs["metrics.json"]=file_info(run/"metrics.json")
+        except (OSError,ValueError) as exc:
+            validation_errors.append(f"metrics.json: {exc}")
     try:
         inputs["training-log.jsonl"] = file_info(run/"training-log.jsonl")
         for record in records(run/"training-log.jsonl"):
@@ -104,6 +147,8 @@ def analyze_training(run, out, config=None):
     for line, record in enumerate(logs, 1):
         if not finite_tree(record):
             errors.append(f"line {line}: nonfinite number")
+            if record.get("event")=="validation":
+                validation_errors.append(f"line {line}: nonfinite validation record")
             continue
         event = record.get("event")
         if event == "train":
@@ -132,7 +177,7 @@ def analyze_training(run, out, config=None):
                 errors.append(f"line {line}: incomplete train record: {exc}")
         elif event == "validation":
             if type(record.get("global_step")) is not int or not isinstance(record.get("loss"), (int,float)):
-                errors.append(f"line {line}: invalid validation record")
+                validation_errors.append(f"line {line}: invalid validation record")
             else:
                 step=record["global_step"]
                 if validation and step<validation[-1]["step"]:
@@ -154,25 +199,29 @@ def analyze_training(run, out, config=None):
             warnings.append(f"line {line}: unrecognized event {event}")
     metrics = artifacts.get("metrics.json", [])
     if not isinstance(metrics, list) or not finite_tree(metrics):
-        errors.append("invalid/nonfinite metrics.json"); metrics = []
+        validation_errors.append("invalid/nonfinite metrics.json"); metrics = []
     for record in metrics:
         if not isinstance(record, dict) or type(record.get("step")) is not int or not isinstance(record.get("loss"),(int,float)):
-            errors.append("incomplete validation metric")
-        elif not any(v["step"]==record["step"] and v["loss"]==record["loss"] for v in validation):
-            errors.append(f"validation metric step {record['step']} missing from append log")
+            validation_errors.append("incomplete validation metric")
+        elif not any(v["step"]==record["step"] and all(v.get(k)==value for k,value in record.items() if k not in ("step","mode")) for v in validation):
+            validation_errors.append(f"validation metric step {record['step']} missing/mismatched in append log")
     if summary:
         if not finite_tree(summary):
             errors.append("nonfinite summary")
         if summary.get("tokens_seen") != previous_tokens or summary.get("global_step") != previous_step:
             errors.append("summary progress disagrees with training log")
     state_status = "NOT_RUN"
+    history = None
     try:
         state = load_training_state(run/"state.pt", mmap=True)
+        history = state["history"]
         state_status = "PASS"; inputs["state.pt"] = file_info(run/"state.pt")
         if state["manifest"] != manifest or state["global_step"] != summary.get("global_step") or state["tokens_seen"] != summary.get("tokens_seen"):
             errors.append("checkpoint/manifest/summary mismatch"); state_status="FAIL"
     except (OSError, RuntimeError, ValueError, KeyError) as exc:
         state_status="FAIL"; errors.append(f"checkpoint: {exc}")
+    validation_report=validation_status(manifest,summary,metrics,validation,history,metrics_present,validation_errors)
+    errors.extend(validation_errors)
     valid_steps = {r["global_step"]:r for r in train}
     validation_rows=[]
     for v in validation:
@@ -193,16 +242,19 @@ def analyze_training(run, out, config=None):
     rows = []
     for r in train:
         val = [v["loss"] for v in validation if v["step"]==r["global_step"]]
-        rows.append({**{k:r.get(k) for k in ("global_step","tokens_seen","loss","learning_rate","gradient_norm","tokens_per_second","step_seconds")},
-                     "validation_loss":val[-1] if val else None,
-                     "validation_train_gap":val[-1]-r["loss"] if val else None})
+        row={k:r.get(k) for k in ("global_step","tokens_seen","loss","learning_rate","gradient_norm","tokens_per_second","step_seconds")}
+        if validation_report["configured"] or validation:
+            row.update(validation_loss=val[-1] if val else None,
+                       validation_train_gap=val[-1]-r["loss"] if val else None)
+        rows.append(row)
     intervals = [b.get("global_step",0)-a.get("global_step",0) for a,b in zip(checkpoints,checkpoints[1:])]
     for name,info in inputs.items():
         if file_info(run/name)!=info:
             errors.append(f"{name} changed during analysis; use an immutable run snapshot")
     report = {"schema_version":1,"status":"ISSUES" if errors else "OK","errors":errors,"warnings":warnings,
               "input_files":inputs,"training_manifest":manifest,"summary":safe_tree(summary),
-              "raw_records":safe_tree(logs),"curve_rows":rows,"validation_rows":validation_rows,"trends":trends(train, validation,cfg),
+              "raw_records":safe_tree(logs),"curve_rows":rows,"validation_rows":validation_rows,
+              "validation":validation_report,"trends":trends(train, validation,cfg),
               "configuration":asdict(cfg),"identical_duplicate_records":duplicates,
               "checkpoint":{"status":state_status,"step_intervals_in_append_order":intervals},
               "coverage":"loss_tokens must cover cumulative token differences; sparse logging is allowed; no sorting to conceal rewinds",
@@ -214,11 +266,13 @@ def analyze_training(run, out, config=None):
         with (directory/"curves/training.csv").open("w",newline="") as handle:
             fields=list(rows[0]) if rows else ["global_step","tokens_seen","loss"]
             writer=csv.DictWriter(handle,fieldnames=fields);writer.writeheader();writer.writerows(rows)
-        with (directory/"curves/validation.csv").open("w",newline="") as handle:
-            writer=csv.DictWriter(handle,fieldnames=["global_step","tokens_seen","loss","perplexity","axis_source"])
-            writer.writeheader();writer.writerows(validation_rows)
+        if validation_rows:
+            with (directory/"curves/validation.csv").open("w",newline="") as handle:
+                writer=csv.DictWriter(handle,fieldnames=["global_step","tokens_seen","loss","perplexity","axis_source"])
+                writer.writeheader();writer.writerows(validation_rows)
         write_json(directory/"training-analysis.json",report)
         (directory/"training-analysis.md").write_text("# Training analysis\n\nStatus: "+report["status"]+
+            "\n\nValidation: "+validation_report["status"]+" ("+validation_report["reason"]+")"+
             "\n\nTrends: "+", ".join(report["trends"])+"\n\nErrors:\n\n"+"\n".join("- "+e for e in errors)+
             "\n\nRaw records are retained in JSON. CSV uses cumulative effective tokens and global steps. Rules are observations, not automatic training decisions.\n")
     return report

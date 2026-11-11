@@ -33,6 +33,58 @@ def planned_tokens(samples, batch_size, grad_accum, seq_len, steps):
     return (epochs*samples+min(remainder*batch_size*grad_accum,samples))*(seq_len-1)
 
 
+SHORT_PROBE_SCOPE = "Short forward/backward probe does not validate full training VRAM requirements."
+
+
+def _probe_configured_model(cfg, opts, tokenizer, device, state, seq_len):
+    """Probe operators only; retain absolute and attributable allocator peaks."""
+    baseline = None
+    if device.type == "cuda":
+        torch.cuda.synchronize(device)
+        baseline = torch.cuda.memory_allocated(device)/1024**2
+        torch.cuda.reset_peak_memory_stats(device)
+    set_seed(opts.seed)
+    if opts.init_from and not state:
+        from .evaluation import load_evaluation_model
+        model,_=load_evaluation_model(opts.init_from,tokenizer,device)
+        model.train()
+    else:
+        model=MiniLLM(cfg).to(device)
+    model.gradient_checkpointing=opts.grad_checkpointing
+    if state:
+        model.load_state_dict(state["model"],strict=True)
+        optimizer=torch.optim.AdamW(model.parameters())
+        optimizer.load_state_dict(state["optimizer"])
+        for slot in optimizer.state.values():
+            if any(torch.is_tensor(value) and not torch.isfinite(value).all() for value in slot.values()):
+                raise ValueError("checkpoint contains nonfinite optimizer state")
+        set_rng_state(state["rng"])
+        del optimizer
+    if model.num_parameters()!=cfg.num_parameters:
+        raise ValueError("constructed/analytic parameter count mismatch")
+    length=min(seq_len,16)
+    ids=torch.arange(length,device=device).unsqueeze(0)%(cfg.vocab_size-8)+8
+    precision=resolve_precision(opts.precision,device) if device.type=="cuda" else "fp32"
+    dtype={"fp16":torch.float16,"bf16":torch.bfloat16}.get(precision)
+    with torch.autocast(device_type=device.type,dtype=dtype,enabled=dtype is not None and device.type=="cuda"):
+        result=model(ids,labels=ids)
+    if not torch.isfinite(result.loss):
+        raise ValueError("nonfinite forward loss")
+    result.loss.backward()
+    if any(p.grad is not None and not torch.isfinite(p.grad).all() for p in model.parameters()):
+        raise ValueError("nonfinite probe gradient")
+    if device.type=="cuda":
+        torch.cuda.synchronize(device)
+    peak=torch.cuda.max_memory_allocated(device)/1024**2 if device.type=="cuda" else None
+    return {"model_config":cfg.to_dict(),"device":str(device),"sequence_length":length,"batch_size":1,
+            "requested_sequence_length":seq_len,"requested_batch_size":opts.batch_size,
+            "precision":precision,"grad_checkpointing":opts.grad_checkpointing,"optimizer_step":False,
+            "loss":float(result.loss.detach()),"peak_vram_mib":peak,"baseline_vram_mib":baseline,
+            "probe_peak_delta_mib":max(0,peak-baseline) if peak is not None else None,
+            "memory_scope":"PyTorch allocated bytes; delta excludes pre-existing allocations, allocator cache and other processes",
+            "scope":SHORT_PROBE_SCOPE}
+
+
 def check_readiness(dataset, tokenizer_path, model_config, training_config, out, *, device=None):
     checks = []
     details = {}
@@ -194,59 +246,27 @@ def check_readiness(dataset, tokenizer_path, model_config, training_config, out,
                 "scope":"small operator probe; does not estimate 87M production VRAM"}
             add("CUDA compatibility","PASS",details["cuda_operator_probe"],False)
             del gpu_probe
-            if memory_limit is not None:
-                add("GPU memory probe limit","UNKNOWN","configured-model CUDA probe required for specified limit; select device=cuda")
         except Exception as exc:
             add("CUDA compatibility","FAIL",exc,required_cuda)
     probe_device=selected_device if selected_device.type!="cuda" or cuda_available else torch.device("cpu")
     if cfg and tokenizer and opts:
         try:
-            set_seed(opts.seed)
-            model=MiniLLM(cfg).to(probe_device)
-            model.gradient_checkpointing=opts.grad_checkpointing
-            if opts.init_from and not state:
-                from .evaluation import load_evaluation_model
-                model,_=load_evaluation_model(opts.init_from,tokenizer,probe_device)
-                model.train()
-                model.gradient_checkpointing=opts.grad_checkpointing
-            if state:
-                model.load_state_dict(state["model"],strict=True)
-                optimizer=torch.optim.AdamW(model.parameters())
-                optimizer.load_state_dict(state["optimizer"])
-                for slot in optimizer.state.values():
-                    if any(torch.is_tensor(value) and not torch.isfinite(value).all() for value in slot.values()):
-                        raise ValueError("checkpoint contains nonfinite optimizer state")
-                set_rng_state(state["rng"])
-                del optimizer
-            if model.num_parameters()!=cfg.num_parameters:
-                raise ValueError("constructed/analytic parameter count mismatch")
-            length=min(seq_len,16)
-            ids=torch.arange(length,device=probe_device).unsqueeze(0)%(cfg.vocab_size-8)+8
-            if probe_device.type=="cuda":
-                torch.cuda.reset_peak_memory_stats(probe_device)
-            precision=resolve_precision(opts.precision,probe_device)
-            dtype={"fp16":torch.float16,"bf16":torch.bfloat16}.get(precision)
-            with torch.autocast(device_type=probe_device.type,dtype=dtype,enabled=dtype is not None and probe_device.type=="cuda"):
-                result=model(ids,labels=ids)
-            if not torch.isfinite(result.loss):
-                raise ValueError("nonfinite forward loss")
-            result.loss.backward()
-            if any(p.grad is not None and not torch.isfinite(p.grad).all() for p in model.parameters()):
-                raise ValueError("nonfinite probe gradient")
-            peak=torch.cuda.max_memory_allocated(probe_device)/1024**2 if probe_device.type=="cuda" else None
-            details["probe"]={"device":str(probe_device),"sequence_length":length,"batch_size":1,
-                              "loss":float(result.loss.detach()),"peak_vram_mib":peak,
-                              "scope":"configured model forward/backward only; no production batch/sequence or AdamW step OOM guarantee"}
+            details["probe"]=_probe_configured_model(cfg,opts,tokenizer,probe_device,state,seq_len)
             add("Model Forward/Backward","PASS",details["probe"])
             if probe_device.type=="cuda":
                 add("CUDA compatibility","PASS",environment(probe_device),required_cuda)
-                if memory_limit is not None:
-                    add("GPU memory probe limit","PASS" if peak<=memory_limit else "FAIL",f"{peak:.2f} MiB vs limit {memory_limit} MiB")
-            del model
         except (OSError,ValueError,RuntimeError,KeyError) as exc:
             add("Model Forward/Backward","FAIL",exc)
+            if probe_device.type=="cuda":
+                add("CUDA compatibility","FAIL",exc,required_cuda)
     else:
         add("Model Forward/Backward","UNKNOWN","configuration or tokenizer failed")
+    if opts is not None and memory_limit is not None:
+        probe=details.get("probe",{})
+        delta=probe.get("probe_peak_delta_mib") if probe_device.type=="cuda" else None
+        exceeded=delta is not None and delta>memory_limit
+        add("GPU memory probe limit","FAIL" if exceeded else "UNKNOWN",
+            f"Attributable short-probe peak: {delta} MiB; limit: {memory_limit} MiB. "+SHORT_PROBE_SCOPE)
     status="BLOCKED" if any(c["required"] and c["status"]=="FAIL" for c in checks) else "INCOMPLETE" if any(c["required"] and c["status"] in ("UNKNOWN","NOT_RUN") for c in checks) else "READY"
     report={"schema_version":1,"status":status,"checks":checks,"details":details,
             "environment":environment(torch.device("cpu")),"scope":"preflight only; no formal training launched"}
@@ -254,7 +274,8 @@ def check_readiness(dataset, tokenizer_path, model_config, training_config, out,
         write_json(directory/"readiness.json",report)
         (directory/"readiness.md").write_text("# Training readiness\n\n"+status+"\n\n"+
             "| Check | Status | Required |\n|---|---|---|\n"+
-            "\n".join(f"| {c['check']} | {c['status']} | {c['required']} |" for c in checks)+"\n\nProbe limits and details are recorded in readiness.json.\n")
+            "\n".join(f"| {c['check']} | {c['status']} | {c['required']} |" for c in checks)+
+            "\n\n"+SHORT_PROBE_SCOPE+"\n\nProbe limits and details are recorded in readiness.json.\n")
     return report
 
 

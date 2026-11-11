@@ -1,5 +1,7 @@
 import copy
 import json
+import signal
+from unittest.mock import patch
 
 import pytest
 
@@ -92,3 +94,76 @@ def test_post_run_pilot_engineering_acceptance(trained_run,tmp_path):
     (run/"model.pt").write_bytes(b"broken")
     failed=evaluate_pilot(run,tmp_path/"baseline",tmp_path/"final",tmp_path/"pilot-broken")
     assert failed["engineering"]=="ENGINEERING_FAIL"
+
+
+def train_validation_case(assets,tmp_path,*,configured,val_every=1,interrupt_at=None):
+    import minillm.train as training
+    tokenizer=MiniLLMTokenizer.load(assets["tokenizer"])
+    run=tmp_path/"validation-run"
+    opts=TrainingOptions(out=str(run),device="cpu",precision="fp32",threads=1,
+        seed=7,batch_size=2,grad_accum=1,max_steps=3,log_every=1,val_every=val_every,val_limit=1)
+    original=training._train_step
+    updates=0
+    def step(*args,**kwargs):
+        nonlocal updates
+        result=original(*args,**kwargs);updates+=1
+        if updates==interrupt_at:
+            signal.raise_signal(signal.SIGTERM)
+        return result
+    with patch.object(training,"_train_step",side_effect=step):
+        summary=fit(opts,assets["model"],tokenizer,
+                    PackedPretrainDataset(assets["dataset"]/"train.bin",16),
+                    PackedPretrainDataset(assets["dataset"]/"val.bin",16) if configured else None)
+    return run,summary
+
+
+def test_no_validation_dataset_needs_no_metrics_and_only_train_curve(eval_assets,tmp_path):
+    run,summary=train_validation_case(eval_assets,tmp_path,configured=False)
+    assert not (run/"metrics.json").exists() and summary["final_val"] is None
+    report=analyze_training(run,tmp_path/"analysis")
+    assert report["status"]=="OK",report["errors"]
+    assert report["validation"]["status"]=="NOT_RUN"
+    assert report["validation"]["reason"]=="not_configured"
+    assert report["validation_rows"]==[]
+    assert all("validation_loss" not in r and "perplexity" not in r for r in report["curve_rows"])
+    assert {p.name for p in (tmp_path/"analysis/curves").iterdir()}=={"training.csv"}
+
+
+@pytest.mark.parametrize("val_every",[0,1])
+def test_final_validation_even_when_periodic_disabled(eval_assets,tmp_path,val_every):
+    run,_=train_validation_case(eval_assets,tmp_path,configured=True,val_every=val_every)
+    report=analyze_training(run,tmp_path/"analysis")
+    assert report["status"]=="OK",report["errors"]
+    assert report["validation"]["status"]=="COMPLETED" and report["validation"]["final_status"]=="COMPLETED"
+    assert len(report["validation_rows"])==(1 if val_every==0 else 3)
+    assert (tmp_path/"analysis/curves/validation.csv").exists()
+
+
+@pytest.mark.parametrize("failure",["metrics_missing","log_missing","all_records_missing","corrupt_metrics"])
+def test_configured_validation_artifacts_cannot_disappear(eval_assets,tmp_path,failure):
+    run,_=train_validation_case(eval_assets,tmp_path,configured=True)
+    if failure in ("metrics_missing","all_records_missing"):
+        (run/"metrics.json").unlink()
+    elif failure=="corrupt_metrics":
+        (run/"metrics.json").write_text("broken")
+    if failure in ("log_missing","all_records_missing"):
+        path=run/"training-log.jsonl"
+        path.write_text("".join(json.dumps(r)+"\n" for r in records(path) if r["event"]!="validation"))
+    report=analyze_training(run,tmp_path/"analysis")
+    assert report["status"]=="ISSUES"
+    assert report["validation"]["status"]=="ERROR" and report["errors"]
+
+
+@pytest.mark.parametrize("interrupt_at,val_every,observations",[(1,0,0),(1,1,0),(2,1,1)])
+def test_interruption_does_not_require_unexecuted_final_validation(eval_assets,tmp_path,interrupt_at,val_every,observations):
+    run,summary=train_validation_case(eval_assets,tmp_path,configured=True,val_every=val_every,interrupt_at=interrupt_at)
+    assert summary["stop_reason"]=="SIGTERM" and summary["final_val"] is None
+    assert (run/"metrics.json").exists()==bool(observations)
+    report=analyze_training(run,tmp_path/"analysis")
+    assert report["status"]=="OK",report["errors"]
+    assert report["validation"]["status"]==("COMPLETED" if observations else "NOT_RUN")
+    assert report["validation"]["configured"] and report["validation"]["observations"]==observations
+    assert report["validation"]["final_status"]=="NOT_RUN"
+    if observations:
+        (run/"metrics.json").unlink()
+        assert analyze_training(run,tmp_path/"missing-prior")["validation"]["status"]=="ERROR"
