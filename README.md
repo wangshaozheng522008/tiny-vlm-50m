@@ -605,3 +605,13 @@ python scripts/check_training_readiness.py --dataset data/processed/minillm-pret
 Raw/Chat 分开计分，Loss 按真实有效 Token 加权；Dataset、Tokenizer、Checkpoint 与固定评测配置绑定哈希。报告拒绝覆盖已有目录，READY/BLOCKED/INCOMPLETE 分别返回 0/1/2。验收不会启动正式训练。
 
 [完整说明与命令](docs/evaluation-and-readiness.md)包括多 Checkpoint 对比、已完成试训练验收、160条原创固定题/40个生成提示的版本与污染审计限制，以及 CPU Nano 可复现示例。已有模型仍必须使用原 Tokenizer；示例的微小合成词表和能力分数不代表87M实际模型。
+
+### 87M 实机探测与试训练
+
+PR #5 增加完整负载探测和统一启动配置：
+
+- `scripts/probe_training_workload.py`：真实Micro-batch/Seq Len/梯度累积、至少3次AdamW更新、验证和Checkpoint往返；记录实际显存与吞吐。
+- `scripts/run_pretraining_pilot.py`：默认只验收，显式 `--execute` 且READY才启动；CUDA任务必须有匹配的完整负载证据。
+- `scripts/check_pilot_recovery.py`：真实模型20步连续训练与两次恢复对照，结果独立于试训练计数。
+
+[操作步骤与边界](docs/pilot-runbook.md)说明原Tokenizer固定、旧权重热启动、新任务计数、显存证据绑定、非商业研究语料和恢复方法。短CUDA探测仍不能单独获得显存预算PASS。

@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "dataset_name": "minillm-pilot-research-v1",
+  "seed": 42,
+  "max_records": 160000,
+  "sample": 120000,
+  "split": [
+    0.96,
+    0.02,
+    0.02
+  ],
+  "sources": [
+    {
+      "name": "minimind-mini-312afb4",
+      "paths": [
+        "../data/minimind/pretrain_t2t_mini.jsonl"
+      ],
+      "license": "Apache-2.0 AND CC-BY-NC-2.0; upstream declaration",
+      "category": "auto",
+      "priority": 100
+    }
+  ],
+  "license_policy": {
+    "exclude_unknown": true
+  },
+  "quality": {
+    "min_chars": 80
+  },
+  "deduplication": {
+    "method": "simhash",
+    "max_candidates": 20000
+  },
+  "mixing": {
+    "token_budget": 0
+  },
+  "runtime": {
+    "sqlite_cache_mib": 16,
+    "commit_every": 1000,
+    "buffer_bytes": 1048576
+  }
+}

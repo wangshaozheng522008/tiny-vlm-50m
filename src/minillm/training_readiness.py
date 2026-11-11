@@ -99,6 +99,7 @@ def check_readiness(dataset, tokenizer_path, model_config, training_config, out,
         allow_repeat = raw.pop("allow_data_repetition",False)
         memory_limit = raw.pop("gpu_memory_limit_mib",None)
         disk_factor = raw.pop("disk_margin_factor",1.2)
+        workload_report = raw.pop("workload_report",None)
         if (type(seq_len) is not int or seq_len<2 or type(allow_repeat) is not bool
                 or not isinstance(disk_factor,(int,float)) or not math.isfinite(disk_factor) or disk_factor<1):
             raise ValueError("invalid sequence, repetition or disk configuration")
@@ -267,6 +268,29 @@ def check_readiness(dataset, tokenizer_path, model_config, training_config, out,
         exceeded=delta is not None and delta>memory_limit
         add("GPU memory probe limit","FAIL" if exceeded else "UNKNOWN",
             f"Attributable short-probe peak: {delta} MiB; limit: {memory_limit} MiB. "+SHORT_PROBE_SCOPE)
+    if opts is not None and workload_report and selected_device.type=="cuda" and not cuda_available:
+        add("Representative training workload","UNKNOWN","CUDA unavailable; hardware-bound evidence not validated")
+    elif opts is not None and workload_report:
+        try:
+            from .workload import resolve_plan, verify_workload
+            if memory_limit is not None and selected_device.type!="cuda":
+                raise ValueError("CPU workload evidence cannot validate a GPU memory budget")
+            expected=resolve_plan(dataset,tokenizer_path,model_config,training_config)[-1]
+            proof=verify_workload(workload_report,expected,memory_limit if memory_limit is not None else float("inf"))
+            if any(c["check"]=="GPU memory probe limit" and c["status"]=="FAIL" for c in checks):
+                raise ValueError("current short probe already exceeds the requested limit")
+            if selected_device.type=="cuda":
+                torch.cuda.empty_cache()
+                free_now,_=torch.cuda.mem_get_info(selected_device)
+                if free_now<proof["measurements"]["limit_bytes"]:
+                    raise ValueError("current free device memory is below the verified budget")
+            checks[:]=[c for c in checks if c["check"]!="GPU memory probe limit"]
+            add("Representative training workload","PASS",proof["content_id"])
+            if memory_limit is not None:
+                add("GPU memory probe limit","PASS","matched full workload proof; not a guarantee against future OOM")
+            details["workload_evidence"]={"content_id":proof["content_id"],"measurements":proof["measurements"]}
+        except Exception as exc:
+            add("Representative training workload","FAIL",exc)
     status="BLOCKED" if any(c["required"] and c["status"]=="FAIL" for c in checks) else "INCOMPLETE" if any(c["required"] and c["status"] in ("UNKNOWN","NOT_RUN") for c in checks) else "READY"
     report={"schema_version":1,"status":status,"checks":checks,"details":details,
             "environment":environment(torch.device("cpu")),"scope":"preflight only; no formal training launched"}
