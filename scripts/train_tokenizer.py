@@ -22,6 +22,9 @@ import random
 import time
 from pathlib import Path
 
+from minillm.corpus import guard_tokenizer_training
+from minillm.corpus_utils import CorpusError
+from minillm.checkpoint import atomic_write
 from minillm.data import stream_documents
 from minillm.tokenizer import MiniLLMTokenizer, normalise_text
 
@@ -63,37 +66,41 @@ def weighted_documents(
     chars = 0
     docs = 0
     used = {name: 0 for name in iterators}
-    while iterators:
-        names = [n for n in iterators if remaining[n] > 0]
-        if not names:
-            names = list(iterators)
-        total = sum(remaining[n] for n in names)
-        pick = rng.random() * total
-        chosen = names[-1]
-        running = 0.0
-        for name in names:
-            running += remaining[name]
-            if pick <= running:
-                chosen = name
+    try:
+        while iterators:
+            names = [n for n in iterators if remaining[n] > 0]
+            if not names:
+                names = list(iterators)
+            total = sum(remaining[n] for n in names)
+            pick = rng.random() * total
+            chosen = names[-1]
+            running = 0.0
+            for name in names:
+                running += remaining[name]
+                if pick <= running:
+                    chosen = name
+                    break
+            try:
+                text = next(iterators[chosen])
+            except StopIteration:
+                iterators.pop(chosen)
+                remaining.pop(chosen, None)
+                continue
+            if len(text) < skip_below:
+                continue
+            text = normalise_text(text)
+            if not text:
+                continue
+            chars += len(text)
+            docs += 1
+            used[chosen] += 1
+            yield text
+            if chars >= max_chars:
                 break
-        try:
-            text = next(iterators[chosen])
-        except StopIteration:
-            iterators.pop(chosen)
-            remaining.pop(chosen, None)
-            continue
-        if len(text) < skip_below:
-            continue
-        text = normalise_text(text)
-        if not text:
-            continue
-        chars += len(text)
-        docs += 1
-        used[chosen] += 1
-        yield text
-        if chars >= max_chars:
-            break
-    weighted_documents.stats = {"docs": docs, "chars": chars, "per_category": used}  # type: ignore[attr-defined]
+    finally:
+        for iterator in iterators.values():
+            iterator.close()
+        weighted_documents.stats = {"docs": docs, "chars": chars, "per_category": used}  # type: ignore[attr-defined]
 
 
 def main() -> None:
@@ -125,6 +132,15 @@ def main() -> None:
     if overlap:
         raise SystemExit(f"refusing to train the tokenizer on held-out data: {sorted(map(str, overlap))}")
 
+    if args.max_chars <= 0:
+        raise SystemExit("--max-chars must be positive to bound tokenizer training memory")
+    if Path(args.out).exists():
+        raise SystemExit("refusing to replace an existing tokenizer; use a new --out for a new model experiment")
+    try:
+        guard_tokenizer_training([p for paths in pools.values() for p in paths], [Path(p) for p in args.forbid])
+    except CorpusError as exc:
+        raise SystemExit(str(exc)) from exc
+
     weights = dict(zip(CATEGORIES, args.weights))
     if abs(sum(weights.values()) - 1.0) > 1e-6:
         raise SystemExit("--weights must sum to 1.0")
@@ -139,7 +155,7 @@ def main() -> None:
     documents = weighted_documents(pools, weights, args.max_chars, args.seed)
     tokenizer = MiniLLMTokenizer.train(documents, vocab_size=args.vocab_size)
     elapsed = time.time() - started
-    tokenizer.save(args.out)
+    atomic_write(Path(args.out), lambda handle: handle.write(tokenizer._tok.to_str().encode("utf-8")))
     stats = getattr(weighted_documents, "stats", {})
     print(f"  vocab={tokenizer.vocab_size}, fingerprint={tokenizer.fingerprint[:16]}…, "
           f"{stats.get('chars', 0):,} chars in {elapsed:.0f}s")

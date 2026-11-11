@@ -200,6 +200,54 @@ system、user、角色标记和换行都被 `-100` 屏蔽。`--last-assistant-tu
 
 ---
 
+### 大规模语料版本（PR #3）
+
+先确认本地来源的使用许可，再填写 [示例配置](configs/pretrain-corpus.example.json) 的路径、来源、
+License 与配比。缺失许可明确记为 `unknown`；示例默认排除 Unknown，不会下载任何数据。
+支持 JSONL 的 `text/source/category/language/license/parent_id` 字段和 TXT 文件/目录。
+中文、英文、代码使用不同规则；代码保留缩进，数学文本不会因缺少中文字符被直接丢弃。
+
+```bash
+# 已有模型继续使用原 Tokenizer；输出必须是新的数据版本目录
+python scripts/prepare_text.py --config configs/pretrain-corpus.example.json \
+    --out data/processed/minillm-pretrain-v1 --tokenizer runs/minillm-87m/run/tokenizer.json
+
+# 新模型实验可只先准备文本，再仅用 Train 拟合词表
+python scripts/prepare_text.py --input data/raw/zh data/raw/en data/raw/code \
+    --out data/processed/new-experiment
+python scripts/train_tokenizer.py --zh data/processed/new-experiment/train.text.jsonl \
+    --forbid data/processed/new-experiment/val.text.jsonl data/processed/new-experiment/test.text.jsonl \
+    --vocab-size 24576 --out data/processed/new-experiment/tokenizer.json
+python scripts/prepare_text.py --out data/processed/new-experiment --tokenize-only \
+    --tokenizer data/processed/new-experiment/tokenizer.json
+# 或用 --train-tokenizer 在流水线内执行有字符预算的 Train-only 拟合与打包
+
+python scripts/audit_dataset.py --dataset data/processed/minillm-pretrain-v1 \
+    --retokenize --report reports/dataset-audit.json
+
+# 审计通过后使用现有训练入口；只演示命令，本 PR 不运行正式长训练
+python -m minillm.train --data data/processed/minillm-pretrain-v1/train.bin \
+    --val-data data/processed/minillm-pretrain-v1/val.bin \
+    --tokenizer data/processed/minillm-pretrain-v1/tokenizer.json \
+    --config minillm-87m --out runs/minillm-pretrain-v1 --max-steps 10000
+```
+
+原有 `--input / --sample / --max-records / --min-chars / --max-chars / --split / --tokenize-only` 调用仍支持。
+`--sample=0` 使用全部通过筛选的文档，文档、去重索引和排序存储在磁盘，不再聚合完整 Token 数组。
+同一 Seed 的采样/划分由稳定内容与分组标识决定，不依赖输入遍历顺序。
+配置的 Token 预算和来源权重按**估算 Token 数**选择，发布后另报真实 Token 比例和耗尽情况；
+`token_budget=0` 保留全部数据，不强行承诺目标比例，不重复抽取不足来源。
+
+每阶段校验完成才写入 `.pipeline/*.stage.json`；重复相同命令可复用通过 SHA256 校验的阶段。
+改变输入或内容参数时使用新的版本目录，已发布的 `dataset-manifest.json` 及其文件不得覆盖。
+SQLite 缓存、提交批次、写缓冲等运行参数与内容身份分开记录；`--temp-dir` 可指定工作磁盘。
+
+**已有模型 Checkpoint 的 Tokenizer 不允许重新训练或替换。** 新词表属于新模型实验，
+不能作为原预训练状态的直接 Resume。训练 Manifest 会关联 `dataset_content_id`、文件哈希和词表指纹；
+PR #2 的游标、RNG 和严格 Resume 规则保持不变。
+
+完整的去重方法、阶段恢复、估算限制、审计范围和 CPU 基准见 [数据流水线说明](docs/data-pipeline.md)。
+
 ## 6. 训练
 
 默认超参（可在命令行覆盖）：

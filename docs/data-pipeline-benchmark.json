@@ -1,0 +1,195 @@
+{
+  "cases": [
+    {
+      "baseline_idle_rss_mib": 492.5,
+      "baseline_peak_rss_mib": 497.09,
+      "content_id": "18f93c97e61162f3ffc41aab5ad8d1c306b5571d3eea723e63830fc13de85c99",
+      "deduplication": {
+        "documents": 10000,
+        "duplicates_exact": 0,
+        "duplicates_near": 0,
+        "fragment_duplicates_exact": 0,
+        "fragment_duplicates_near": 0,
+        "fragment_search": {
+          "candidates": 33427,
+          "documents": 9485,
+          "max_candidates_observed": 16,
+          "near_edges": 0
+        },
+        "parameters": {
+          "hamming_distance": 4,
+          "max_candidates": 2000,
+          "method": "simhash",
+          "near_code": false,
+          "ngram": 4,
+          "threshold": 0.85
+        },
+        "parent_search": {
+          "candidates": 33427,
+          "documents": 9485,
+          "max_candidates_observed": 16,
+          "near_edges": 0
+        },
+        "parents_after_near": 10000,
+        "parents_before_near": 10000,
+        "parents_selected": 10000
+      },
+      "documents_per_second": 738.34,
+      "environment": {
+        "measurement": "Linux ru_maxrss; fresh child, imports before baseline; full audit included in peak",
+        "platform": "linux",
+        "python": "3.11.17",
+        "sqlite_cache_mib": 16,
+        "threads": 1,
+        "torch": "2.14.1+cu126"
+      },
+      "exact_overlap": {
+        "train/test": 0,
+        "train/val": 0,
+        "val/test": 0
+      },
+      "incremental_peak_rss_mib": 43.37,
+      "input_documents": 10000,
+      "known_near_duplicate_cross_split_groups": 0,
+      "peak_minus_idle_rss_mib": 47.96,
+      "peak_rss_mib": 540.46,
+      "pipeline_seconds": 13.544,
+      "published_documents": 10000,
+      "stages_seconds": {
+        "deduplicate.stage.json": 5.766818,
+        "normalize.stage.json": 2.940374,
+        "split.stage.json": 0.544837,
+        "tokenize-test.stage.json": 0.085993,
+        "tokenize-train.stage.json": 3.698007,
+        "tokenize-val.stage.json": 0.096561,
+        "tokenizer.stage.json": 0.003416
+      },
+      "tokens": 4370793,
+      "tokens_per_second": 322714.45
+    },
+    {
+      "baseline_idle_rss_mib": 492.55,
+      "baseline_peak_rss_mib": 497.09,
+      "content_id": "f6633fd087e9dc6c497ad8e3d1d76c1a79c05e15f6fdbfe354125624d99c654d",
+      "deduplication": {
+        "documents": 100000,
+        "duplicates_exact": 0,
+        "duplicates_near": 0,
+        "fragment_duplicates_exact": 0,
+        "fragment_duplicates_near": 0,
+        "fragment_search": {
+          "candidates": 3518099,
+          "documents": 95049,
+          "max_candidates_observed": 124,
+          "near_edges": 0
+        },
+        "parameters": {
+          "hamming_distance": 4,
+          "max_candidates": 2000,
+          "method": "simhash",
+          "near_code": false,
+          "ngram": 4,
+          "threshold": 0.85
+        },
+        "parent_search": {
+          "candidates": 3518099,
+          "documents": 95049,
+          "max_candidates_observed": 124,
+          "near_edges": 0
+        },
+        "parents_after_near": 100000,
+        "parents_before_near": 100000,
+        "parents_selected": 100000
+      },
+      "documents_per_second": 599.77,
+      "environment": {
+        "measurement": "Linux ru_maxrss; fresh child, imports before baseline; full audit included in peak",
+        "platform": "linux",
+        "python": "3.11.17",
+        "sqlite_cache_mib": 16,
+        "threads": 1,
+        "torch": "2.14.1+cu126"
+      },
+      "exact_overlap": {
+        "train/test": 0,
+        "train/val": 0,
+        "val/test": 0
+      },
+      "incremental_peak_rss_mib": 48.24,
+      "input_documents": 100000,
+      "known_near_duplicate_cross_split_groups": 0,
+      "peak_minus_idle_rss_mib": 52.78,
+      "peak_rss_mib": 545.33,
+      "pipeline_seconds": 166.73,
+      "published_documents": 100000,
+      "stages_seconds": {
+        "deduplicate.stage.json": 88.082667,
+        "normalize.stage.json": 31.58376,
+        "split.stage.json": 8.391762,
+        "tokenize-test.stage.json": 0.518786,
+        "tokenize-train.stage.json": 31.398628,
+        "tokenize-val.stage.json": 0.536811,
+        "tokenizer.stage.json": 0.001614
+      },
+      "tokens": 43797053,
+      "tokens_per_second": 262682.6
+    }
+  ],
+  "dedup_quality": {
+    "cases": [
+      {
+        "case": "identical",
+        "detected_duplicate": true,
+        "exact_removed": 1,
+        "expected_duplicate": true,
+        "near_removed": 0
+      },
+      {
+        "case": "whitespace",
+        "detected_duplicate": true,
+        "exact_removed": 1,
+        "expected_duplicate": true,
+        "near_removed": 0
+      },
+      {
+        "case": "light_edit",
+        "detected_duplicate": true,
+        "exact_removed": 0,
+        "expected_duplicate": true,
+        "near_removed": 1
+      },
+      {
+        "case": "new_title",
+        "detected_duplicate": true,
+        "exact_removed": 0,
+        "expected_duplicate": true,
+        "near_removed": 1
+      },
+      {
+        "case": "same_prefix_different_body",
+        "detected_duplicate": false,
+        "exact_removed": 0,
+        "expected_duplicate": false,
+        "near_removed": 0
+      },
+      {
+        "case": "cross_source_repost",
+        "detected_duplicate": true,
+        "exact_removed": 1,
+        "expected_duplicate": true,
+        "near_removed": 0
+      },
+      {
+        "case": "different_content",
+        "detected_duplicate": false,
+        "exact_removed": 0,
+        "expected_duplicate": false,
+        "near_removed": 0
+      }
+    ],
+    "precision": 1.0,
+    "recall": 1.0,
+    "scope": "Seven synthetic labeled pairs only; not an estimate of real-world precision/recall."
+  },
+  "notes": "Synthetic only; throughput depends on hardware, text length and candidate density. No absolute RSS CI assertion."
+}

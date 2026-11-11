@@ -27,7 +27,7 @@ from torch.utils.data import Dataset
 
 from .tokenizer import DEFAULT_SYSTEM, MiniLLMTokenizer
 
-TOKEN_DTYPE = np.uint16  # vocab_size must stay below 65536
+TOKEN_DTYPE = np.dtype("<u2")  # vocab_size must stay below 65536
 
 
 def index_jsonl(path: str | Path) -> array:
@@ -245,57 +245,95 @@ class EpochBatchSampler:
         return self.num_batches
 
 
-def stream_documents(paths: Iterable[str | Path]) -> Iterable[str]:
-    """Stream documents from JSONL or plain-text files (shared with prepare_text)."""
-    for path in paths:
-        path = Path(path)
-        with path.open("r", encoding="utf-8", errors="replace") as handle:
-            if path.suffix == ".jsonl":
-                for line in handle:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        record = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    text = record.get("text") if isinstance(record, dict) else None
-                    if isinstance(text, str):
-                        yield text
+def stream_corpus_records(path: str | Path, *, max_record_bytes: int = 1048576):
+    """Bounded JSONL records or blank-line-delimited TXT paragraphs.
+
+    Oversize records are drained, never split into accidentally valid tail records.
+    TXT paragraphs carry a common file parent; JSONL can supply parent_id explicitly.
+    Rejection events let the pipeline account for malformed input without guessing.
+    """
+    path = Path(path)
+    if max_record_bytes <= 0:
+        raise ValueError("max_record_bytes must be positive")
+    with path.open("rb") as handle:
+        paragraph = bytearray()
+        discarded = False
+        line_number = 0
+        while True:
+            line = handle.readline(max_record_bytes + 1)
+            if not line:
+                break
+            line_number += 1
+            oversize = len(line) > max_record_bytes
+            if oversize and not line.endswith(b"\n"):
+                while tail := handle.readline(max_record_bytes + 1):
+                    if tail.endswith(b"\n"):
+                        break
+            if path.suffix.lower() == ".jsonl":
+                if not line.strip():
+                    continue
+                if oversize:
+                    yield {"_issue": "record_too_large", "_line": line_number}
+                    continue
+                try:
+                    record = json.loads(line.decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
+                    yield {"_issue": "invalid_json_or_utf8", "_line": line_number}
+                    continue
+                if not isinstance(record, dict) or not isinstance(record.get("text"), str):
+                    yield {"_issue": "missing_text", "_line": line_number}
+                    continue
+                fields = ("text", "source", "category", "language", "license", "parent_id")
+                yield {**{k: record[k] for k in fields if k in record}, "_line": line_number}
             else:
-                buffer: list[str] = []
-                for line in handle:
-                    if line.strip():
-                        buffer.append(line)
-                    elif buffer:
-                        yield "".join(buffer)
-                        buffer = []
-                if buffer:
-                    yield "".join(buffer)
+                if not line.strip():
+                    if discarded:
+                        yield {"_issue": "record_too_large", "_line": line_number}
+                    elif paragraph:
+                        try:
+                            yield {"text": paragraph.decode("utf-8"), "_line": line_number}
+                        except UnicodeDecodeError:
+                            yield {"_issue": "invalid_utf8", "_line": line_number}
+                    paragraph.clear()
+                    discarded = False
+                elif oversize or len(paragraph) + len(line) > max_record_bytes:
+                    discarded = True
+                    paragraph.clear()
+                elif not discarded:
+                    paragraph.extend(line)
+        if path.suffix.lower() != ".jsonl":
+            if discarded:
+                yield {"_issue": "record_too_large", "_line": line_number}
+            elif paragraph:
+                try:
+                    yield {"text": paragraph.decode("utf-8"), "_line": line_number}
+                except UnicodeDecodeError:
+                    yield {"_issue": "invalid_utf8", "_line": line_number}
 
 
-def encode_document_tokens(
-    texts: Iterable[str],
-    tokenizer: MiniLLMTokenizer,
-    *,
-    drop_empty: bool = True,
-    log_fn=None,
-) -> np.ndarray:
-    """Tokenise documents (each terminated by EOS) into one packed uint16 array."""
-    chunks: list[np.ndarray] = []
+def stream_documents(paths: Iterable[str | Path]) -> Iterable[str]:
+    """Bounded text-only adapter shared by tokenizer training and evaluation."""
+    for path in paths:
+        records = stream_corpus_records(path)
+        try:
+            for record in records:
+                if "_issue" not in record:
+                    yield record["text"]
+        finally:
+            records.close()
+
+
+def encode_document_tokens(texts: Iterable[str], tokenizer: MiniLLMTokenizer, *,
+                           drop_empty: bool = True, log_fn=None) -> Iterable[np.ndarray]:
+    """Yield one uint16 array at a time; never aggregate the corpus token stream."""
     total = 0
     for index, text in enumerate(texts):
-        if not text or not text.strip():
-            if drop_empty:
-                continue
-        ids = tokenizer.encode_document(text)
-        if len(ids) <= 1:  # only EOS: nothing to learn from
+        if drop_empty and not text.strip():
             continue
-        array_ = np.asarray(ids, dtype=TOKEN_DTYPE)
-        chunks.append(array_)
-        total += array_.size
-        if log_fn is not None and index % 20000 == 0 and index:
-            log_fn(f"  encoded {index} documents, {total:,} tokens")
-    if not chunks:
-        raise ValueError("no tokens were produced; check the input data")
-    return np.concatenate(chunks)
+        ids = tokenizer.encode_document(text)
+        if any(type(token) is not int or not 0 <= token < min(tokenizer.vocab_size, 65536) for token in ids):
+            raise ValueError("token id outside vocabulary/uint16 range")
+        total += len(ids)
+        yield np.asarray(ids, dtype="<u2")
+        if log_fn is not None and index and index % 20000 == 0:
+            log_fn(f"encoded {index} documents, {total:,} tokens")
