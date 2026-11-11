@@ -231,9 +231,11 @@ class EpochBatchSampler:
         random.Random(self.seed + epoch).shuffle(order)
         return order
 
-    def batches(self, epoch: int) -> Iterable[list[int]]:
+    def batches(self, epoch: int, start_batch: int = 0) -> Iterable[list[int]]:
+        if not 0 <= start_batch <= self.num_batches:
+            raise ValueError("micro-batch cursor outside dataset range")
         order = self.indices(epoch)
-        for start in range(0, len(order), self.batch_size):
+        for start in range(start_batch * self.batch_size, len(order), self.batch_size):
             batch = order[start : start + self.batch_size]
             if len(batch) < self.batch_size and self.drop_last:
                 break

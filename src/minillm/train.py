@@ -14,18 +14,22 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import os
 import random
 import signal
 import time
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Iterator, Sequence
+from typing import Iterator, Sequence
 
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
 
+from .checkpoint import (
+    CheckpointError, TRAINING_STATE_VERSION, atomic_torch_save, load_training_state,
+)
+from .training_manifest import build_manifest, compare_manifests, write_json
 from .config import ARCH_VERSION, ARCHITECTURE, MiniLLMConfig, get_config
 from .data import EpochBatchSampler, PackedPretrainDataset, collate_batch
 from .model import MiniLLM
@@ -79,12 +83,11 @@ def lr_at(step: int, total: int, peak: float, min_lr: float, warmup: int) -> flo
 # --------------------------------------------------------------------------- io
 
 
-class CheckpointError(RuntimeError):
-    """Raised when a checkpoint does not belong to this architecture."""
-
-
 def load_model_checkpoint(path: str | Path, device: torch.device) -> tuple[MiniLLM, MiniLLMConfig, dict]:
-    payload = torch.load(Path(path), map_location="cpu", weights_only=False)
+    path = Path(path)
+    if path.name.startswith(".") or path.suffix == ".tmp":
+        raise CheckpointError(f"{path}: temporary files cannot be loaded as checkpoints")
+    payload = torch.load(path, map_location="cpu", weights_only=False)
     if not isinstance(payload, dict):
         raise CheckpointError(f"{path}: not a MiniLLM checkpoint")
     architecture = payload.get("architecture")
@@ -132,53 +135,38 @@ def save_model_checkpoint(
     }
     if extra:
         payload.update(extra)
-    torch.save(payload, path)
+    atomic_torch_save(payload, path)
 
 
 def save_training_state(
-    path: Path,
-    model: MiniLLM,
-    optimizer: torch.optim.Optimizer,
-    scaler: torch.amp.GradScaler | None,
-    tokenizer: MiniLLMTokenizer,
-    *,
-    step: int,
-    epoch: int,
-    batch_in_epoch: int,
-    best_loss: float | None,
-    history: list[dict],
-    tokens: int,
+    path: Path, model: MiniLLM, optimizer: torch.optim.Optimizer,
+    scaler: torch.amp.GradScaler | None, tokenizer: MiniLLMTokenizer, *,
+    global_step: int, epoch: int, micro_batches_consumed_in_epoch: int,
+    samples_seen: int, best_loss: float | None, history: list[dict], tokens: int,
+    manifest: dict, preserve_backup: bool = False,
 ) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(
-        {
-            "architecture": ARCHITECTURE,
-            "arch_version": ARCH_VERSION,
-            "config": model.cfg.to_dict(),
-            "model": {k: v.detach().cpu() for k, v in model.state_dict().items()},
-            "optimizer": optimizer.state_dict(),
-            "scaler": scaler.state_dict() if scaler is not None and scaler.is_enabled() else None,
-            "tokenizer_fingerprint": tokenizer.fingerprint,
-            "tokenizer_vocab_size": tokenizer.vocab_size,
-            "step": step,
-            "epoch": epoch,
-            "batch_in_epoch": batch_in_epoch,
-            "best_loss": best_loss,
-            "history": history,
-            "tokens_seen": tokens,
-            "rng": rng_state(),
-        },
-        path,
-    )
-
-
-def load_training_state(path: str | Path) -> dict:
-    payload = torch.load(Path(path), map_location="cpu", weights_only=False)
-    if payload.get("architecture") != ARCHITECTURE:
-        raise CheckpointError(
-            f"{path}: not a MiniLLM training state (architecture={payload.get('architecture')!r})"
-        )
-    return payload
+    backup = None if preserve_backup else path.with_name("state.prev.pt")
+    if path.exists() and backup is not None:
+        try:
+            # mmap validates metadata without allocating another full AdamW state.
+            load_training_state(path, mmap=True)
+        except CheckpointError:
+            print(f"[checkpoint] invalid primary {path}; preserving existing backup")
+            backup = None
+    payload = {
+        "architecture": ARCHITECTURE, "arch_version": ARCH_VERSION,
+        "training_state_version": TRAINING_STATE_VERSION,
+        "config": model.cfg.to_dict(),
+        "model": {k: v.detach().cpu() for k, v in model.state_dict().items()},
+        "optimizer": optimizer.state_dict(),
+        "scaler": scaler.state_dict() if scaler is not None and scaler.is_enabled() else None,
+        "tokenizer_fingerprint": tokenizer.fingerprint, "tokenizer_vocab_size": tokenizer.vocab_size,
+        "global_step": global_step, "epoch": epoch,
+        "micro_batches_consumed_in_epoch": micro_batches_consumed_in_epoch,
+        "samples_seen": samples_seen, "tokens_seen": tokens,
+        "best_loss": best_loss, "history": history, "rng": rng_state(), "manifest": manifest,
+    }
+    atomic_torch_save(payload, path, backup=backup)
 
 
 # --------------------------------------------------------------------------- data
@@ -195,16 +183,29 @@ def make_pretrain_loader(
     ignore_index: int = -100,
 ) -> Iterator[dict[str, torch.Tensor]]:
     """Batches for one epoch, optionally starting mid-epoch after a resume."""
-    batches = sampler.batches(epoch)
-    if start_batch:
-        for _ in range(start_batch):
-            next(batches, None)
+    batches = sampler.batches(epoch, start_batch=start_batch)
     for indices in batches:
         items = [dataset[i] for i in indices]
         yield collate_batch(items, pad_token_id, ignore_index)
 
 
-def evaluate(
+def evaluate(*args, **kwargs) -> dict:
+    # DataLoader allocates a base seed even with shuffle=False. Validation must
+    # not perturb dropout/RNG when validation frequency changes across resumes.
+    state = rng_state()
+    model = args[0] if args else kwargs["model"]
+    was_training = model.training
+    try:
+        result = _evaluate(*args, **kwargs)
+        if not math.isfinite(result["loss"]):
+            raise NumericalError("non-finite validation loss; best.pt will not be updated")
+        return result
+    finally:
+        model.train(was_training)
+        set_rng_state(state)
+
+
+def _evaluate(
     model: MiniLLM,
     dataset: Dataset,
     device: torch.device,
@@ -274,6 +275,68 @@ class TrainingOptions:
     extra_meta: dict = field(default_factory=dict)
 
 
+def _validate_progress(state: dict, manifest: dict, dataset: Dataset, sampler: EpochBatchSampler) -> None:
+    plan = manifest["training"]
+    epoch = state["epoch"]
+    cursor = state["micro_batches_consumed_in_epoch"]
+    if not 0 <= cursor < len(sampler) or cursor % plan["grad_accum"]:
+        raise CheckpointError("resume micro-batch cursor is outside the dataset or not at an update boundary")
+    expected_step = epoch * plan["optimizer_updates_per_epoch"] + cursor // plan["grad_accum"]
+    if state["global_step"] != expected_step or expected_step > plan["target_optimizer_updates"]:
+        raise CheckpointError("resume global_step/epoch/micro-batch cursor exceeds or contradicts the training plan")
+    prefix_samples = min(cursor * plan["batch_size"], len(dataset))
+    if state["samples_seen"] != epoch * len(dataset) + prefix_samples:
+        raise CheckpointError("resume samples_seen contradicts the data cursor")
+    if isinstance(dataset, PackedPretrainDataset):
+        prefix_tokens = prefix_samples * (dataset.seq_len - 1)
+    else:
+        prefix_tokens = sum(int((dataset[i]["labels"][1:] != manifest["model_config"]["ignore_index"]).sum())
+                            for i in sampler.indices(epoch)[:prefix_samples])
+    expected_tokens = epoch * manifest["dataset"]["train"]["effective_loss_tokens"] + prefix_tokens
+    if state["tokens_seen"] != expected_tokens:
+        raise CheckpointError("resume tokens_seen contradicts the data cursor")
+
+
+def _prepare_run_manifest(out: Path, manifest: dict, resumed: dict | None = None) -> dict:
+    """Check directory ownership before writing any artifacts, including logs.
+
+    A configuration fingerprint is not a run identity: separate starts using
+    the same seed and data must still own separate output directories.
+    """
+    run_id = None
+    if resumed is not None:
+        compare_manifests({k: v for k, v in resumed.items() if k != "run_id"}, manifest)
+        run_id = resumed.get("run_id")
+        if "run_id" in resumed and (not isinstance(run_id, str) or not run_id):
+            raise CheckpointError("resume manifest has an invalid run_id")
+    if out.exists():
+        if not out.is_dir():
+            raise CheckpointError(f"{out}: training output must be a directory")
+        if any(out.iterdir()):
+            if resumed is None:
+                raise CheckpointError(
+                    f"{out}: non-empty training output directory; refusing to overwrite existing files. "
+                    "Use --resume for this run, or select a new empty --out (also for --init-from)."
+                )
+            if run_id is None:
+                raise CheckpointError(
+                    f"{out}: resume checkpoint has no run_id; cannot verify output directory ownership. "
+                    "Resume into a new empty --out to migrate this v2 state without overwriting old results."
+                )
+            try:
+                existing = json.loads((out / "training-manifest.json").read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                raise CheckpointError(
+                    f"{out}: cannot verify output directory ownership: missing/unreadable training-manifest.json. "
+                    "Select a new empty --out."
+                ) from exc
+            if not isinstance(existing, dict) or existing.get("run_id") != run_id:
+                raise CheckpointError(f"{out}: output directory belongs to another training run (run_id mismatch)")
+            compare_manifests(resumed, existing)
+    # uuid4 uses OS entropy, without advancing Python/NumPy/Torch training RNG.
+    return {**manifest, "run_id": run_id or uuid.uuid4().hex}
+
+
 def fit(
     opts: TrainingOptions,
     model: MiniLLM,
@@ -285,212 +348,261 @@ def fit(
     batch_sampler_seed: int = 0,
     batch_factory=None,
 ) -> dict:
-    out = Path(opts.out)
-    out.mkdir(parents=True, exist_ok=True)
+    """Train a fixed plan, saving only complete optimizer updates.
+
+    Callers constructing fresh models must seed *before* constructing the model.
+    A resume restores RNG after all setup; it never reseeds the resumed stream.
+    Custom batch factories must follow EpochBatchSampler order and expose
+    sampler_seed when using a seed different from opts.seed+batch_sampler_seed.
+    """
     device = get_device(opts.device)
     if opts.threads:
         torch.set_num_threads(opts.threads)
     precision = resolve_precision(opts.precision, device)
     dtype = autocast_dtype(precision)
-    set_seed(opts.seed)
+    if device.type != "cuda" and precision != "fp32":
+        raise ValueError("CPU training supports fp32; fp16/bf16 require CUDA")
+    if not opts.resume:
+        set_seed(opts.seed)
+    if opts.resume and opts.init_from:
+        raise ValueError("--resume and --init-from are mutually exclusive")
+    if model.cfg.vocab_size != tokenizer.vocab_size:
+        raise ValueError(f"model vocab_size={model.cfg.vocab_size} != tokenizer vocab_size={tokenizer.vocab_size}")
+    sampler = EpochBatchSampler(
+        len(train_dataset), opts.batch_size,
+        seed=getattr(batch_factory, "sampler_seed", opts.seed + batch_sampler_seed),
+    )
+    manifest, total_tokens = build_manifest(
+        opts, model, tokenizer, train_dataset, val_dataset, mode=mode,
+        sampler=sampler, precision=precision, device=device,
+    )
+    out = Path(opts.out)
+    if not opts.resume:
+        manifest = _prepare_run_manifest(out, manifest)
+    plan = manifest["training"]
+    total_steps = plan["target_optimizer_updates"]
+    warmup = plan["warmup_steps"]
     model.to(device)
     model.train()
     model.gradient_checkpointing = bool(opts.grad_checkpointing)
-    if model.cfg.vocab_size != tokenizer.vocab_size:
-        raise ValueError(
-            f"model vocab_size={model.cfg.vocab_size} != tokenizer vocab_size={tokenizer.vocab_size}"
-        )
-
-    total_samples = len(train_dataset)
-    steps_per_epoch = max(1, math.ceil(total_samples / max(opts.batch_size * opts.grad_accum, 1)))
-    total_steps = opts.max_steps or steps_per_epoch * opts.epochs
-    warmup = max(1, int(total_steps * opts.warmup_ratio))
-
     optimizer = torch.optim.AdamW(
-        model.parameters(), lr=opts.lr, betas=(0.9, 0.95), weight_decay=opts.weight_decay
+        model.parameters(), lr=opts.lr, betas=(0.9, 0.95), eps=1e-8, weight_decay=opts.weight_decay,
     )
     scaler = torch.amp.GradScaler("cuda", enabled=precision == "fp16") if device.type == "cuda" else None
-    start_step = 0
-    start_epoch = 0
-    start_batch = 0
+    global_step = epoch = cursor = samples_seen = tokens_seen = 0
     best_loss: float | None = None
     history: list[dict] = []
-    tokens_seen = 0
-
     if opts.resume:
         state = load_training_state(opts.resume)
-        if state["tokenizer_fingerprint"] != tokenizer.fingerprint:
-            raise CheckpointError("resume tokenizer fingerprint does not match the current tokenizer")
-        if state["tokenizer_vocab_size"] != tokenizer.vocab_size:
-            raise CheckpointError("resume tokenizer vocabulary size differs")
-        model.load_state_dict(state["model"])
-        optimizer.load_state_dict(state["optimizer"])
-        if scaler is not None and state.get("scaler"):
-            scaler.load_state_dict(state["scaler"])
-        start_step = int(state["step"])
-        start_epoch = int(state["epoch"])
-        start_batch = int(state["batch_in_epoch"])
-        best_loss = state.get("best_loss")
-        history = state.get("history", [])
-        tokens_seen = int(state.get("tokens_seen", 0))
-        set_rng_state(state.get("rng"))
-        print(f"[resume] {opts.resume} at step {start_step}, epoch {start_epoch + 1}, "
-              f"batch {start_batch}")
+        manifest = _prepare_run_manifest(out, manifest, state["manifest"])
+        _validate_progress(state, manifest, train_dataset, sampler)
+        try:
+            model.load_state_dict(state["model"])
+            optimizer.load_state_dict(state["optimizer"])
+            if scaler is not None and scaler.is_enabled():
+                if not state["scaler"]:
+                    raise CheckpointError("resume is missing required AMP scaler state")
+                scaler.load_state_dict(state["scaler"])
+            set_rng_state(state["rng"])
+        except (ValueError, RuntimeError, KeyError, TypeError) as exc:
+            raise CheckpointError(f"invalid resume model/optimizer/scaler/RNG: {exc}") from exc
+        global_step, epoch, cursor = (state[key] for key in (
+            "global_step", "epoch", "micro_batches_consumed_in_epoch"))
+        samples_seen, tokens_seen = state["samples_seen"], state["tokens_seen"]
+        best_loss, history = state["best_loss"], state["history"]
+        del state
+        print(f"[resume] {opts.resume}: global_step {global_step}, epoch {epoch}, micro-batch {cursor}")
 
-    print(f"[device] {describe_device(device)} | precision {precision} | threads {torch.get_num_threads()}")
-    print(f"[model] {model.num_parameters():,} params | vocab {model.cfg.vocab_size} | "
-          f"seq {model.cfg.max_position_embeddings}")
-    print(f"[data] {mode}: {total_samples:,} samples, {steps_per_epoch:,} steps/epoch, "
-          f"total {total_steps:,} updates ({total_steps * opts.batch_size * opts.grad_accum:,} samples)")
-
-    started = time.time()
-    last_log = started
-    running_loss = 0.0
-    running_tokens = 0
-    steps_since_log = 0
-    interrupted = False
-    last_epoch = start_epoch
-    last_batch = start_batch
-
-    def handle_signal(signum, frame):  # noqa: ANN001 - signal handler signature
-        nonlocal interrupted
-        interrupted = True
-        print(f"\n[signal] caught {signum}; finishing the current step and saving")
-
-    old_handler = signal.signal(signal.SIGINT, handle_signal)
-
-    try:
-        for epoch in range(start_epoch, opts.epochs):
-            first_update = start_batch if epoch == start_epoch else 0
-            # `batch_in_epoch` counts optimizer updates; the streams below are
-            # consumed in micro-batches, so skip grad_accum batches per update.
-            first_batch = first_update * opts.grad_accum
-            if batch_factory is not None:
-                batches = batch_factory(epoch, first_batch)
-            else:
-                sampler = EpochBatchSampler(
-                    total_samples, opts.batch_size, seed=opts.seed + batch_sampler_seed
-                )
-                batches = make_pretrain_loader(
-                    train_dataset, sampler, epoch, start_batch=first_batch,
-                    pad_token_id=model.cfg.pad_token_id, ignore_index=model.cfg.ignore_index,
-                )
-            batch_in_epoch = first_batch
-            while True:
-                group = _take(batches, opts.grad_accum)
-                if not group:
-                    break
-                step = start_step + 1
-                lr = lr_at(step - 1, total_steps, opts.lr, opts.min_lr, warmup)
-                for param_group in optimizer.param_groups:
-                    param_group["lr"] = lr
-                loss, tokens = _train_step(model, group, optimizer, scaler, device, dtype, opts, optimizer.param_groups[0]["lr"])
-                running_loss += loss
-                running_tokens += tokens
-                steps_since_log += 1
-                tokens_seen += tokens
-                start_step = step
-                batch_in_epoch += 1
-                last_epoch, last_batch = epoch, batch_in_epoch
-
-                if start_step % opts.log_every == 0 or time.time() - last_log > 30:
-                    now = time.time()
-                    elapsed = now - last_log
-                    rate = running_tokens / max(elapsed, 1e-6)
-                    print(f"epoch {epoch + 1}/{opts.epochs} step {start_step}/{total_steps} "
-                          f"loss {running_loss / max(steps_since_log, 1):.4f} lr {lr:.2e} "
-                          f"{rate:,.0f} tok/s {elapsed / max(steps_since_log, 1):.2f}s/step")
-                    last_log = now
-                    running_loss = 0.0
-                    running_tokens = 0
-                    steps_since_log = 0
-
-                if val_dataset is not None and opts.val_every and start_step % opts.val_every == 0:
-                    metrics = evaluate(
-                        model, val_dataset, device, batch_size=opts.batch_size,
-                        max_batches=opts.val_limit or None,
-                        pad_token_id=model.cfg.pad_token_id, ignore_index=model.cfg.ignore_index,
-                    )
-                    print(f"[val] step {start_step}: loss {metrics['loss']:.4f} "
-                          f"ppl {metrics['perplexity']:.2f} tokens {metrics['tokens']:,}")
-                    history.append({"step": start_step, "mode": mode, **metrics})
-                    _write_metrics(out, history)
-                    if best_loss is None or metrics["loss"] < best_loss:
-                        best_loss = metrics["loss"]
-                        save_model_checkpoint(
-                            out / "best.pt", model, tokenizer, step=start_step,
-                            tokens=tokens_seen, val_loss=best_loss,
-                            extra={"mode": mode, **opts.extra_meta},
-                        )
-
-                if opts.save_every and start_step % opts.save_every == 0:
-                    save_training_state(
-                        out / "state.pt", model, optimizer, scaler, tokenizer,
-                        step=start_step, epoch=epoch, batch_in_epoch=batch_in_epoch,
-                        best_loss=best_loss, history=history, tokens=tokens_seen,
-                    )
-                    print(f"[save] step {start_step} -> {out / 'state.pt'}")
-
-                if interrupted:
-                    break
-                if opts.max_minutes and (time.time() - started) / 60 >= opts.max_minutes:
-                    print(f"[budget] {opts.max_minutes:.0f} minutes reached; stopping after step {start_step}")
-                    interrupted = True
-                    break
-                if start_step >= total_steps:
-                    break
-            if interrupted or start_step >= total_steps:
-                break
-    except RuntimeError as exc:
-        if "out of memory" in str(exc).lower():
-            raise SystemExit(
-                "CUDA out of memory. Try a smaller --batch-size (e.g. 1), a shorter "
-                "--seq-len (e.g. 512), --grad-checkpointing, or CPU training."
-            ) from exc
-        raise
-    finally:
-        signal.signal(signal.SIGINT, old_handler)
-
-    elapsed = time.time() - started
-    metrics = evaluate(
-        model, val_dataset, device, batch_size=opts.batch_size,
-        max_batches=opts.val_limit or None,
-        pad_token_id=model.cfg.pad_token_id, ignore_index=model.cfg.ignore_index,
-    ) if val_dataset is not None else None
-    save_model_checkpoint(
-        out / "model.pt", model, tokenizer, step=start_step, tokens=tokens_seen,
-        val_loss=metrics["loss"] if metrics else None,
-        extra={"mode": mode, **opts.extra_meta},
-    )
-    save_training_state(
-        out / "state.pt", model, optimizer, scaler, tokenizer,
-        step=start_step, epoch=last_epoch, batch_in_epoch=last_batch,
-        best_loss=best_loss, history=history, tokens=tokens_seen,
-    )
+    out.mkdir(parents=True, exist_ok=True)
+    write_json(out / "training-manifest.json", manifest)
     tokenizer.save(out / "tokenizer.json")
     model.cfg.save(out / "config.json")
+    print(f"[device] {describe_device(device)} | precision {precision} | threads {torch.get_num_threads()}")
+    print(f"[model] {model.num_parameters():,} params | mode {mode}")
+    print(f"Total training tokens: {total_tokens:,} effective loss tokens/epoch")
+    print(f"Total training samples: {len(train_dataset):,}")
+    print(f"Micro-batches per epoch: {len(sampler):,}")
+    print(f"Optimizer updates per epoch: {plan['optimizer_updates_per_epoch']:,}")
+    print(f"Target optimizer updates: {total_steps:,}")
+    estimate = total_steps * total_tokens / plan["optimizer_updates_per_epoch"]
+    print(f"Planned effective token budget (Estimated): {estimate:,.0f}")
+    print(f"Warmup steps: {warmup:,}")
+    print(f"Scheduler total steps: {total_steps:,}")
+
+    started = last_log = time.monotonic()
+    running_loss_sum = 0.0
+    running_tokens = steps_since_log = 0
+    interrupted = False
+    stop_reason = "target_reached"
+    last_saved_step = global_step if opts.resume and Path(opts.resume).resolve() == (out / "state.pt").resolve() else -1
+    last_checkpoint_seconds = None
+    validation_state_dirty = False
+    last_validation_step = None
+    last_validation_metrics = None
+    # Explicit backup recovery treats the old primary as untrusted, even if a
+    # damaged file can still deserialize. Preserve the chosen recovery point.
+    preserve_backup = bool(opts.resume and Path(opts.resume).name == "state.prev.pt")
+
+    def save_state():
+        nonlocal last_saved_step, last_checkpoint_seconds, preserve_backup, validation_state_dirty
+        if last_saved_step == global_step and not validation_state_dirty:
+            return
+        checkpoint_started = time.monotonic()
+        try:
+            save_training_state(
+                out / "state.pt", model, optimizer, scaler, tokenizer,
+                global_step=global_step, epoch=epoch,
+                micro_batches_consumed_in_epoch=cursor, samples_seen=samples_seen,
+                best_loss=best_loss, history=history, tokens=tokens_seen, manifest=manifest,
+                # A same-step metadata refresh must keep the previous update's backup.
+                preserve_backup=preserve_backup or last_saved_step == global_step,
+            )
+        except Exception as exc:
+            print(f"[checkpoint] FAILED step {global_step}: {exc}; previous valid checkpoint retained", flush=True)
+            raise
+        last_saved_step = global_step
+        validation_state_dirty = False
+        preserve_backup = False
+        last_checkpoint_seconds = time.monotonic() - checkpoint_started
+        record = {"event": "checkpoint", "global_step": global_step, "status": "saved",
+                  "seconds": last_checkpoint_seconds}
+        _append_log(out, record)
+        print(f"[checkpoint] saved step {global_step} -> {out / 'state.pt'} ({last_checkpoint_seconds:.2f}s)")
+
+    def validation():
+        nonlocal best_loss, validation_state_dirty, last_validation_step, last_validation_metrics
+        if val_dataset is None:
+            return None
+        if last_validation_step == global_step:
+            return last_validation_metrics
+        metrics = evaluate(
+            model, val_dataset, device, batch_size=opts.batch_size,
+            max_batches=opts.val_limit or None,
+            pad_token_id=model.cfg.pad_token_id, ignore_index=model.cfg.ignore_index,
+        )
+        print(f"[val] step {global_step}: loss {metrics['loss']:.4f} ppl {metrics['perplexity']:.2f}")
+        entry = {"step": global_step, "mode": mode, **metrics}
+        if not history or history[-1] != entry:
+            # A completed resume may revalidate the same step with a new val_limit.
+            if history and history[-1]["step"] == global_step:
+                history[-1] = entry
+            else:
+                history.append(entry)
+            validation_state_dirty = True
+            _write_metrics(out, history)
+            _append_log(out, {"event": "validation", "global_step": global_step, **metrics})
+        if best_loss is None or metrics["loss"] < best_loss:
+            save_model_checkpoint(
+                out / "best.pt", model, tokenizer, step=global_step, tokens=tokens_seen,
+                val_loss=metrics["loss"], extra={"mode": mode, **opts.extra_meta},
+            )
+            best_loss = metrics["loss"]
+            validation_state_dirty = True
+        last_validation_step, last_validation_metrics = global_step, metrics
+        return metrics
+
+    def handle_signal(signum, frame):
+        nonlocal interrupted, stop_reason
+        interrupted, stop_reason = True, signal.Signals(signum).name
+        print(f"\n[signal] caught {stop_reason}; finishing current optimizer update then saving", flush=True)
+
+    old_handlers = {sig: signal.signal(sig, handle_signal) for sig in (signal.SIGINT, signal.SIGTERM)}
+    try:
+        while global_step < total_steps and not interrupted:
+            if opts.max_minutes and (time.monotonic() - started) >= opts.max_minutes * 60:
+                stop_reason = "time_budget"
+                interrupted = True
+                break
+            batches = iter(batch_factory(epoch, cursor)) if batch_factory is not None else make_pretrain_loader(
+                train_dataset, sampler, epoch, start_batch=cursor,
+                pad_token_id=model.cfg.pad_token_id, ignore_index=model.cfg.ignore_index,
+            )
+            while global_step < total_steps and not interrupted:
+                remaining = min(opts.grad_accum, len(sampler) - cursor)
+                group = _take(batches, remaining)
+                if len(group) != remaining:
+                    raise RuntimeError("batch stream ended before the declared dataset cursor; refusing to skip data")
+                step_started = time.monotonic()
+                lr = lr_at(global_step, total_steps, opts.lr, opts.min_lr, warmup)
+                _check_lr(lr, opts.lr)
+                for param_group in optimizer.param_groups:
+                    param_group["lr"] = lr
+                result = _train_step(model, group, optimizer, scaler, device, dtype, opts, lr)
+                # Commit all counters only after an actual, finite optimizer update.
+                global_step += 1
+                cursor += len(group)
+                samples_seen += sum(batch["input_ids"].shape[0] for batch in group)
+                tokens_seen += result.tokens
+                running_loss_sum += result.loss_sum
+                running_tokens += result.tokens
+                steps_since_log += 1
+                completed_epoch, completed_cursor = epoch, cursor
+                if cursor == len(sampler):
+                    epoch, cursor = epoch + 1, 0
+                step_seconds = time.monotonic() - step_started
+                now = time.monotonic()
+                if opts.max_minutes and now - started >= opts.max_minutes * 60:
+                    interrupted, stop_reason = True, "time_budget"
+                    print(f"[budget] stopping after complete step {global_step}")
+                if (opts.log_every and global_step % opts.log_every == 0) or now - last_log > 30 or global_step == total_steps or interrupted:
+                    elapsed = max(now - last_log, 1e-6)
+                    record = {
+                        "event": "train", "global_step": global_step,
+                        "epoch": completed_epoch, "micro_batches_consumed_in_epoch": completed_cursor,
+                        "micro_batches_per_epoch": len(sampler), "samples_seen": samples_seen,
+                        "tokens_seen": tokens_seen, "loss": running_loss_sum / running_tokens,
+                        "loss_tokens": running_tokens, "learning_rate": lr, "gradient_norm": result.grad_norm,
+                        "tokens_per_second": running_tokens / elapsed, "step_seconds": step_seconds,
+                        "mean_step_seconds": elapsed / steps_since_log, "peak_gpu_mb": peak_memory_mb(device),
+                    }
+                    _append_log(out, record)
+                    print(f"step {global_step}/{total_steps} epoch {completed_epoch} "
+                          f"micro-batch {completed_cursor}/{len(sampler)} tokens {tokens_seen:,} "
+                          f"loss {record['loss']:.4f} lr {lr:.2e} grad {result.grad_norm:.3f} "
+                          f"{record['tokens_per_second']:,.0f} tok/s {step_seconds:.3f}s/step")
+                    last_log, running_loss_sum, running_tokens, steps_since_log = now, 0.0, 0, 0
+                if interrupted:
+                    break  # Persist first; do not spend the shutdown budget validating.
+                if val_dataset is not None and opts.val_every and global_step % opts.val_every == 0:
+                    validation()
+                if opts.save_every and global_step % opts.save_every == 0:
+                    save_state()
+                if cursor == 0:
+                    break
+        save_state()
+        metrics = None if interrupted else validation()
+        save_state()  # persist final best_loss/history, including when this step was already saved
+        save_model_checkpoint(
+            out / "model.pt", model, tokenizer, step=global_step, tokens=tokens_seen,
+            val_loss=metrics["loss"] if metrics else None, extra={"mode": mode, **opts.extra_meta},
+        )
+    except Exception as exc:
+        optimizer.zero_grad(set_to_none=True)
+        message = str(exc)
+        if "out of memory" in message.lower():
+            message = "CUDA OOM; reduce --batch-size/--seq-len or use --grad-checkpointing. " + message
+        print(f"[error] training aborted at completed global_step {global_step}: {message}. "
+              "No partial update will be saved; resume the last valid state.pt or explicit state.prev.pt.", flush=True)
+        raise
+    finally:
+        for sig, handler in old_handlers.items():
+            signal.signal(sig, handler)
+
     summary = {
-        "mode": mode,
-        "steps": start_step,
-        "tokens_seen": tokens_seen,
-        "seconds": round(elapsed, 1),
-        "best_val_loss": best_loss,
-        "final_val": metrics,
-        "peak_rss_mb": round(peak_rss_mb(), 1),
-        "peak_gpu_mb": round(peak_memory_mb(device) or 0, 1),
-        "precision": precision,
-        "batch_size": opts.batch_size,
-        "grad_accum": opts.grad_accum,
-        "grad_checkpointing": opts.grad_checkpointing,
-        "seed": opts.seed,
-        "params": model.num_parameters(),
-        **opts.extra_meta,
+        "mode": mode, "steps": global_step, "global_step": global_step, "epoch": epoch,
+        "micro_batches_consumed_in_epoch": cursor, "samples_seen": samples_seen,
+        "tokens_seen": tokens_seen, "target_optimizer_updates": total_steps,
+        "optimizer_updates_per_epoch": plan["optimizer_updates_per_epoch"],
+        "seconds": round(time.monotonic() - started, 3), "stop_reason": stop_reason,
+        "best_val_loss": best_loss, "final_val": metrics,
+        "last_checkpoint_seconds": last_checkpoint_seconds,
+        "peak_rss_mb": round(peak_rss_mb(), 1), "peak_gpu_mb": round(peak_memory_mb(device) or 0, 1),
+        "precision": precision, "batch_size": opts.batch_size, "grad_accum": opts.grad_accum,
+        "grad_checkpointing": opts.grad_checkpointing, "seed": opts.seed,
+        "params": model.num_parameters(), **opts.extra_meta,
     }
-    (out / "train-summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False))
-    print(f"[done] {out} | {start_step} steps | {tokens_seen:,} tokens | "
-          f"{elapsed / 60:.1f} min | peak RSS {summary['peak_rss_mb']:.0f} MB")
-    if metrics:
-        print(f"[done] val loss {metrics['loss']:.4f} (ppl {metrics['perplexity']:.2f})")
+    write_json(out / "train-summary.json", summary)
+    print(f"[done] {out} | {global_step} updates | {samples_seen:,} samples | {tokens_seen:,} loss tokens | {stop_reason}")
     return summary
 
 
@@ -504,52 +616,81 @@ def _take(iterator: Iterator[dict], n: int) -> list[dict]:
     return group
 
 
+class NumericalError(RuntimeError):
+    """An update failed; only the last persisted complete update is resumable."""
+
+
+class AMPOverflowError(NumericalError):
+    """GradScaler skipped an optimizer update (fatal; counters are not advanced)."""
+
+
+@dataclass
+class StepResult:
+    loss_sum: float
+    tokens: int
+    grad_norm: float
+
+
+def _check_lr(lr: float, peak: float) -> None:
+    if not math.isfinite(lr) or lr < 0 or lr > peak * (1 + 1e-12):
+        raise NumericalError(f"abnormal learning rate: {lr!r}")
+
+
 def _train_step(
-    model: MiniLLM,
-    group: Sequence[dict],
-    optimizer: torch.optim.Optimizer,
-    scaler: torch.amp.GradScaler | None,
-    device: torch.device,
-    dtype: torch.dtype | None,
-    opts: TrainingOptions,
-    lr: float,
-) -> tuple[float, int]:
-    """One optimizer update over `grad_accum` micro-batches, token-weighted."""
-    group_tokens = sum(
-        int((batch["labels"][:, 1:] != model.cfg.ignore_index).sum()) for batch in group
-    )
-    group_tokens = max(group_tokens, 1)
+    model: MiniLLM, group: Sequence[dict], optimizer: torch.optim.Optimizer,
+    scaler: torch.amp.GradScaler | None, device: torch.device, dtype: torch.dtype | None,
+    opts: TrainingOptions, lr: float,
+) -> StepResult:
+    """Token-weighted gradients; a failed/skipped update never returns success."""
+    _check_lr(lr, opts.lr)
+    group_tokens = sum(int((batch["labels"][:, 1:] != model.cfg.ignore_index).sum()) for batch in group)
+    if group_tokens <= 0:
+        raise NumericalError("optimizer group has no effective loss tokens")
     optimizer.zero_grad(set_to_none=True)
     total_loss = 0.0
+    amp = scaler is not None and scaler.is_enabled()
     for batch in group:
         batch = {k: v.to(device) for k, v in batch.items()}
-        if dtype is not None and device.type == "cuda":
-            with torch.autocast(device_type="cuda", dtype=dtype):
-                out = model(batch["input_ids"], attention_mask=batch["attention_mask"], labels=batch["labels"])
-            loss = out.loss_sum / group_tokens
-            if scaler is not None and scaler.is_enabled():
-                scaler.scale(loss).backward()
-            else:
-                loss.backward()
-        else:
+        with torch.autocast(device_type=device.type, dtype=dtype, enabled=dtype is not None and device.type == "cuda"):
             out = model(batch["input_ids"], attention_mask=batch["attention_mask"], labels=batch["labels"])
             loss = out.loss_sum / group_tokens
+        loss_sum = float(out.loss_sum.detach())
+        if not math.isfinite(loss_sum):
+            raise NumericalError(f"non-finite training loss: {loss_sum}")
+        if amp:
+            scaler.scale(loss).backward()
+        else:
             loss.backward()
-        total_loss += float(out.loss_sum.detach())
-    if scaler is not None and scaler.is_enabled():
+        total_loss += loss_sum
+    if not math.isfinite(total_loss):
+        raise NumericalError("non-finite accumulated training loss")
+    if amp:
         scaler.unscale_(optimizer)
-    torch.nn.utils.clip_grad_norm_(model.parameters(), opts.grad_clip)
-    if scaler is not None and scaler.is_enabled():
+    norm = float(torch.nn.utils.clip_grad_norm_(model.parameters(), opts.grad_clip))
+    if not math.isfinite(norm):
+        if amp:
+            # Do not call optimizer.step on non-finite gradients. Abort rather
+            # than consume data while silently counting a skipped update.
+            raise AMPOverflowError("AMP overflow/non-finite gradient norm: optimizer update skipped; global_step unchanged")
+        raise NumericalError(f"non-finite gradient norm: {norm}")
+    if amp:
+        scale_before = scaler.get_scale()
         scaler.step(optimizer)
         scaler.update()
+        if scaler.get_scale() < scale_before:
+            raise AMPOverflowError("AMP overflow: GradScaler skipped update; global_step unchanged")
     else:
         optimizer.step()
-    return total_loss / group_tokens, group_tokens
+    return StepResult(total_loss, group_tokens, norm)
 
 
 def _write_metrics(out: Path, history: list[dict]) -> None:
-    out.mkdir(parents=True, exist_ok=True)
-    (out / "metrics.json").write_text(json.dumps(history, indent=2, ensure_ascii=False))
+    write_json(out / "metrics.json", history)
+
+
+def _append_log(out: Path, record: dict) -> None:
+    with (out / "training-log.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, allow_nan=False) + "\n")
 
 
 # --------------------------------------------------------------------------- cli
@@ -557,13 +698,13 @@ def _write_metrics(out: Path, history: list[dict]) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Pretrain MiniLLM")
-    p.add_argument("--config", default="minillm-87m", help="preset name or path to config.json")
+    p.add_argument("--config", default=None, help="preset/path (fresh default minillm-87m); checked when supplied with --resume")
     p.add_argument("--data", required=True, help="train.bin produced by scripts/prepare_text.py")
     p.add_argument("--val-data", help="val.bin; omit to skip validation")
     p.add_argument("--tokenizer", required=True)
     p.add_argument("--out", default="runs/minillm")
     p.add_argument("--init-from", help="MiniLLM checkpoint to warm-start from")
-    p.add_argument("--resume", help="state.pt to resume from")
+    p.add_argument("--resume", help="state.pt (or explicit state.prev.pt); restores the fixed training plan")
     p.add_argument("--seq-len", type=int, default=0, help="0 = max_position_embeddings")
     p.add_argument("--epochs", type=int, default=1)
     p.add_argument("--batch-size", type=int, default=2)
@@ -573,7 +714,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--warmup-ratio", type=float, default=0.02)
     p.add_argument("--weight-decay", type=float, default=0.1)
     p.add_argument("--grad-clip", type=float, default=1.0)
-    p.add_argument("--max-steps", type=int, default=0)
+    p.add_argument("--max-steps", type=int, default=0, help="cumulative target updates; >0 overrides --epochs")
     p.add_argument("--save-every", type=int, default=200)
     p.add_argument("--val-every", type=int, default=200)
     p.add_argument("--val-limit", type=int, default=0, help="max validation batches")
@@ -590,15 +731,22 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
+    set_seed(args.seed)  # before any model constructor (including resume setup)
     device = get_device(args.device)
     if args.threads:
         torch.set_num_threads(args.threads)
     if args.resume:
-        state = load_training_state(args.resume)
+        state = load_training_state(args.resume, mmap=True)
         cfg = MiniLLMConfig.from_dict(state["config"])
-        model = MiniLLM(cfg)
-        model.load_state_dict(state["model"])
         tokenizer = MiniLLMTokenizer.load(args.tokenizer)
+        if args.config:
+            requested_cfg = MiniLLMConfig.load(args.config) if Path(args.config).exists() else get_config(args.config)
+            requested_cfg.vocab_size = tokenizer.vocab_size
+            if requested_cfg.to_dict() != cfg.to_dict():
+                raise CheckpointError("resume Model Config differs from --config")
+        del state  # release the mapped checkpoint before allocating new weights
+        model = MiniLLM(cfg)
+        # fit validates and loads the full state once setup is complete.
     elif args.init_from:
         model, cfg, payload = load_model_checkpoint(args.init_from, torch.device("cpu"))
         tokenizer = MiniLLMTokenizer.load(args.tokenizer)
@@ -606,8 +754,9 @@ def main() -> None:
             raise SystemExit("init-from tokenizer fingerprint does not match --tokenizer")
         if payload.get("tokenizer_vocab_size") not in (None, tokenizer.vocab_size):
             raise SystemExit("init-from tokenizer vocabulary size does not match --tokenizer")
+        del payload
     else:
-        cfg = get_config(args.config) if not Path(args.config).exists() else MiniLLMConfig.load(args.config)
+        cfg = get_config(args.config or "minillm-87m") if not args.config or not Path(args.config).exists() else MiniLLMConfig.load(args.config)
         tokenizer = MiniLLMTokenizer.load(args.tokenizer)
         cfg.vocab_size = tokenizer.vocab_size
         model = MiniLLM(cfg)
