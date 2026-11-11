@@ -1,0 +1,233 @@
+{
+  "cases": [
+    {
+      "baseline_idle_rss_mib": 492.86,
+      "baseline_peak_rss_mib": 497.4,
+      "category_independent_overlap": {
+        "train/test": 0,
+        "train/val": 0,
+        "val/test": 0
+      },
+      "content_id": "c97371670f22b62c19480c804f564ee732f93c84c076d32322cbe0fe46b7ed9e",
+      "deduplication": {
+        "documents": 10000,
+        "duplicates_exact": 0,
+        "duplicates_near": 0,
+        "duplicates_normalized_exact": 0,
+        "duplicates_raw_exact": 0,
+        "fragment_duplicates_exact": 0,
+        "fragment_duplicates_near": 0,
+        "fragment_search": {
+          "candidates": 33427,
+          "documents": 9485,
+          "max_candidates_observed": 16,
+          "near_edges": 0
+        },
+        "parameters": {
+          "hamming_distance": 4,
+          "max_candidates": 2000,
+          "method": "simhash",
+          "near_code": false,
+          "ngram": 4,
+          "threshold": 0.85
+        },
+        "parent_search": {
+          "candidates": 33427,
+          "documents": 9485,
+          "max_candidates_observed": 16,
+          "near_edges": 0
+        },
+        "parents_after_near": 10000,
+        "parents_before_near": 10000,
+        "parents_selected": 10000
+      },
+      "documents_per_second": 631.65,
+      "environment": {
+        "measurement": "Linux ru_maxrss; fresh child, imports before baseline; full audit included in peak",
+        "platform": "linux",
+        "python": "3.11.17",
+        "sqlite_cache_mib": 16,
+        "threads": 1,
+        "torch": "2.14.1+cu126"
+      },
+      "exact_overlap": {
+        "train/test": 0,
+        "train/val": 0,
+        "val/test": 0
+      },
+      "incremental_peak_rss_mib": 44.08,
+      "input_documents": 10000,
+      "known_near_duplicate_cross_split_groups": 0,
+      "peak_minus_idle_rss_mib": 48.61,
+      "peak_rss_mib": 541.48,
+      "pipeline_seconds": 15.832,
+      "published_documents": 10000,
+      "raw_overlap": {
+        "train/test": 0,
+        "train/val": 0,
+        "val/test": 0
+      },
+      "stages_seconds": {
+        "deduplicate.stage.json": 7.500229,
+        "normalize.stage.json": 3.094947,
+        "split.stage.json": 0.677526,
+        "tokenize-test.stage.json": 0.085468,
+        "tokenize-train.stage.json": 3.831799,
+        "tokenize-val.stage.json": 0.074074,
+        "tokenizer.stage.json": 0.001684
+      },
+      "tokens": 4370793,
+      "tokens_per_second": 276081.78
+    },
+    {
+      "baseline_idle_rss_mib": 493.03,
+      "baseline_peak_rss_mib": 497.4,
+      "category_independent_overlap": {
+        "train/test": 0,
+        "train/val": 0,
+        "val/test": 0
+      },
+      "content_id": "ade9bb47961b8ee20cd4f16348da208c2c249572530df46e4e68c2c689c82e71",
+      "deduplication": {
+        "documents": 100000,
+        "duplicates_exact": 0,
+        "duplicates_near": 0,
+        "duplicates_normalized_exact": 0,
+        "duplicates_raw_exact": 0,
+        "fragment_duplicates_exact": 0,
+        "fragment_duplicates_near": 0,
+        "fragment_search": {
+          "candidates": 3518099,
+          "documents": 95049,
+          "max_candidates_observed": 124,
+          "near_edges": 0
+        },
+        "parameters": {
+          "hamming_distance": 4,
+          "max_candidates": 2000,
+          "method": "simhash",
+          "near_code": false,
+          "ngram": 4,
+          "threshold": 0.85
+        },
+        "parent_search": {
+          "candidates": 3518099,
+          "documents": 95049,
+          "max_candidates_observed": 124,
+          "near_edges": 0
+        },
+        "parents_after_near": 100000,
+        "parents_before_near": 100000,
+        "parents_selected": 100000
+      },
+      "documents_per_second": 639.34,
+      "environment": {
+        "measurement": "Linux ru_maxrss; fresh child, imports before baseline; full audit included in peak",
+        "platform": "linux",
+        "python": "3.11.17",
+        "sqlite_cache_mib": 16,
+        "threads": 1,
+        "torch": "2.14.1+cu126"
+      },
+      "exact_overlap": {
+        "train/test": 0,
+        "train/val": 0,
+        "val/test": 0
+      },
+      "incremental_peak_rss_mib": 48.32,
+      "input_documents": 100000,
+      "known_near_duplicate_cross_split_groups": 0,
+      "peak_minus_idle_rss_mib": 52.69,
+      "peak_rss_mib": 545.72,
+      "pipeline_seconds": 156.412,
+      "published_documents": 100000,
+      "raw_overlap": {
+        "train/test": 0,
+        "train/val": 0,
+        "val/test": 0
+      },
+      "stages_seconds": {
+        "deduplicate.stage.json": 78.307735,
+        "normalize.stage.json": 30.835243,
+        "split.stage.json": 7.000981,
+        "tokenize-test.stage.json": 0.652388,
+        "tokenize-train.stage.json": 31.419787,
+        "tokenize-val.stage.json": 0.671447,
+        "tokenizer.stage.json": 0.001551
+      },
+      "tokens": 43797053,
+      "tokens_per_second": 280011.69
+    }
+  ],
+  "dedup_quality": {
+    "cases": [
+      {
+        "case": "identical",
+        "detected_duplicate": true,
+        "exact_removed": 1,
+        "expected_duplicate": true,
+        "near_removed": 0
+      },
+      {
+        "case": "whitespace",
+        "detected_duplicate": true,
+        "exact_removed": 1,
+        "expected_duplicate": true,
+        "near_removed": 0
+      },
+      {
+        "case": "light_edit",
+        "detected_duplicate": true,
+        "exact_removed": 0,
+        "expected_duplicate": true,
+        "near_removed": 1
+      },
+      {
+        "case": "new_title",
+        "detected_duplicate": true,
+        "exact_removed": 0,
+        "expected_duplicate": true,
+        "near_removed": 1
+      },
+      {
+        "case": "same_prefix_different_body",
+        "detected_duplicate": false,
+        "exact_removed": 0,
+        "expected_duplicate": false,
+        "near_removed": 0
+      },
+      {
+        "case": "cross_source_repost",
+        "detected_duplicate": true,
+        "exact_removed": 1,
+        "expected_duplicate": true,
+        "near_removed": 0
+      },
+      {
+        "case": "different_content",
+        "detected_duplicate": false,
+        "exact_removed": 0,
+        "expected_duplicate": false,
+        "near_removed": 0
+      },
+      {
+        "case": "cross_category_code",
+        "detected_duplicate": true,
+        "exact_removed": 1,
+        "expected_duplicate": true,
+        "near_removed": 0
+      },
+      {
+        "case": "code_indent_variants",
+        "detected_duplicate": false,
+        "exact_removed": 0,
+        "expected_duplicate": false,
+        "near_removed": 0
+      }
+    ],
+    "precision": 1.0,
+    "recall": 1.0,
+    "scope": "Nine synthetic labeled pairs only; not an estimate of real-world precision/recall."
+  },
+  "notes": "Synthetic only; throughput depends on hardware, text length and candidate density. No absolute RSS CI assertion."
+}

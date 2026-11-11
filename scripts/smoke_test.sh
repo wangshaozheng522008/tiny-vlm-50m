@@ -29,22 +29,28 @@ echo "config  : $CONFIG (vocab $VOCAB, seq $SEQ_LEN, $STEPS pretrain / $SFT_STEP
 
 # ---------------------------------------------------------------- 1. corpus
 CORPUS_SRC=""
-for candidate in data/minimind/pretrain_t2t_mini.jsonl data/pretrain-minimind/train.jsonl; do
-  if [ -f "$candidate" ]; then CORPUS_SRC="$candidate"; break; fi
-done
+if [ "${SYNTHETIC:-0}" != "1" ]; then
+  for candidate in data/minimind/pretrain_t2t_mini.jsonl data/pretrain-minimind/train.jsonl; do
+    if [ -f "$candidate" ]; then CORPUS_SRC="$candidate"; break; fi
+  done
+fi
 if [ -n "$CORPUS_SRC" ]; then
   echo "[1/8] source corpus: $CORPUS_SRC"
   INPUT_ARGS=(--input "$CORPUS_SRC")
 else
   echo "[1/8] no local corpus found; synthesising Chinese text"
   "$PY" - "$WORK/synthetic.jsonl" <<'PY'
-import json, sys
+import json, sys, random
 words = ["人工智能", "机器学习", "模型", "训练", "数据", "语言", "中文", "代码", "数学", "推理"]
 patterns = ["{a}是{b}的重要组成部分。", "研究{a}需要理解{b}和{c}。", "{a}可以帮助我们完成{b}。"]
+rng = random.Random(42)
 with open(sys.argv[1], "w", encoding="utf-8") as handle:
     for i in range(1500):
-        a, b, c = (words[(i * 7 + k) % len(words)] for k in (0, 3, 6))
-        handle.write(json.dumps({"text": patterns[i % 3].format(a=a, b=b, c=c) * 3},
+        sentences = []
+        for j in range(6):
+            a, b, c = rng.choices(words, k=3)
+            sentences.append(patterns[j % 3].format(a=a, b=b, c=c))
+        handle.write(json.dumps({"text": "".join(sentences) + f"文档编号{i}。"},
                                 ensure_ascii=False) + "\n")
 PY
   INPUT_ARGS=(--input "$WORK/synthetic.jsonl")

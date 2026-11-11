@@ -32,6 +32,21 @@ def dataset_identity(dataset, ignore_index: int) -> tuple[dict | None, int]:
     if isinstance(dataset, PackedPretrainDataset):
         identity["seq_len"] = dataset.seq_len
         tokens = len(dataset) * (dataset.seq_len - 1)  # model shifts labels inside each window
+        version_path = dataset.path.parent / "dataset-manifest.json"
+        if version_path.exists():
+            from .corpus_utils import identity as content_identity
+            try:
+                version = json.loads(version_path.read_text())
+                expected = version["files"][dataset.path.name]
+                if (version["schema_version"] != 1
+                        or content_identity(version["identity"]) != version["content_id"]
+                        or version["identity"]["files"] != version["files"]
+                        or expected != {"bytes": dataset.path.stat().st_size, "sha256": identity["sha256"]}):
+                    raise ValueError("dataset version/file hash mismatch")
+                identity["dataset_content_id"] = version["content_id"]
+                identity["dataset_tokenizer_fingerprint"] = version["tokenizer"]["fingerprint"]
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                raise CheckpointError(f"invalid published dataset manifest {version_path}: {exc}") from exc
     elif isinstance(dataset, SFTDataset):
         identity.update(seq_len=dataset.max_seq_len, system=dataset.system,
                         supervise_all_assistant_turns=dataset.supervise_all)
@@ -70,6 +85,9 @@ def build_manifest(opts, model, tokenizer, train_dataset, val_dataset, *, mode, 
         raise ValueError("max_minutes must be finite and nonnegative")
     train, tokens = dataset_identity(train_dataset, model.cfg.ignore_index)
     val, _ = dataset_identity(val_dataset, model.cfg.ignore_index)
+    for dataset in (train, val):
+        if dataset and dataset.get("dataset_tokenizer_fingerprint", tokenizer.fingerprint) != tokenizer.fingerprint:
+            raise CheckpointError("published dataset tokenizer fingerprint does not match training tokenizer")
     if train["seq_len"] < 2 or train["seq_len"] > model.cfg.max_position_embeddings:
         raise ValueError("sequence length must be in [2, max_position_embeddings]")
     updates = math.ceil(len(sampler) / opts.grad_accum)
