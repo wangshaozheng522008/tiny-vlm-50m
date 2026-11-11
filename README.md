@@ -278,6 +278,9 @@ NaN/Inf Loss、非有限梯度范数、异常 LR、OOM 和保存失败均终止�
 并终止，随后从上次有效状态重试；本 PR 不自动消费数据后跳过失败更新。
 `training-log.jsonl` 记录训练进度、累计 Token、按有效 Token 加权的 Loss、LR、Gradient Norm、
 Tokens/s、Step Time、GPU 峰值显存、验证与 Checkpoint 耗时/状态；`metrics.json` 保留验证历史。
+正常结束时的最终验证也参与 `best.pt` 选择，最佳指标和最终验证历史会写入 `state.pt` 与摘要；
+即使 `--val-every` 大于训练步数也会生成最佳模型。最后一步已做过周期性验证时直接复用结果。
+最终验证前先保存完整更新；验证后仅刷新元数据时保留上一更新点的 `state.prev.pt`。
 
 同一软件环境、固定 Seed 的 CPU FP32 nano 回归要求连续与多次 Resume 参数完全一致。
 CUDA RNG 会保存和恢复，但 GPU 型号、PyTorch/CUDA 版本及非确定性算子可能影响结果，

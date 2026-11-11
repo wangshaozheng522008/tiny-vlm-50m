@@ -604,3 +604,84 @@ def test_fresh_run_accepts_existing_empty_directory(tmp_path, tiny_tokenizer, na
     assert result["steps"] == 1
     manifest = json.loads((out / "training-manifest.json").read_text())
     assert manifest["run_id"] == load_training_state(out / "state.pt")["manifest"]["run_id"]
+
+
+@pytest.mark.parametrize("final_loss,expected_best_step", [(0.5, 3), (2.0, 2)])
+def test_final_validation_tracks_best_weights_and_saved_metrics(
+    tmp_path, tiny_tokenizer, nano_cfg, small_data, final_loss, expected_best_step,
+):
+    opts = options(tmp_path / "final-validation", max_steps=3, val_every=2)
+    model = new_model(nano_cfg)
+    weights = {}
+    losses = iter([(2, 1.0), (3, final_loss)])
+    def validation(current, *args, **kwargs):
+        step, loss = next(losses)
+        weights[step] = {k: v.clone() for k, v in current.state_dict().items()}
+        return {"loss": loss, "perplexity": float(np.exp(loss)), "tokens": 22, "batches": 1}
+    with patch.object(training, "evaluate", side_effect=validation) as evaluate:
+        summary = fit(opts, model, tiny_tokenizer, small_data, small_data)
+    assert evaluate.call_count == 2
+    best = torch.load(Path(opts.out) / "best.pt", weights_only=False)
+    assert best["step"] == expected_best_step
+    assert best["val_loss"] == min(1.0, final_loss)
+    for name, value in weights[expected_best_step].items():
+        torch.testing.assert_close(best["model"][name], value, rtol=0, atol=0)
+    assert any(not torch.equal(weights[2][k], weights[3][k]) for k in weights[2])
+    state = load_training_state(Path(opts.out) / "state.pt")
+    saved_summary = json.loads((Path(opts.out) / "train-summary.json").read_text())
+    metrics = json.loads((Path(opts.out) / "metrics.json").read_text())
+    assert state["best_loss"] == summary["best_val_loss"] == saved_summary["best_val_loss"] == min(1.0, final_loss)
+    assert summary["final_val"]["loss"] == final_loss
+    assert [(r["step"], r["loss"]) for r in state["history"]] == [(2, 1.0), (3, final_loss)]
+    assert metrics == state["history"]
+    # Refreshing final metrics must not rotate the just-saved step 3 over step 2.
+    assert load_training_state(Path(opts.out) / "state.prev.pt")["global_step"] == 2
+
+
+@pytest.mark.parametrize("val_every", [0, 100])
+def test_final_validation_creates_first_best_checkpoint(
+    tmp_path, tiny_tokenizer, nano_cfg, small_data, val_every,
+):
+    opts = options(tmp_path / "only-final-validation", max_steps=2, val_every=val_every)
+    model = new_model(nano_cfg)
+    summary = fit(opts, model, tiny_tokenizer, small_data, small_data)
+    best = torch.load(Path(opts.out) / "best.pt", weights_only=False)
+    assert best["step"] == 2
+    assert best["val_loss"] == summary["final_val"]["loss"] == summary["best_val_loss"]
+    for name, value in model.state_dict().items():
+        torch.testing.assert_close(best["model"][name], value, rtol=0, atol=0)
+    state = load_training_state(Path(opts.out) / "state.pt")
+    assert state["best_loss"] == best["val_loss"]
+    assert len(state["history"]) == 1 and state["history"][0]["step"] == 2
+
+
+def test_final_validation_reuses_periodic_result(tmp_path, tiny_tokenizer, nano_cfg, small_data):
+    opts = options(tmp_path / "periodic-final-validation", max_steps=2, val_every=2)
+    with patch.object(training, "evaluate", wraps=training.evaluate) as evaluate:
+        summary = fit(opts, new_model(nano_cfg), tiny_tokenizer, small_data, small_data)
+    assert evaluate.call_count == 1
+    state = load_training_state(Path(opts.out) / "state.pt")
+    assert state["best_loss"] == summary["best_val_loss"] == summary["final_val"]["loss"]
+    assert len(state["history"]) == 1
+
+
+def test_final_validation_failure_preserves_completed_update_and_previous_best(
+    tmp_path, tiny_tokenizer, nano_cfg, small_data,
+):
+    opts = options(tmp_path / "failed-final-validation", max_steps=3, val_every=2)
+    model = new_model(nano_cfg)
+    actual_evaluate = training.evaluate
+    previous_best = []
+    def validation(*args, **kwargs):
+        if not previous_best:
+            previous_best.append({k: v.clone() for k, v in model.state_dict().items()})
+            return actual_evaluate(*args, **kwargs)
+        raise training.NumericalError("non-finite final validation loss")
+    with patch.object(training, "evaluate", side_effect=validation), pytest.raises(training.NumericalError):
+        fit(opts, model, tiny_tokenizer, small_data, small_data)
+    state = load_training_state(Path(opts.out) / "state.pt")
+    best = torch.load(Path(opts.out) / "best.pt", weights_only=False)
+    assert state["global_step"] == 3 and best["step"] == 2
+    assert state["best_loss"] == best["val_loss"]
+    for name, value in previous_best[0].items():
+        torch.testing.assert_close(best["model"][name], value, rtol=0, atol=0)

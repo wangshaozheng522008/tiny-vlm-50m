@@ -436,13 +436,16 @@ def fit(
     stop_reason = "target_reached"
     last_saved_step = global_step if opts.resume and Path(opts.resume).resolve() == (out / "state.pt").resolve() else -1
     last_checkpoint_seconds = None
+    validation_state_dirty = False
+    last_validation_step = None
+    last_validation_metrics = None
     # Explicit backup recovery treats the old primary as untrusted, even if a
     # damaged file can still deserialize. Preserve the chosen recovery point.
     preserve_backup = bool(opts.resume and Path(opts.resume).name == "state.prev.pt")
 
     def save_state():
-        nonlocal last_saved_step, last_checkpoint_seconds, preserve_backup
-        if last_saved_step == global_step:
+        nonlocal last_saved_step, last_checkpoint_seconds, preserve_backup, validation_state_dirty
+        if last_saved_step == global_step and not validation_state_dirty:
             return
         checkpoint_started = time.monotonic()
         try:
@@ -451,12 +454,14 @@ def fit(
                 global_step=global_step, epoch=epoch,
                 micro_batches_consumed_in_epoch=cursor, samples_seen=samples_seen,
                 best_loss=best_loss, history=history, tokens=tokens_seen, manifest=manifest,
-                preserve_backup=preserve_backup,
+                # A same-step metadata refresh must keep the previous update's backup.
+                preserve_backup=preserve_backup or last_saved_step == global_step,
             )
         except Exception as exc:
             print(f"[checkpoint] FAILED step {global_step}: {exc}; previous valid checkpoint retained", flush=True)
             raise
         last_saved_step = global_step
+        validation_state_dirty = False
         preserve_backup = False
         last_checkpoint_seconds = time.monotonic() - checkpoint_started
         record = {"event": "checkpoint", "global_step": global_step, "status": "saved",
@@ -465,14 +470,35 @@ def fit(
         print(f"[checkpoint] saved step {global_step} -> {out / 'state.pt'} ({last_checkpoint_seconds:.2f}s)")
 
     def validation():
+        nonlocal best_loss, validation_state_dirty, last_validation_step, last_validation_metrics
         if val_dataset is None:
             return None
+        if last_validation_step == global_step:
+            return last_validation_metrics
         metrics = evaluate(
             model, val_dataset, device, batch_size=opts.batch_size,
             max_batches=opts.val_limit or None,
             pad_token_id=model.cfg.pad_token_id, ignore_index=model.cfg.ignore_index,
         )
         print(f"[val] step {global_step}: loss {metrics['loss']:.4f} ppl {metrics['perplexity']:.2f}")
+        entry = {"step": global_step, "mode": mode, **metrics}
+        if not history or history[-1] != entry:
+            # A completed resume may revalidate the same step with a new val_limit.
+            if history and history[-1]["step"] == global_step:
+                history[-1] = entry
+            else:
+                history.append(entry)
+            validation_state_dirty = True
+            _write_metrics(out, history)
+            _append_log(out, {"event": "validation", "global_step": global_step, **metrics})
+        if best_loss is None or metrics["loss"] < best_loss:
+            save_model_checkpoint(
+                out / "best.pt", model, tokenizer, step=global_step, tokens=tokens_seen,
+                val_loss=metrics["loss"], extra={"mode": mode, **opts.extra_meta},
+            )
+            best_loss = metrics["loss"]
+            validation_state_dirty = True
+        last_validation_step, last_validation_metrics = global_step, metrics
         return metrics
 
     def handle_signal(signum, frame):
@@ -538,22 +564,14 @@ def fit(
                 if interrupted:
                     break  # Persist first; do not spend the shutdown budget validating.
                 if val_dataset is not None and opts.val_every and global_step % opts.val_every == 0:
-                    metrics = validation()
-                    history.append({"step": global_step, "mode": mode, **metrics})
-                    _write_metrics(out, history)
-                    _append_log(out, {"event": "validation", "global_step": global_step, **metrics})
-                    if best_loss is None or metrics["loss"] < best_loss:
-                        save_model_checkpoint(
-                            out / "best.pt", model, tokenizer, step=global_step, tokens=tokens_seen,
-                            val_loss=metrics["loss"], extra={"mode": mode, **opts.extra_meta},
-                        )
-                        best_loss = metrics["loss"]
+                    validation()
                 if opts.save_every and global_step % opts.save_every == 0:
                     save_state()
                 if cursor == 0:
                     break
         save_state()
         metrics = None if interrupted else validation()
+        save_state()  # persist final best_loss/history, including when this step was already saved
         save_model_checkpoint(
             out / "model.pt", model, tokenizer, step=global_step, tokens=tokens_seen,
             val_loss=metrics["loss"] if metrics else None, extra={"mode": mode, **opts.extra_meta},
