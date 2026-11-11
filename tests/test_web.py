@@ -120,3 +120,63 @@ def test_unknown_route_404(server):
     with pytest.raises(urllib.error.HTTPError) as excinfo:
         get(server, "/api/does-not-exist")
     assert excinfo.value.code == 404
+
+
+# --------------------------------------------------------------------------- stops
+
+
+def _scripted_sampler(monkeypatch, tokens: list[int]):
+    """Deterministic token stream so END_OF_TURN is hit without luck."""
+    from minillm.model import MiniLLM
+
+    state = {"calls": []}
+
+    def fake(logits, temperature, top_k, generator):
+        index = len(state["calls"])
+        state["calls"].append(index)
+        token = tokens[min(index, len(tokens) - 1)]
+        return torch.tensor([[token]], dtype=torch.long, device=logits.device)
+
+    monkeypatch.setattr(MiniLLM, "_sample", staticmethod(fake))
+    return state
+
+
+def test_end_of_turn_stops_web_generation(server, monkeypatch):
+    from minillm.tokenizer import END_OF_TURN_ID
+
+    state = _scripted_sampler(monkeypatch, [300, END_OF_TURN_ID, 301, 302])
+    status, data = post(server, "/api/chat", {"message": "你好", "max_new_tokens": 8})
+    assert status == 200
+    assert data["tokens"] == 1, "the stop marker must not be counted as a reply token"
+    assert "<|end_of_turn|>" not in data["reply"]
+    assert "<|assistant|>" not in data["reply"] and "<|user|>" not in data["reply"]
+    assert len(state["calls"]) == 2, "decoding must stop at the marker"
+
+
+def test_end_of_turn_is_not_written_to_history(tiny_tokenizer, nano_cfg, monkeypatch):
+    from minillm.model import MiniLLM
+    from minillm.tokenizer import DEFAULT_SYSTEM, END_OF_TURN_ID
+    from minillm.web import ChatEngine
+
+    model = MiniLLM(nano_cfg).eval()
+    engine = ChatEngine(model, tiny_tokenizer, torch.device("cpu"), "t", 1024, step=1)
+    _scripted_sampler(monkeypatch, [300, END_OF_TURN_ID, 301])
+    result = engine.chat("第一问", max_new_tokens=8)
+    assert result["tokens"] == 1
+    assert [m["role"] for m in engine.history] == ["user", "assistant"]
+    assert engine.history[0]["content"] == "第一问"
+    assert "<|end_of_turn|>" not in engine.history[1]["content"]
+
+    ids, _ = engine._prompt_ids("第二问", DEFAULT_SYSTEM, 512)
+    # system + first user + assistant + second user = 4 closing markers. A marker
+    # leaked into the stored reply would be re-tokenised as a special token and
+    # push this count to 5.
+    assert ids.count(END_OF_TURN_ID) == 4
+
+
+def test_web_keeps_a_plain_eos_path(server, monkeypatch):
+    from minillm.tokenizer import EOS_ID
+
+    _scripted_sampler(monkeypatch, [300, EOS_ID, 301])
+    status, data = post(server, "/api/chat", {"message": "你好", "max_new_tokens": 8})
+    assert status == 200 and data["tokens"] == 1

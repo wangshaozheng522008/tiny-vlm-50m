@@ -176,3 +176,113 @@ def test_efficiency_on_real_chinese(tmp_path):
     report = tokenizer.efficiency_report({"zh": [sample], "code": [CODE]})
     assert report["zh_tokens_per_char"] < 1.2, report
     assert report["roundtrip_ok"] == 1.0
+
+
+# ------------------------------------------------------------------ P0: labels
+
+SENTINEL_USER = "UUUSERQUESTION"
+SENTINEL_ASSISTANT = "AAASSISTANTREPLY"
+
+
+def test_chat_labels_are_the_real_next_tokens(tiny_tokenizer):
+    encoding = tiny_tokenizer.chat_encoding([
+        {"role": "system", "content": "SSSYSTEMPROMPT"},
+        {"role": "user", "content": SENTINEL_USER},
+        {"role": "assistant", "content": SENTINEL_ASSISTANT},
+    ])
+    ids, labels = encoding.ids, encoding.labels
+    ignore = tiny_tokenizer.ignore_index
+    assert len(ids) == len(labels)
+    for token, label in zip(ids, labels):
+        assert label in (ignore, token), "supervised labels must equal the input token"
+    supervised = [t for t, l in zip(ids, labels) if l != ignore]
+    assert supervised, "assistant turn must be supervised"
+    assert supervised[-1] == END_OF_TURN_ID, "the terminator is a real target"
+    assert PAD_ID not in supervised and all(t != PAD_ID for t in supervised)
+    assert any(t != PAD_ID for t in supervised), "labels were all collapsed to PAD"
+
+
+def test_chat_supervises_exactly_the_assistant_segment(tiny_tokenizer):
+    encoding = tiny_tokenizer.chat_encoding([
+        {"role": "system", "content": "SSSYSTEMPROMPT"},
+        {"role": "user", "content": SENTINEL_USER},
+        {"role": "assistant", "content": SENTINEL_ASSISTANT},
+    ])
+    ignore = tiny_tokenizer.ignore_index
+    content = tiny_tokenizer._segment("\n" + SENTINEL_ASSISTANT)
+    supervised = sum(1 for label in encoding.labels if label != ignore)
+    assert supervised == len(content) + 1, "content tokens plus the closing marker"
+    allowed = set(content) | {END_OF_TURN_ID}
+    for token, label in zip(encoding.ids, encoding.labels):
+        if label == ignore:
+            continue
+        assert token in allowed, f"token {token} is not part of the assistant answer"
+    supervised_ids = [t for t, l in zip(encoding.ids, encoding.labels) if l != ignore]
+    assert supervised_ids[: len(content)] == content
+
+
+def test_chat_system_and_user_tokens_are_ignored(tiny_tokenizer):
+    encoding = tiny_tokenizer.chat_encoding([
+        {"role": "system", "content": "SSSYSTEMPROMPT"},
+        {"role": "user", "content": SENTINEL_USER},
+        {"role": "assistant", "content": SENTINEL_ASSISTANT},
+    ])
+    ignore = tiny_tokenizer.ignore_index
+    system_tokens = set(tiny_tokenizer._segment("\n" + "SSSYSTEMPROMPT"))
+    user_tokens = set(tiny_tokenizer._segment("\n" + SENTINEL_USER))
+    answer_tokens = set(tiny_tokenizer._segment("\n" + SENTINEL_ASSISTANT))
+    for token, label in zip(encoding.ids, encoding.labels):
+        inprompt = token in system_tokens or token in user_tokens
+        if inprompt and token not in answer_tokens:
+            assert label == ignore, "prompt tokens must not be trained on"
+    supervised_text = tiny_tokenizer.decode(
+        [t for t, l in zip(encoding.ids, encoding.labels) if l != ignore],
+        skip_special_tokens=True,
+    )
+    assert SENTINEL_ASSISTANT in supervised_text
+    assert SENTINEL_USER not in supervised_text
+    assert "SSSYSTEMPROMPT" not in supervised_text
+
+
+def test_chat_multi_turn_labels_are_aligned(tiny_tokenizer):
+    encoding = tiny_tokenizer.chat_encoding([
+        {"role": "user", "content": "第一个问题"},
+        {"role": "assistant", "content": "第一个回答"},
+        {"role": "user", "content": "第二个问题"},
+        {"role": "assistant", "content": "第二个回答"},
+    ])
+    ignore = tiny_tokenizer.ignore_index
+    for token, label in zip(encoding.ids, encoding.labels):
+        assert label in (ignore, token)
+    supervised = [t for t, l in zip(encoding.ids, encoding.labels) if l != ignore]
+    assert supervised.count(END_OF_TURN_ID) == 2, "each answer terminator is supervised"
+    text = tiny_tokenizer.decode(supervised, skip_special_tokens=True)
+    assert "第一个回答" in text and "第二个回答" in text
+
+
+def test_last_turn_only_labels_are_aligned(tiny_tokenizer):
+    encoding = tiny_tokenizer.chat_encoding(
+        [
+            {"role": "user", "content": "第一个问题"},
+            {"role": "assistant", "content": "第一个回答"},
+            {"role": "user", "content": "第二个问题"},
+            {"role": "assistant", "content": "第二个回答"},
+        ],
+        supervise_all_assistant_turns=False,
+    )
+    ignore = tiny_tokenizer.ignore_index
+    for token, label in zip(encoding.ids, encoding.labels):
+        assert label in (ignore, token)
+    supervised = [t for t, l in zip(encoding.ids, encoding.labels) if l != ignore]
+    text = tiny_tokenizer.decode(supervised, skip_special_tokens=True)
+    assert "第二个回答" in text and "第一个回答" not in text
+    assert supervised.count(END_OF_TURN_ID) == 1
+
+
+def test_chat_generation_prompt_appends_assistant_marker(tiny_tokenizer):
+    messages = [{"role": "user", "content": "你好"}]
+    plain = tiny_tokenizer.chat_encoding(messages)
+    prompted = tiny_tokenizer.chat_encoding(messages, add_generation_prompt=True)
+    assert prompted.ids[: len(plain.ids)] == plain.ids, "same template as SFT"
+    assert prompted.ids[len(plain.ids)] == ASSISTANT_ID
+    assert all(label == tiny_tokenizer.ignore_index for label in prompted.labels)

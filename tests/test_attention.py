@@ -143,3 +143,117 @@ def test_loss_ignores_padding():
         out = model(padded_ids, attention_mask=mask, labels=labels_padded)
     # only the 5 shifted real targets are supervised
     assert out.num_loss_tokens == 5
+
+
+# --------------------------------------------------------------------------- stops
+
+
+def _scripted_sampler(monkeypatch, rows: list[list[int]]):
+    """Force `MiniLLM._sample` to emit a fixed per-row sequence.
+
+    The stop behaviour must be exercised deterministically instead of waiting
+    for a randomly initialised model to happen to produce a stop token.
+    """
+    state = {"call": 0}
+
+    def fake(logits, temperature, top_k, generator):
+        call = state["call"]
+        state["call"] += 1
+        picks = [row[min(call, len(row) - 1)] for row in rows]
+        return torch.tensor(picks, dtype=torch.long, device=logits.device).unsqueeze(1)
+
+    monkeypatch.setattr(MiniLLM, "_sample", staticmethod(fake))
+    return state
+
+
+def test_generate_stops_on_end_of_turn(model_and_ids, monkeypatch):
+    from minillm.tokenizer import END_OF_TURN_ID
+
+    model, ids, cfg = model_and_ids
+    prompt = ids[:1, :4]
+    _scripted_sampler(monkeypatch, [[100, END_OF_TURN_ID, 200]])
+    out = model.generate(prompt, max_new_tokens=6, stop_token_ids=[END_OF_TURN_ID])
+    new_tokens = out[0, prompt.shape[1]:].tolist()
+    assert new_tokens == [100, END_OF_TURN_ID], "no token may follow the stop marker"
+
+
+def test_generate_stops_on_eos(model_and_ids, monkeypatch):
+    model, ids, cfg = model_and_ids
+    prompt = ids[:1, :4]
+    _scripted_sampler(monkeypatch, [[100, cfg.eos_token_id, 200]])
+    out = model.generate(prompt, max_new_tokens=6, eos_token_id=cfg.eos_token_id)
+    assert out[0, prompt.shape[1]:].tolist() == [100, cfg.eos_token_id]
+
+
+def test_stop_ids_union_with_eos(model_and_ids, monkeypatch):
+    from minillm.tokenizer import END_OF_TURN_ID
+
+    model, ids, cfg = model_and_ids
+    prompt = ids[:1, :4]
+    # EOS sampled while both EOS and END_OF_TURN are configured: must still stop
+    _scripted_sampler(monkeypatch, [[100, cfg.eos_token_id, 200]])
+    out = model.generate(
+        prompt, max_new_tokens=6, eos_token_id=cfg.eos_token_id,
+        stop_token_ids=[END_OF_TURN_ID],
+    )
+    assert out[0, prompt.shape[1]:].tolist() == [100, cfg.eos_token_id]
+
+
+def test_batch_rows_finish_independently(model_and_ids, monkeypatch):
+    from minillm.tokenizer import END_OF_TURN_ID
+
+    model, ids, cfg = model_and_ids
+    prompt = ids[:, :4]
+    _scripted_sampler(
+        monkeypatch,
+        [[100, END_OF_TURN_ID, 201], [300, 301, cfg.eos_token_id]],
+    )
+    out = model.generate(
+        prompt, max_new_tokens=6, eos_token_id=cfg.eos_token_id,
+        stop_token_ids=[END_OF_TURN_ID],
+    )
+    rows = out[:, prompt.shape[1]:].tolist()
+    assert rows[0] == [100, END_OF_TURN_ID, cfg.eos_token_id]
+    assert rows[1] == [300, 301, cfg.eos_token_id]
+    # a finished row keeps receiving the fill id instead of new content
+    assert rows[0][2:] == rows[1][2:]
+
+
+def test_stop_ids_do_not_change_cache_equivalence(model_and_ids, monkeypatch):
+    from minillm.tokenizer import END_OF_TURN_ID
+
+    model, ids, cfg = model_and_ids
+    prompt = ids[:1, :5]
+    script = [100, 101, END_OF_TURN_ID, 200]
+
+    _scripted_sampler(monkeypatch, [script])
+    cached = model.generate(prompt, max_new_tokens=6, stop_token_ids=[END_OF_TURN_ID])
+
+    _scripted_sampler(monkeypatch, [script])
+    plain = model.generate(
+        prompt, max_new_tokens=6, stop_token_ids=[END_OF_TURN_ID], use_cache=False
+    )
+    assert torch.equal(cached, plain)
+
+
+def test_no_stop_ids_runs_to_max_new_tokens(model_and_ids, monkeypatch):
+    from minillm.tokenizer import END_OF_TURN_ID
+
+    model, ids, cfg = model_and_ids
+    prompt = ids[:1, :4]
+    _scripted_sampler(monkeypatch, [[100, END_OF_TURN_ID, 200]])
+    out = model.generate(prompt, max_new_tokens=3)
+    assert out.shape[1] == prompt.shape[1] + 3
+
+
+def test_duplicate_stop_ids_are_deduplicated(model_and_ids, monkeypatch):
+    from minillm.tokenizer import END_OF_TURN_ID
+
+    model, ids, cfg = model_and_ids
+    prompt = ids[:1, :4]
+    _scripted_sampler(monkeypatch, [[END_OF_TURN_ID, 200]])
+    out = model.generate(
+        prompt, max_new_tokens=4, eos_token_id=END_OF_TURN_ID,
+        stop_token_ids=[END_OF_TURN_ID, END_OF_TURN_ID],
+    )
+    assert out[0, prompt.shape[1]:].tolist() == [END_OF_TURN_ID]

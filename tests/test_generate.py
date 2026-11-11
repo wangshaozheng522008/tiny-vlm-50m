@@ -9,7 +9,7 @@ from minillm.config import MINILLM_NANO
 from minillm.generate import load_any_checkpoint
 from minillm.model import MiniLLM
 from minillm.quantize import save_quantized
-from minillm.tokenizer import EOS_ID, MiniLLMTokenizer
+from minillm.tokenizer import END_OF_TURN_ID, EOS_ID, MiniLLMTokenizer
 from minillm.train import save_model_checkpoint
 
 
@@ -90,3 +90,101 @@ def test_context_overflow_is_an_explicit_error(checkpoint):
         model.generate(prompt, max_new_tokens=1)
     with pytest.raises(ValueError, match="max_new_tokens"):
         model.generate(prompt[:, :2], max_new_tokens=cfg.max_position_embeddings)
+
+
+# --------------------------------------------------------------------------- stops
+
+
+def _scripted(monkeypatch, rows: list[list[int]]):
+    state = {"call": 0}
+
+    def fake(logits, temperature, top_k, generator):
+        call = state["call"]
+        state["call"] += 1
+        picks = [row[min(call, len(row) - 1)] for row in rows]
+        return torch.tensor(picks, dtype=torch.long, device=logits.device).unsqueeze(1)
+
+    monkeypatch.setattr(MiniLLM, "_sample", staticmethod(fake))
+
+
+def test_stop_ids_for_chat_and_raw():
+    from minillm.generate import stop_ids_for
+
+    assert stop_ids_for(raw=False) == (EOS_ID, END_OF_TURN_ID)
+    assert stop_ids_for(raw=True) == (EOS_ID,), "raw completion keeps plain EOS behaviour"
+
+
+def test_truncate_at_stop():
+    from minillm.generate import truncate_at_stop
+
+    assert truncate_at_stop([5, 6, END_OF_TURN_ID, 8], [EOS_ID, END_OF_TURN_ID]) == [5, 6]
+    assert truncate_at_stop([5, 6, EOS_ID], [EOS_ID, END_OF_TURN_ID]) == [5, 6]
+    assert truncate_at_stop([5, 6], [EOS_ID, END_OF_TURN_ID]) == [5, 6]
+    assert truncate_at_stop([], [EOS_ID]) == []
+
+
+def test_build_reply_stops_at_end_of_turn(checkpoint, tiny_tokenizer, monkeypatch):
+    from minillm.generate import build_reply
+
+    path, _ = checkpoint
+    model, _ = load_any_checkpoint(path, torch.device("cpu"))
+    _scripted(monkeypatch, [[42, END_OF_TURN_ID, 43]])
+    result = build_reply(model, tiny_tokenizer, "你好", max_new_tokens=5)
+    assert result["tokens"] == 1, "the marker itself is not part of the reply"
+    assert result["generated"] == 2
+    assert result["stop_ids"] == (EOS_ID, END_OF_TURN_ID)
+    assert "<|end_of_turn|>" not in result["text"]
+    assert "<|assistant|>" not in result["text"] and "<|user|>" not in result["text"]
+
+
+def test_build_reply_raw_ignores_end_of_turn(checkpoint, tiny_tokenizer, monkeypatch):
+    from minillm.generate import build_reply
+
+    path, _ = checkpoint
+    model, _ = load_any_checkpoint(path, torch.device("cpu"))
+    _scripted(monkeypatch, [[42, END_OF_TURN_ID, 43]])
+    result = build_reply(model, tiny_tokenizer, "续写", raw=True, max_new_tokens=3)
+    assert result["stop_ids"] == (EOS_ID,)
+    assert result["tokens"] == 3, "raw mode must not stop on the chat marker"
+    assert result["generated"] == 3
+
+
+def test_cli_chat_does_not_print_end_of_turn(tmp_path, tiny_tokenizer, nano_cfg, monkeypatch, capsys):
+    import sys
+
+    from minillm import generate
+
+    model = MiniLLM(nano_cfg).eval()
+    ckpt = tmp_path / "model.pt"
+    save_model_checkpoint(ckpt, model, tiny_tokenizer, step=1, tokens=10, val_loss=1.0)
+    tokenizer_path = tmp_path / "tokenizer.json"
+    tiny_tokenizer.save(tokenizer_path)
+    _scripted(monkeypatch, [[42, END_OF_TURN_ID, 43]])
+    monkeypatch.setattr(sys, "argv", [
+        "minillm.generate", "--ckpt", str(ckpt), "--tokenizer", str(tokenizer_path),
+        "--prompt", "你好", "--max-new-tokens", "5", "--device", "cpu",
+    ])
+    generate.main()
+    out = capsys.readouterr().out
+    assert "<|end_of_turn|>" not in out
+    assert "1 tokens" in out
+
+
+def test_cli_raw_mode_keeps_eos_behaviour(tmp_path, tiny_tokenizer, nano_cfg, monkeypatch, capsys):
+    import sys
+
+    from minillm import generate
+
+    model = MiniLLM(nano_cfg).eval()
+    ckpt = tmp_path / "model.pt"
+    save_model_checkpoint(ckpt, model, tiny_tokenizer, step=1, tokens=10, val_loss=1.0)
+    tokenizer_path = tmp_path / "tokenizer.json"
+    tiny_tokenizer.save(tokenizer_path)
+    _scripted(monkeypatch, [[42, END_OF_TURN_ID, 43]])
+    monkeypatch.setattr(sys, "argv", [
+        "minillm.generate", "--ckpt", str(ckpt), "--tokenizer", str(tokenizer_path),
+        "--prompt", "续写", "--raw", "--max-new-tokens", "3", "--device", "cpu",
+    ])
+    generate.main()
+    out = capsys.readouterr().out
+    assert "3 tokens" in out

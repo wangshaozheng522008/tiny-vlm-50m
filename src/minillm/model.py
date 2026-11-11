@@ -377,12 +377,18 @@ class MiniLLM(nn.Module):
         use_cache: bool = True,
         attention_mask: torch.Tensor | None = None,
         generator: torch.Generator | None = None,
+        stop_token_ids: list[int] | tuple[int, ...] | None = None,
     ) -> torch.Tensor:
         """Autoregressive decoding, greedy when temperature <= 0.
 
         With `use_cache=True` the prompt is prefilled once and each step only
         runs a single token through the decoder; with `use_cache=False` the whole
         prefix is recomputed every step (kept for equivalence tests).
+
+        `stop_token_ids` extends the stop set: generation stops as soon as any
+        of those ids (or `eos_token_id`, when given) is sampled. Rows that have
+        already finished keep receiving the first stop id, so the return value
+        stays a single rectangular tensor.
         """
         self.eval()
         if input_ids.dim() != 2 or input_ids.shape[1] == 0:
@@ -391,6 +397,14 @@ class MiniLLM(nn.Module):
             raise ValueError("max_new_tokens must be nonnegative")
         if input_ids.shape[1] + max_new_tokens > self.cfg.max_position_embeddings:
             raise ValueError("prompt plus max_new_tokens exceeds max_position_embeddings")
+
+        stop_ids: list[int] = []
+        if eos_token_id is not None:
+            stop_ids.append(int(eos_token_id))
+        for token_id in stop_token_ids or ():
+            if int(token_id) not in stop_ids:
+                stop_ids.append(int(token_id))
+        fill_id = stop_ids[0] if stop_ids else None
 
         prompt_len = input_ids.shape[1]
         out = self.forward(input_ids, attention_mask=attention_mask, use_cache=use_cache)
@@ -401,9 +415,14 @@ class MiniLLM(nn.Module):
 
         for step in range(max_new_tokens):
             next_id = self._sample(logits, temperature, top_k, generator)
-            if eos_token_id is not None:
-                next_id = torch.where(finished[:, None], torch.full_like(next_id, eos_token_id), next_id)
-                finished |= next_id.squeeze(1) == eos_token_id
+            if stop_ids:
+                next_id = torch.where(
+                    finished[:, None], torch.full_like(next_id, fill_id), next_id
+                )
+                hit = next_id == stop_ids[0]
+                for token_id in stop_ids[1:]:
+                    hit |= next_id == token_id
+                finished |= hit.squeeze(1)
             generated = torch.cat([generated, next_id], dim=1)
             if bool(finished.all()) or step == max_new_tokens - 1:
                 break

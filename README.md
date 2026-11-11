@@ -123,8 +123,8 @@ python -m minillm.sft --init-from runs/minillm-87m/run/model.pt \
     --tokenizer runs/minillm-87m/corpus/tokenizer.json --out runs/minillm-87m/sft
 
 # 5) INT4 导出 + 文件大小检查 + 重新加载 + 生成
-python -m minillm.quantize --ckpt runs/minillm-87m/sft/model.pt
-python -m minillm.generate --ckpt runs/minillm-87m/sft/model-int4.pt \
+python -m minillm.quantize --ckpt runs/minillm-87m/sft-fixed/model.pt
+python -m minillm.generate --ckpt runs/minillm-87m/sft-fixed/model-int4.pt \
     --tokenizer runs/minillm-87m/corpus/tokenizer.json --prompt "你好"
 ```
 
@@ -190,9 +190,13 @@ SFT（`minillm.sft` 的输入）：
 <|assistant|>\n{reply}<|end_of_turn|>\n...
 ```
 
-SFT 只对 assistant 内容与其后的 `<|end_of_turn|>` 计算 loss；system、user、
-角色标记和换行都被 `-100` 屏蔽。`--last-assistant-turn-only` 可只监督最后一轮。
+SFT 只对 assistant 内容与其后的 `<|end_of_turn|>` 计算 loss；被监督位置的标签
+**就是真实的 token id**（不是 PAD、也不做人为偏移，shift 由 `loss_terms()` 内部完成），
+system、user、角色标记和换行都被 `-100` 屏蔽。`--last-assistant-turn-only` 可只监督最后一轮。
 超长样本保留**尾部**（最近的 assistant 回复），保证截断后仍有有效监督。
+
+推理时 chat 模式同时用 `<|eos|>`(2) 和 `<|end_of_turn|>`(7) 作为停止标记，
+两者都不进入回答；`--raw` 续写模式仍只认 EOS。
 
 ---
 
@@ -250,13 +254,13 @@ OOM 时按提示依次尝试 `--batch-size 1`、`--seq-len 512`、`--grad-checkp
 ## 8. 评测与性能
 
 ```bash
-python -m minillm.evaluate --ckpt runs/minillm-87m/sft/model.pt \
-    --int4 runs/minillm-87m/sft/model-int4.pt \
+python -m minillm.evaluate --ckpt runs/minillm-87m/sft-fixed/model.pt \
+    --int4 runs/minillm-87m/sft-fixed/model-int4.pt \
     --tokenizer runs/minillm-87m/corpus/tokenizer.json \
     --ppl-data runs/minillm-87m/corpus/val.text.jsonl --out runs/minillm-87m/eval.json
 
-python scripts/benchmark.py --ckpt runs/minillm-87m/sft/model.pt \
-    --int4 runs/minillm-87m/sft/model-int4.pt \
+python scripts/benchmark.py --ckpt runs/minillm-87m/sft-fixed/model.pt \
+    --int4 runs/minillm-87m/sft-fixed/model-int4.pt \
     --tokenizer runs/minillm-87m/corpus/tokenizer.json --out runs/minillm-87m/bench.json
 ```
 
@@ -269,7 +273,7 @@ python scripts/benchmark.py --ckpt runs/minillm-87m/sft/model.pt \
 ## 9. 本地 Web 对话
 
 ```bash
-python -m minillm.web --ckpt runs/minillm-87m/sft/model-int4.pt \
+python -m minillm.web --ckpt runs/minillm-87m/sft-fixed/model-int4.pt \
     --tokenizer runs/minillm-87m/corpus/tokenizer.json --port 8765
 # 浏览器打开 http://127.0.0.1:8765
 ```
@@ -391,14 +395,30 @@ LM Head 与 embedding 共享，只存一份；加载时反量化回 fp32（所�
 | checkpoint | 语言 | 推理 | 指令跟随 | 验证集 PPL |
 |---|---:|---:|---:|---:|
 | 预训练 160 步 | 0% | 25% | 0% | **780.78**（loss 6.66） |
-| 预训练 + SFT 60 步 | 0% | 0% | 0% | **18,872,995**（loss 16.75） |
+| 预训练 + SFT 60 步（修复标签后重训） | 0% | 0% | 0% | **868.70**（loss 6.77） |
+| ~~预训练 + SFT 60 步（旧，标签错误）~~ | — | — | — | ~~18,872,995~~（已作废） |
 
 - 12 道题里只答对 1 道（`3 × 4 =` → `12`），属于随机水平，**不构成任何能力证据**。
-- 生成样例（预训练模型，`--raw`）：「人工智能是」→ `2. \n2. \n,`；SFT 模型在 Web 里对
-  「什么是机器学习？」输出空字符串（24 个 token 全是换行）。这就是「远未收敛」的具体样子。
-- **SFT 出现了灾难性遗忘**：在 2,850 条「抽取式摘要/续写」合成数据上以 lr 1e-4 训练 60 步后，
-  SFT val loss 降到 0.0036（学到的是「抄输入」），但通用文本 PPL 从 781 崩到 1.9e7。
-  真实的 SFT 需要混入通用数据、更小的学习率、以及更多样的指令数据。
+- 生成样例（预训练模型，`--raw`）：「人工智能是」→ `2. \n2. \n,`；修复后的 SFT 模型对
+  「天空为什么是蓝色的？」输出 `2. ，包括“1. “2. “2. 2. 2.`。这就是「远未收敛」的具体样子。
+- 旧 SFT checkpoint（`runs/minillm-87m/sft-run/`）**已作废**：它是在标签被错误写成 PAD 的
+  代码上训练的（见下方修复记录），不能用于任何评测或演示，也不要继续训练它。
+  新的 SFT 必须从预训练 checkpoint `runs/minillm-87m/run/model.pt` 重新开始。
+- 用正确标签重训后，SFT val loss 为 **6.14**（ppl 465），通用文本 PPL 781 → 869，
+  只有轻微遗忘；说明之前的 PPL 崩塌是错误标签造成的，而不是 SFT 本身。
+  但 60 步 / 2,850 条合成数据仍然不足以让它学会指令跟随。
+
+### P0/P1 修复记录（2026-11-11）
+
+| 编号 | 问题 | 修复 |
+|---|---|---|
+| P0 | `chat_encoding()` 把监督标签写成 `0`（PAD 的 id），模型被训练成在 assistant 位置输出 PAD | 监督位置改为复制真实 token id：`labels += content`，结束标记写 `END_OF_TURN_ID`；未监督位置仍是 `-100`；`MiniLLM.loss_terms()` 内部做 next-token shift，标签侧不再偏移 |
+| P1 | 推理只认 EOS(2)，SFT 的 `<|end_of_turn|>`(7) 不会停止生成 | `MiniLLM.generate()` 新增 `stop_token_ids`（与 `eos_token_id` 取并集）；CLI chat 与 Web 都同时识别 2 和 7，停止标记不进入回答、不写入历史 |
+
+- 回归测试：`pytest` **106 passed**（新增 26 条，覆盖标签对齐、END_OF_TURN 停止、
+  batch 内先后结束、cache/no-cache 一致性、Web 历史不泄漏停止标记、nano 模型的 SFT 学习效果）。
+- 验证方式：从预训练 checkpoint 重新 SFT 60 步（不是继续训练旧 SFT），
+  INT4 文件仍为 **44,730,004 字节**，参数量仍为 **86,528,640**。
 
 ### 复现命令
 
@@ -414,29 +434,30 @@ python scripts/make_sft_sample.py --text runs/minillm-87m/corpus/train.text.json
     --out runs/minillm-87m/sft --count 3000
 python -m minillm.sft --init-from runs/minillm-87m/run/model.pt \
     --data runs/minillm-87m/sft/train.jsonl --val-data runs/minillm-87m/sft/val.jsonl \
-    --tokenizer runs/minillm-87m/corpus/tokenizer.json --out runs/minillm-87m/sft-run \
+    --tokenizer runs/minillm-87m/corpus/tokenizer.json --out runs/minillm-87m/sft-fixed \
     --batch-size 2 --grad-accum 8 --max-seq-len 512 --lr 1e-4 --grad-checkpointing
 
 # INT4 + 体积检查 + 重新加载
-python -m minillm.quantize --ckpt runs/minillm-87m/sft-run/model.pt --bits 4
+python -m minillm.quantize --ckpt runs/minillm-87m/sft-fixed/model.pt --bits 4
 
 # 评测 / 性能
 python -m minillm.evaluate --ckpt runs/minillm-87m/run/model.pt \
     --tokenizer runs/minillm-87m/corpus/tokenizer.json \
     --ppl-data runs/minillm-87m/corpus/val.text.jsonl --out runs/minillm-87m/eval.json
-python scripts/benchmark.py --ckpt runs/minillm-87m/sft-run/model.pt \
-    --int4 runs/minillm-87m/sft-run/model-int4.pt \
+python scripts/benchmark.py --ckpt runs/minillm-87m/sft-fixed/model.pt \
+    --int4 runs/minillm-87m/sft-fixed/model-int4.pt \
     --tokenizer runs/minillm-87m/corpus/tokenizer.json --device cuda
 
 # Web（本地）
-python -m minillm.web --ckpt runs/minillm-87m/sft-run/model-int4.pt \
+python -m minillm.web --ckpt runs/minillm-87m/sft-fixed/model-int4.pt \
     --tokenizer runs/minillm-87m/corpus/tokenizer.json --port 8765
 ```
 
 ### 已知限制
 
 1. **演示 checkpoint 远未收敛**，PPL 780、12 题对 1 题，生成结果没有实际可用性。
-2. SFT 演示数据是脚本合成的抽取式任务，SFT 后出现灾难性遗忘（PPL 781 → 1.9e7）。
+2. SFT 演示数据是脚本合成的抽取式任务，60 步后仍学不会指令跟随（PPL 781 → 869；
+   旧版本因标签 bug 崩到 1.9e7，已作废）。
 3. INT4 只减体积，不减推理内存；没有实现 INT4 计算 kernel（需求允许反量化加载）。
 4. 训练脚本没有实现多卡 / FSDP / ZeRO；单卡 4 GB 以内可用，但更大规模需要另做并行。
 5. Web 端是单会话、无鉴权，只适合 `127.0.0.1` 本地使用。

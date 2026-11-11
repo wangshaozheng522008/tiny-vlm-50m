@@ -255,9 +255,12 @@ class MiniLLMTokenizer:
             ids.append(role_id)
             labels.append(ignore)
             ids += content
-            labels += [0 if supervised else ignore] * len(content)
+            # Labels are aligned 1:1 with input ids; the model shifts internally
+            # in `MiniLLM.loss_terms()`, so a supervised label must be the real
+            # target token, never a placeholder such as PAD (0).
+            labels += content if supervised else [ignore] * len(content)
             ids.append(END_OF_TURN_ID)
-            labels.append(0 if supervised else ignore)
+            labels.append(END_OF_TURN_ID if supervised else ignore)
             separator = self._segment("\n")
             ids += separator
             labels += [ignore] * len(separator)

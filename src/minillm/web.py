@@ -23,7 +23,7 @@ import torch
 from .config import MiniLLMConfig
 from .model import MiniLLM
 from .quantize import dequantize_model
-from .tokenizer import DEFAULT_SYSTEM, MiniLLMTokenizer
+from .tokenizer import DEFAULT_SYSTEM, END_OF_TURN_ID, MiniLLMTokenizer
 from .utils import describe_device, get_device, human_bytes, set_seed
 
 ASSETS = Path(__file__).with_name("web_assets")
@@ -125,12 +125,14 @@ class ChatEngine:
             prompt_len = input_ids.shape[1]
             ttft = time.perf_counter() - started
 
-            eos = self.model.cfg.eos_token_id
+            # A chat turn ends with EOS or with the SFT closing marker; both must
+            # stop decoding, and neither is part of the visible answer or history.
+            stop_ids = {int(self.model.cfg.eos_token_id), END_OF_TURN_ID}
             generated: list[int] = []
             decode_started = time.perf_counter()
             for _ in range(max_new_tokens):
                 token = self.model._sample(logits, temperature, top_k, None)
-                if int(token.item()) == eos:
+                if int(token.item()) in stop_ids:
                     break
                 generated.append(int(token.item()))
                 if len(generated) >= max_new_tokens:

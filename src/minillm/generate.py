@@ -14,14 +14,65 @@ from __future__ import annotations
 import argparse
 import time
 from pathlib import Path
+from typing import Sequence
 
 import torch
 
 from .config import ARCHITECTURE, MiniLLMConfig
 from .model import MiniLLM
 from .quantize import dequantize_model
-from .tokenizer import DEFAULT_SYSTEM, MiniLLMTokenizer
+from .tokenizer import DEFAULT_SYSTEM, END_OF_TURN_ID, EOS_ID, MiniLLMTokenizer
 from .utils import get_device, set_seed
+
+
+def stop_ids_for(raw: bool) -> tuple[int, ...]:
+    """Chat turns end with `<|end_of_turn|>`; raw completions keep plain EOS."""
+    return (EOS_ID,) if raw else (EOS_ID, END_OF_TURN_ID)
+
+
+def truncate_at_stop(tokens: Sequence[int], stop_ids: Sequence[int]) -> list[int]:
+    """Drop the first stop marker (and anything after it) from generated ids."""
+    stop = set(stop_ids)
+    for index, token in enumerate(tokens):
+        if token in stop:
+            return list(tokens[:index])
+    return list(tokens)
+
+
+def build_reply(
+    model: MiniLLM,
+    tokenizer: MiniLLMTokenizer,
+    text: str,
+    *,
+    raw: bool = False,
+    system: str = DEFAULT_SYSTEM,
+    max_new_tokens: int = 128,
+    temperature: float = 0.0,
+    top_k: int = 0,
+    use_cache: bool = True,
+) -> dict:
+    """Tokenise a prompt, generate, cut at the stop marker and decode."""
+    if raw:
+        ids = tokenizer.encode(text)
+    else:
+        ids = tokenizer.apply_chat_template(
+            [{"role": "user", "content": text}], system=system, add_generation_prompt=True
+        )
+    input_ids = torch.tensor([ids], dtype=torch.long, device=next(model.parameters()).device)
+    stop_ids = stop_ids_for(raw)
+    max_new_tokens = min(max_new_tokens, max(model.cfg.max_position_embeddings - input_ids.shape[1], 1))
+    output = model.generate(
+        input_ids, max_new_tokens=max_new_tokens, temperature=temperature, top_k=top_k,
+        eos_token_id=model.cfg.eos_token_id, stop_token_ids=stop_ids, use_cache=use_cache,
+    )
+    new_tokens = output[0, input_ids.shape[1]:].tolist()
+    kept = truncate_at_stop(new_tokens, stop_ids)
+    return {
+        "text": tokenizer.decode(kept, skip_special_tokens=True),
+        "tokens": len(kept),
+        "generated": len(new_tokens),
+        "stop_ids": stop_ids,
+    }
 
 
 def load_any_checkpoint(path: str | Path, device: torch.device) -> tuple[MiniLLM, dict]:
@@ -68,29 +119,18 @@ def main() -> None:
           f"{'int' + str(payload.get('quantized_bits')) if 'quantized' in payload else 'fp32'} checkpoint")
 
     def run(text: str) -> None:
-        if args.raw:
-            ids = tokenizer.encode(text)
-        else:
-            ids = tokenizer.apply_chat_template(
-                [{"role": "user", "content": text}], system=args.system, add_generation_prompt=True
-            )
-        input_ids = torch.tensor([ids], dtype=torch.long, device=device)
-        if input_ids.shape[1] + args.max_new_tokens > model.cfg.max_position_embeddings:
-            args.max_new_tokens = max(model.cfg.max_position_embeddings - input_ids.shape[1], 1)
-            print(f"[warn] clamped max_new_tokens to {args.max_new_tokens} to fit the context")
         started = time.time()
-        output = model.generate(
-            input_ids, max_new_tokens=args.max_new_tokens, temperature=args.temperature,
-            top_k=args.top_k, eos_token_id=model.cfg.eos_token_id, use_cache=not args.no_cache,
+        result = build_reply(
+            model, tokenizer, text, raw=args.raw, system=args.system,
+            max_new_tokens=args.max_new_tokens, temperature=args.temperature,
+            top_k=args.top_k, use_cache=not args.no_cache,
         )
         elapsed = time.time() - started
-        new_tokens = output[0, input_ids.shape[1] :]
-        text_out = tokenizer.decode(new_tokens.tolist(), skip_special_tokens=True)
-        rate = new_tokens.numel() / max(elapsed, 1e-6)
+        rate = result["tokens"] / max(elapsed, 1e-6)
         print(f"[prompt] {text}")
-        print(f"[reply] {text_out.strip()}")
-        print(f"[stats] {new_tokens.numel()} tokens in {elapsed:.2f}s ({rate:.1f} tok/s, "
-              f"cache={not args.no_cache})")
+        print(f"[reply] {result['text'].strip()}")
+        print(f"[stats] {result['tokens']} tokens in {elapsed:.2f}s ({rate:.1f} tok/s, "
+              f"cache={not args.no_cache}, stop={result['stop_ids']})")
 
     if args.prompt:
         run(args.prompt)
