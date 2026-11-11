@@ -1,5 +1,5 @@
 {
-  "status": "PREPARING_V2",
+  "status": "V3_DATA_VERIFIED",
   "source_usage": "User-confirmed noncommercial research; combined upstream license declaration, no per-record mapping",
   "rejected_v1": {
     "reason": "Known historical split exposure; within-version audit alone was insufficient for a warm start",
@@ -18,22 +18,22 @@
     "schema_version": 1,
     "inputs": [
       {
-        "path": "/home/voyah/work_space/git_ws/min_llm/data/minimind/pretrain_t2t_mini.jsonl",
+        "path": "data/minimind/pretrain_t2t_mini.jsonl",
         "bytes": 1241043656,
         "sha256": "6dd6716c84ab36897bdbfc7f88e04f4441c48c1ab7ecee88ce0b0e7d4685560c"
       },
       {
-        "path": "/home/voyah/work_space/git_ws/min_llm/runs/minillm-87m/corpus/test.text.jsonl",
+        "path": "runs/minillm-87m/corpus/test.text.jsonl",
         "bytes": 374760,
         "sha256": "3602b7adb75f54b2d26e88332f627783f2246d63a3cf09e566008817549d686b"
       },
       {
-        "path": "/home/voyah/work_space/git_ws/min_llm/runs/minillm-87m/corpus/train.text.jsonl",
+        "path": "runs/minillm-87m/corpus/train.text.jsonl",
         "bytes": 17662512,
         "sha256": "9f66c79286f3c2d0a7c253cfd2755546038997c61f1c136225a86f5f166a9d63"
       },
       {
-        "path": "/home/voyah/work_space/git_ws/min_llm/runs/minillm-87m/corpus/val.text.jsonl",
+        "path": "runs/minillm-87m/corpus/val.text.jsonl",
         "bytes": 353483,
         "sha256": "885a39ef23a5580489ab2a2f5dc95b1c180bd35d63709f6af67360d8b3d32c6e"
       }
@@ -71,5 +71,61 @@
     "training_reliability": "11 PASS",
     "evaluation_workflow": "PASS"
   },
-  "scope": "V2 data preparation in progress; no completed pilot claim"
+  "scope": "V3 full-load and recovery checks in progress; no completed pilot claim",
+  "not_promoted_v2": {
+    "reason": "Effective Train tokens below planned minimum",
+    "effective_train_tokens": 14967513,
+    "required_minimum": 15000000,
+    "training_started": false
+  },
+  "dataset": {
+    "content_id": "6e4d04c74bf35f07c43f752ebb9deee894fe3414fb38ebee2b1c7816cb8d4a00",
+    "tokenizer_fingerprint": "42155349a7a25cfd7a394f6db70fd2443d5f0a1ac98a75738e2abbeee663c33d",
+    "splits": {
+      "test": {
+        "documents": 2566,
+        "tokens": 329343,
+        "sha256": "9470b650c19776878a5e668200d3dadae7b8f594964431e8450eb5b318a64ad3"
+      },
+      "train": {
+        "documents": 122910,
+        "tokens": 15982298,
+        "sha256": "909e3a319bb226c77c4d26e88bf1263d85a3bd3ea137d1710b22cda766e9088c"
+      },
+      "val": {
+        "documents": 2524,
+        "tokens": 331671,
+        "sha256": "c433fa003e780b29f576c7658beedf356b234a27db42422985e041801c8a506c"
+      }
+    },
+    "effective_train_tokens_seq1024": 15965961,
+    "audit_ok": true,
+    "exact_overlap": {
+      "train/test": 0,
+      "train/val": 0,
+      "val/test": 0
+    },
+    "category_independent_overlap": {
+      "train/test": 0,
+      "train/val": 0,
+      "val/test": 0
+    },
+    "historical_overlap": {
+      "train": {
+        "train": 0,
+        "val": 0,
+        "test": 0
+      },
+      "val": {
+        "train": 0,
+        "val": 0,
+        "test": 0
+      },
+      "test": {
+        "train": 0,
+        "val": 0,
+        "test": 0
+      }
+    }
+  }
 }

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "dataset_name": "minillm-pilot-research-v2",
+  "dataset_name": "minillm-pilot-research-v3",
   "seed": 42,
   "max_records": 0,
-  "sample": 120000,
+  "sample": 128000,
   "split": [
     0.96,
     0.02,

@@ -6,7 +6,7 @@ This workflow uses the existing pretrain checkpoint and original 24,576-token to
 
 The user confirmed noncommercial research use. The upstream MiniMind snapshot declares Apache-2.0 and CC-BY-NC-2.0; individual records have no license/source mapping. The combined label records that upstream declaration, not an independent permission audit or a commercial-use assurance.
 
-Input: existing pretrain_t2t_mini.jsonl, revision 312afb4f76391145c6902f765bb51691c09a12f5, SHA256 6dd6716c84ab36897bdbfc7f88e04f4441c48c1ab7ecee88ce0b0e7d4685560c. No new corpus was downloaded. The source guard skips the first 40,000 raw records used by the historical experiment, scans the next 200,000 records, and excludes exact and recognized near matches to all 24,000 known old Train/Val/Test texts. The corpus pipeline then deterministically selects up to 120,000 deduplicated parents. This is a contiguous pilot sample, not a representative sample of all upstream data.
+Input: existing pretrain_t2t_mini.jsonl, revision 312afb4f76391145c6902f765bb51691c09a12f5, SHA256 6dd6716c84ab36897bdbfc7f88e04f4441c48c1ab7ecee88ce0b0e7d4685560c. No new corpus was downloaded. The source guard skips the first 40,000 raw records used by the historical experiment, scans the next 200,000 records, and excludes exact and recognized near matches to all 24,000 known old Train/Val/Test texts. The corpus pipeline then deterministically selects up to 128,000 deduplicated parents. This is a contiguous pilot sample, not a representative sample of all upstream data.
 
 ```bash
 python scripts/prepare_pilot_source.py \
@@ -16,15 +16,17 @@ python scripts/prepare_pilot_source.py \
   --skip-records 40000 --take-records 200000 \
   --out data/pilot-sources/minimind-unexposed-v2
 python scripts/prepare_text.py --config configs/pilot-corpus.research.json \
-  --out data/processed/minillm-pilot-research-v2 \
+  --out data/processed/minillm-pilot-research-v3 \
   --tokenizer runs/minillm-87m/corpus/tokenizer.json
-python scripts/audit_dataset.py --dataset data/processed/minillm-pilot-research-v2 \
-  --retokenize --verify-inputs --report reports/pr5-pilot-v2/dataset-audit.json
+python scripts/audit_dataset.py --dataset data/processed/minillm-pilot-research-v3 \
+  --retokenize --verify-inputs --report reports/pr5-pilot-v3/dataset-audit.json
 ```
 
 The source guard uses disk-indexed category-neutral hashes before/after cleaning and full-text SimHash64 Hamming<=4 plus 4-gram Jaccard>=.85 (including code). Candidate overflow fails instead of truncating coverage. It atomically publishes source.jsonl and historical-exclusion.json with input/output hashes, counts and scope. It cannot exclude arbitrary substrings, semantic rewrites or unknown historical exposure. Independently recompute exact overlap between the final emitted splits and all historical splits; the required count is zero.
 
 The first v1 attempt was stopped at65 updates /1,063,920 tokens after historical overlap was found: old Train/new Val360, old Train/new Test369, old Val/new Train378, old Test/new Train364. Its within-version audit passed, which was insufficient for a warm start. Preserve that version and its checkpoints, exclude it from acceptance, and restart v2 from the original weights with fresh optimizer/counters. Do not resume v1 into v2.
+
+The historical-exclusion source is named v2 and is reused byte-for-byte. The first corpus from that source (dataset v2, sample120,000) had14,967,513 effective Train tokens and was not promoted because it missed the15M minimum. Dataset v3 uses128,000 parents and is checked against that minimum before any training. No v2 weights are reused.
 
 Published versions are immutable. Reuse a verified version or choose a new directory; do not edit it. Freeze the existing tokenizer. Train/Val/Test exact and recognized-group isolation is audited by PR3. PR4 contamination scanning of known text records is also required before training; it does not exhaustively exclude substrings, semantic rewrites or unknown historical sources.
 
@@ -32,10 +34,10 @@ Published versions are immutable. Reuse a verified version or choose a new direc
 
 ```bash
 python scripts/probe_training_workload.py \
-  --dataset data/processed/minillm-pilot-research-v2 \
+  --dataset data/processed/minillm-pilot-research-v3 \
   --tokenizer runs/minillm-87m/corpus/tokenizer.json --config minillm-87m \
   --training-config configs/pilot-t1200-10m.json \
-  --out reports/pr5-pilot-v2/workload-1024
+  --out reports/pr5-pilot-v3/workload-1024
 ```
 
 The probe uses an isolated model and AdamW, real fixed-window batches, full sequence length and gradient accumulation. It executes at least three successful updates, validation with the requested limit (0=full), and complete-state save/load in a disposable directory. It restores caller RNG states and thread count, preserves source weights, and does not create the training output directory. CPU Nano is supported for CI; CPU evidence cannot approve a GPU budget.
@@ -48,13 +50,13 @@ workload.json binds the exact training manifest, data hashes/paths, model config
 
 ```bash
 python scripts/run_pretraining_pilot.py \
-  --dataset data/processed/minillm-pilot-research-v2 \
+  --dataset data/processed/minillm-pilot-research-v3 \
   --tokenizer runs/minillm-87m/corpus/tokenizer.json --config minillm-87m \
-  --training-config configs/pilot-t1200-10m.json --out reports/pr5-pilot-v2/inspect
+  --training-config configs/pilot-t1200-10m.json --out reports/pr5-pilot-v3/inspect
 python scripts/check_pilot_recovery.py \
-  --dataset data/processed/minillm-pilot-research-v2 \
+  --dataset data/processed/minillm-pilot-research-v3 \
   --tokenizer runs/minillm-87m/corpus/tokenizer.json --config minillm-87m \
-  --training-config configs/pilot-t1200-10m.json --out reports/pr5-pilot-v2/recovery-20
+  --training-config configs/pilot-t1200-10m.json --out reports/pr5-pilot-v3/recovery-20
 ```
 
 The first command only inspects. The recovery command uses separate output directories for 20 continuous updates and 20 updates with interruptions after5 and12 (SIGTERM/SIGINT). It compares complete sample order, LR sequence, counters and parameters with atol1e-6/rtol1e-5. Recovery-experiment tokens are not added to pilot training totals.
@@ -63,10 +65,10 @@ Evaluate the original pretrain model on the published Validation split, the froz
 
 ```bash
 python scripts/run_pretraining_pilot.py \
-  --dataset data/processed/minillm-pilot-research-v2 \
+  --dataset data/processed/minillm-pilot-research-v3 \
   --tokenizer runs/minillm-87m/corpus/tokenizer.json --config minillm-87m \
   --training-config configs/pilot-t1200-10m.json \
-  --out reports/pr5-pilot-v2/launch --execute
+  --out reports/pr5-pilot-v3/launch --execute
 ```
 
 The launcher uses one config for readiness and fit, and requires matching full-load evidence for CUDA execution. It preserves READY/BLOCKED/INCOMPLETE exit codes0/1/2; unavailable required CUDA never falls back to CPU training. A launch-manifest is atomically published before training and records initialization SHA, configuration and data identities. Inputs are rehashed after readiness. It appends an execution result after fit and records pilot-lineage.json inside the owned run, linked to its exact training manifest.

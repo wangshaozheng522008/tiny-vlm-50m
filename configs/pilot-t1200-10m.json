@@ -1,5 +1,5 @@
 {
-  "out": "runs/pilot-10m-t1200-v2",
+  "out": "runs/pilot-10m-t1200-v3",
   "init_from": "runs/minillm-87m/run/model.pt",
   "seq_len": 1024,
   "batch_size": 1,
@@ -23,5 +23,5 @@
   "val_limit": 0,
   "gpu_memory_limit_mib": 2971.75,
   "disk_margin_factor": 1.2,
-  "workload_report": "reports/pr5-pilot-v2/workload-1024"
+  "workload_report": "reports/pr5-pilot-v3/workload-1024"
 }
