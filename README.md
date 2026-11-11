@@ -206,7 +206,7 @@ system、user、角色标记和换行都被 `-100` 屏蔽。`--last-assistant-tu
 
 | 参数 | 默认值 |
 |---|---|
-| `--epochs` / `--max-steps` | 1 / 0（不限） |
+| `--epochs` / `--max-steps` | 1 / 0（按 epochs；>0 为累计目标更新数） |
 | `--batch-size` / `--grad-accum` | 2 / 16 |
 | `--seq-len` | `max_position_embeddings`（2048） |
 | `--lr` / `--min-lr` | 3e-4 / 3e-5 |
@@ -217,13 +217,79 @@ system、user、角色标记和换行都被 `-100` 屏蔽。`--last-assistant-tu
 
 - **token 加权 loss**：每个 microbatch 用 `loss_sum / 组内有效 token 数` 反传，
   日志里的 loss 也是按 token 加权的交叉熵。
-- **断点续训**：`state.pt` 保存权重、优化器、GradScaler、step、epoch/epoch 内位置和
-  Python/NumPy/Torch/CUDA RNG 状态；`--resume` 从中恢复，CPU→CUDA 迁移时 scaler 会重新初始化。
+- **断点续训**：`state.pt` v2 保存权重、优化器、GradScaler、完整训练计划和
+  Python/NumPy/Torch/CUDA RNG；恢复前严格校验配置和数据内容（见下方说明）。
 - AMP、梯度累积、梯度裁剪、周期性验证、`metrics.json`、`best.pt` 均已实现。
 - **精度实测**（T1200 Laptop，sm_75，batch 1 × seq 1024）：fp32 **1,864 tok/s**、
   bf16 1,553 tok/s、fp16 620 tok/s。fp16 autocast 在这张 Turing 卡上反而最慢，
   所以 `--precision auto` 在这台机器上选 bf16，正式训练建议显式 `--precision fp32`。
-- 训练中断（Ctrl-C 或 SIGINT）会在当前 step 结束后保存再退出。
+- Ctrl-C / SIGINT / SIGTERM 或 `--max-minutes` 到期时，在当前完整 Optimizer Update 后保存退出。
+
+### 长训练与恢复约定
+
+`--max-steps > 0` 是**整个任务的累计目标 Global Step**，优先于 `--epochs`，
+数据会按确定性的 Epoch Shuffle 反复遍历。未指定 `--max-steps` 时按 `--epochs` 结束。
+Resume 到达目标后直接结束，不再多训练一步。Warmup + Cosine 使用保存的全局计划，
+`warmup_steps = int(target_steps * warmup_ratio)`，为 0 时不 Warmup。
+
+`state.pt` 的 `training_state_version=2` 明确区分以下状态：
+
+| 字段 | 含义 |
+|---|---|
+| `global_step` | 已成功完成的 Optimizer Update 数，不含 AMP 跳步 |
+| `epoch` | 下一批数据所属的 Epoch，索引从 0 开始 |
+| `micro_batches_consumed_in_epoch` | 当前 Epoch 已消费的 Micro-batch 数，恢复时直接使用，不乘 `grad_accum` |
+| `samples_seen` / `tokens_seen` | 已完成更新消费的样本数 / 实际参与 Loss 的有效 Token 数 |
+
+最后一组不足 `grad_accum` 仍完成一次更新；Epoch 末尾立即记为“下一 Epoch，游标 0”。
+恢复时检查步数、游标、样本与 Token 统计的一致性，禁止超出数据范围。
+两个 CLI 在构造模型前设置 Seed；直接调用 Python `fit()` 时，调用方也应先
+`set_seed(seed)` 再构造新模型。Resume 会在完成初始化后恢复 RNG，验证不会消耗训练 RNG。
+
+每次启动以 1 MiB 流式读取计算训练/验证文件 SHA256，生成 `training-manifest.json`；
+SFT 还校验实际编码后的数据、System Prompt 和监督选项。
+`--resume` 必须使用相同模型配置、Tokenizer Fingerprint、数据路径与内容、序列长度、
+Batch Size、Gradient Accumulation、Seed、AdamW 参数和 LR 计划。
+原训练命令保留这些参数，添加 `--resume .../state.pt` 即可继续。
+日志、保存和验证频率、验证批数上限、运行时间预算允许改变。
+精度、设备、线程数及 Activation Checkpointing 改变会被拒绝；本 PR 未实现 `extend`，
+改变目标步数或 Warmup/LR 需要明确用 `--init-from` 开启新的仅权重训练任务，优化器和统计重新开始。
+
+**旧状态策略**：旧 `state.pt` 没有训练状态版本、数据 Manifest 和 LR 计划，且
+`batch_in_epoch` 可能混用了 Update 与 Micro-batch，无法安全判断是否已发生过错误恢复，
+因此拒绝直接 Resume，不做猜测迁移。旧 MiniLLM 权重仍可用 `--init-from` 开新任务。
+
+`state.pt`、`model.pt`、`best.pt` 使用目标目录内临时文件、文件 fsync、同文件系统原子替换，
+POSIX 还同步目录。`state.prev.pt` 保留前一次有效完整状态：新状态写入成功后才轮换备份，
+优先硬链接，文件系统不支持时复制。通常保留两份完整状态，保存时临时多一份；
+不支持硬链接的文件系统在备份复制期间可能另有一份临时拷贝。
+主文件损坏时不会自动回退，需明确指定 `--resume .../state.prev.pt`。
+捕获到保存失败会清理临时文件并报错，已有状态保留；SIGKILL 可能遗留隐藏 `.tmp` 文件，
+它们不会被当作 Checkpoint 加载，可在训练停止后删除。
+
+NaN/Inf Loss、非有限梯度范数、异常 LR、OOM 和保存失败均终止训练，
+不保存部分更新、不将数值异常覆盖为 `best.pt`。AMP 溢出也明确报出“跳过更新、Global Step 不变”
+并终止，随后从上次有效状态重试；本 PR 不自动消费数据后跳过失败更新。
+`training-log.jsonl` 记录训练进度、累计 Token、按有效 Token 加权的 Loss、LR、Gradient Norm、
+Tokens/s、Step Time、GPU 峰值显存、验证与 Checkpoint 耗时/状态；`metrics.json` 保留验证历史。
+
+同一软件环境、固定 Seed 的 CPU FP32 nano 回归要求连续与多次 Resume 参数完全一致。
+CUDA RNG 会保存和恢复，但 GPU 型号、PyTorch/CUDA 版本及非确定性算子可能影响结果，
+不保证跨硬件或软件版本逐位一致。原子替换依赖文件系统语义；未覆盖断电实机、网络文件系统、
+多进程同时写同一输出目录、不可捕获 SIGKILL 的现场注入及完整 87M 长时间压力测试。
+训练运行期间请保持数据与 Tokenizer 不变；内容哈希在每次启动/恢复时校验。
+
+CPU 可靠性验收入口（独立生成小数据，模拟两次真实终止信号、损坏和配置不一致）：
+
+```bash
+python scripts/check_training_reliability.py
+python scripts/check_training_reliability.py --out /tmp/minillm-reliability
+pytest -q
+./scripts/smoke_test.sh
+```
+
+脚本输出逐项 PASS/FAIL、连续/两次恢复的统计对照和最大参数差异；`--out` 可保留报告和日志。
+
 
 ### 显存与 4 GB 显卡
 
@@ -307,6 +373,8 @@ src/minillm/
   tokenizer.py   24k BPE、特殊 token、对话模板、效率统计
   data.py        打包 token 流、SFT 数据集、批采样器
   train.py       预训练 + 共用训练循环 + checkpoint/resume
+  checkpoint.py  原子保存、备份轮换、状态结构校验
+  training_manifest.py  数据流式哈希、固定训练计划和恢复兼容性
   sft.py         SFT 入口（assistant-only loss）
   quantize.py    INT4/INT8 打包、体积检查、反量化加载
   generate.py    CLI 生成

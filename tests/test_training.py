@@ -107,6 +107,7 @@ def test_fit_trains_saves_and_resumes(tmp_path, tiny_tokenizer, nano_cfg, packed
         seed=0, device="cpu", precision="fp32", threads=2,
     )
     model = MiniLLM(nano_cfg)
+    # A completed plan can be resumed idempotently; extending it is explicit new work.
     summary = fit(TrainingOptions(**base, max_steps=2), model, tiny_tokenizer, train_set, val_set)
     assert summary["steps"] == 2
     for name in ("model.pt", "state.pt", "tokenizer.json", "config.json",
@@ -119,12 +120,12 @@ def test_fit_trains_saves_and_resumes(tmp_path, tiny_tokenizer, nano_cfg, packed
     assert metrics and math.isfinite(metrics[0]["loss"])
 
     resumed = MiniLLM(nano_cfg)
-    opts = TrainingOptions(**{**base, "epochs": 2, "max_steps": 4, "resume": str(out / "state.pt")})
+    opts = TrainingOptions(**{**base, "epochs": 2, "max_steps": 2, "resume": str(out / "state.pt")})
     summary2 = fit(opts, resumed, tiny_tokenizer, train_set, val_set)
-    assert summary2["steps"] == 4, "resume must continue at step 2 and stop at 4"
+    assert summary2["steps"] == 2, "an already completed plan must execute no extra update"
     final = torch.load(out / "model.pt", map_location="cpu", weights_only=False)
-    assert final["step"] == 4
-    assert final["tokens_seen"] > payload["tokens_seen"]
+    assert final["step"] == 2
+    assert final["tokens_seen"] == payload["tokens_seen"]
 
 
 def test_fit_rejects_tokenizer_mismatch(tmp_path, tiny_tokenizer, packed_data):

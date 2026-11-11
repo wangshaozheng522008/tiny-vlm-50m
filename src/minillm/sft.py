@@ -13,15 +13,13 @@ the training and inference formats cannot drift apart.
 from __future__ import annotations
 
 import argparse
-import math
-import random
 from pathlib import Path
 
 import torch
 from torch.utils.data import Dataset
 
 from .config import MiniLLMConfig, get_config
-from .data import SFTDataset, collate_batch
+from .data import EpochBatchSampler, SFTDataset
 from .model import MiniLLM
 from .tokenizer import DEFAULT_SYSTEM, MiniLLMTokenizer
 from .train import (
@@ -30,8 +28,9 @@ from .train import (
     fit,
     load_model_checkpoint,
     load_training_state,
+    make_pretrain_loader,
 )
-from .utils import get_device
+from .utils import get_device, set_seed
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -39,7 +38,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--data", required=True, help='JSONL with {"messages": [...]}')
     p.add_argument("--val-data", help="held-out SFT JSONL")
     p.add_argument("--tokenizer", required=True)
-    p.add_argument("--config", default="minillm-87m", help="used only for a fresh start")
+    p.add_argument("--config", default=None, help="fresh preset (default minillm-87m), or explicit resume config check")
     p.add_argument("--init-from", help="pretraining checkpoint to start from")
     p.add_argument("--resume", help="SFT state.pt to resume from")
     p.add_argument("--out", default="runs/minillm-sft")
@@ -56,7 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--warmup-ratio", type=float, default=0.03)
     p.add_argument("--weight-decay", type=float, default=0.1)
     p.add_argument("--grad-clip", type=float, default=1.0)
-    p.add_argument("--max-steps", type=int, default=0)
+    p.add_argument("--max-steps", type=int, default=0, help="cumulative target updates; >0 overrides --epochs")
     p.add_argument("--save-every", type=int, default=100)
     p.add_argument("--val-every", type=int, default=100)
     p.add_argument("--val-limit", type=int, default=0)
@@ -73,29 +72,36 @@ def build_parser() -> argparse.ArgumentParser:
 def sft_batch_factory(dataset: Dataset, batch_size: int, seed: int, pad: int, ignore: int):
     """Deterministic per-epoch shuffling with a resumable batch offset."""
 
+    sampler = EpochBatchSampler(len(dataset), batch_size, seed=seed)
+
     def factory(epoch: int, start_batch: int):
-        order = list(range(len(dataset)))
-        random.Random(seed + epoch).shuffle(order)
-        batches = math.ceil(len(order) / batch_size)
-        for b in range(start_batch, batches):
-            indices = order[b * batch_size : (b + 1) * batch_size]
-            yield collate_batch([dataset[i] for i in indices], pad, ignore)
+        return make_pretrain_loader(dataset, sampler, epoch, start_batch=start_batch,
+                                    pad_token_id=pad, ignore_index=ignore)
+
+    factory.sampler_seed = seed
 
     return factory
 
 
 def main() -> None:
     args = build_parser().parse_args()
+    set_seed(args.seed)  # fresh weights must be seeded before model construction
     device = get_device(args.device)
     if args.threads:
         torch.set_num_threads(args.threads)
 
     if args.resume:
-        state = load_training_state(args.resume)
+        state = load_training_state(args.resume, mmap=True)
         cfg = MiniLLMConfig.from_dict(state["config"])
-        model = MiniLLM(cfg)
-        model.load_state_dict(state["model"])
         tokenizer = MiniLLMTokenizer.load(args.tokenizer)
+        if args.config:
+            requested_cfg = MiniLLMConfig.load(args.config) if Path(args.config).exists() else get_config(args.config)
+            requested_cfg.vocab_size = tokenizer.vocab_size
+            if requested_cfg.to_dict() != cfg.to_dict():
+                raise CheckpointError("resume Model Config differs from --config")
+        del state  # release the mapped checkpoint before allocating new weights
+        model = MiniLLM(cfg)
+        # fit validates and loads the full state once setup is complete.
     elif args.init_from:
         model, cfg, payload = load_model_checkpoint(args.init_from, torch.device("cpu"))
         tokenizer = MiniLLMTokenizer.load(args.tokenizer)
@@ -103,8 +109,9 @@ def main() -> None:
             raise SystemExit("init-from tokenizer fingerprint does not match --tokenizer")
         if payload.get("tokenizer_vocab_size") not in (None, tokenizer.vocab_size):
             raise SystemExit("init-from tokenizer vocabulary size does not match --tokenizer")
+        del payload
     else:
-        cfg = get_config(args.config) if not Path(args.config).exists() else MiniLLMConfig.load(args.config)
+        cfg = get_config(args.config or "minillm-87m") if not args.config or not Path(args.config).exists() else MiniLLMConfig.load(args.config)
         tokenizer = MiniLLMTokenizer.load(args.tokenizer)
         cfg.vocab_size = tokenizer.vocab_size
         model = MiniLLM(cfg)
