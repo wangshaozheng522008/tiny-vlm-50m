@@ -51,7 +51,7 @@ def make_content(config: dict, overrides: dict | None = None):
     if config.get("schema_version", 1) != 1:
         raise CorpusError("unsupported corpus configuration schema_version")
     content = {
-        "dataset_name": config.get("dataset_name", "minillm-pretrain-v1"), "cleaning_version": 1,
+        "dataset_name": config.get("dataset_name", "minillm-pretrain-v1"), "cleaning_version": 2,
         "seed": config.get("seed", 42), "shuffle_seed": config.get("shuffle_seed", 13),
         "sample": config.get("sample", 0), "max_records": config.get("max_records", 0),
         "split": config.get("split", [0.96, 0.02, 0.02]),
@@ -185,12 +185,13 @@ def write_splits(path: Path, dedup_path: Path, out: Path, content: dict, runtime
                                "estimated_shortfall": max(0, (quota or 0) - used)}
         for name in SPLITS:
             def writer(handle):
-                query = "SELECT f.*,c.group_id,d.metadata FROM fragments f JOIN chosen c ON c.id=f.id JOIN docs d ON d.id=f.parent_id WHERE c.split=? ORDER BY f.order_key,f.id"
+                query = "SELECT f.*,c.group_id,d.metadata,k.hash comparison_key FROM fragments f JOIN chosen c ON c.id=f.id JOIN docs d ON d.id=f.parent_id JOIN comparison_keys k ON k.id=f.id WHERE c.split=? ORDER BY f.order_key,f.id"
                 for row in db.execute(query, (name,)):
                     record = {"id": row["id"], "parent_id": row["parent_id"], "group_id": row["group_id"],
                               "text": row["text"], "source": row["source"], "category": row["category"],
                               "language": row["language"], "license": row["license"], "estimated_tokens": row["estimated"],
-                              "declared_category": json.loads(row["metadata"])["declared_category"]}
+                              "declared_category": json.loads(row["metadata"])["declared_category"],
+                              "raw_sha256": row["parent_id"], "comparison_sha256": row["comparison_key"]}
                     handle.write(json_bytes(record))
                     stats[name]["documents"] += 1
                     stats[name]["chars"] += len(row["text"])
@@ -381,7 +382,7 @@ class Pipeline:
                     "mixing": {"requested": self.content["mixing"], "selection": split_marker["stats"]["selection"],
                                "actual_token_fractions": fractions,
                                "actual_tokens_by_split": {name: {"by_source": s["by_source"], "by_category": s["by_category"]} for name, s in results.items()}},
-                    "leakage": {"exact_cross_split_overlap": 0, "known_near_duplicate_cross_split_groups": 0,
+                    "leakage": {"exact_cross_split_overlap": 0, "category_independent_cross_split_overlap": 0, "known_near_duplicate_cross_split_groups": 0,
                                 "scope": "all exact hashes and recognized SimHash+Jaccard groups; unknown near duplicates are not exhaustively excluded"},
                     "created_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
                     "code": {"git_revision": revision, "implementation_sha256": implementation_identity()}}

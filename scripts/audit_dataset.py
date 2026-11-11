@@ -29,6 +29,8 @@ def main():
         write_json(args.report, report)
     for pair, count in report["exact_overlap"].items():
         print(f"{pair} exact overlap: {count}")
+    for pair, count in report["category_independent_overlap"].items():
+        print(f"{pair} category-independent overlap: {count}")
     print(f"Known near-duplicate cross-split groups: {report['known_near_duplicate_cross_split_groups']}")
     print("PASS dataset audit" if report["ok"] else "FAIL dataset audit: " + "; ".join(report["errors"]))
     print(json.dumps(report, ensure_ascii=False, indent=2))

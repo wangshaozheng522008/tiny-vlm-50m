@@ -1,13 +1,20 @@
 {
   "cases": [
     {
-      "baseline_idle_rss_mib": 492.5,
-      "baseline_peak_rss_mib": 497.09,
-      "content_id": "18f93c97e61162f3ffc41aab5ad8d1c306b5571d3eea723e63830fc13de85c99",
+      "baseline_idle_rss_mib": 492.86,
+      "baseline_peak_rss_mib": 497.4,
+      "category_independent_overlap": {
+        "train/test": 0,
+        "train/val": 0,
+        "val/test": 0
+      },
+      "content_id": "c97371670f22b62c19480c804f564ee732f93c84c076d32322cbe0fe46b7ed9e",
       "deduplication": {
         "documents": 10000,
         "duplicates_exact": 0,
         "duplicates_near": 0,
+        "duplicates_normalized_exact": 0,
+        "duplicates_raw_exact": 0,
         "fragment_duplicates_exact": 0,
         "fragment_duplicates_near": 0,
         "fragment_search": {
@@ -34,7 +41,7 @@
         "parents_before_near": 10000,
         "parents_selected": 10000
       },
-      "documents_per_second": 738.34,
+      "documents_per_second": 631.65,
       "environment": {
         "measurement": "Linux ru_maxrss; fresh child, imports before baseline; full audit included in peak",
         "platform": "linux",
@@ -48,33 +55,45 @@
         "train/val": 0,
         "val/test": 0
       },
-      "incremental_peak_rss_mib": 43.37,
+      "incremental_peak_rss_mib": 44.08,
       "input_documents": 10000,
       "known_near_duplicate_cross_split_groups": 0,
-      "peak_minus_idle_rss_mib": 47.96,
-      "peak_rss_mib": 540.46,
-      "pipeline_seconds": 13.544,
+      "peak_minus_idle_rss_mib": 48.61,
+      "peak_rss_mib": 541.48,
+      "pipeline_seconds": 15.832,
       "published_documents": 10000,
+      "raw_overlap": {
+        "train/test": 0,
+        "train/val": 0,
+        "val/test": 0
+      },
       "stages_seconds": {
-        "deduplicate.stage.json": 5.766818,
-        "normalize.stage.json": 2.940374,
-        "split.stage.json": 0.544837,
-        "tokenize-test.stage.json": 0.085993,
-        "tokenize-train.stage.json": 3.698007,
-        "tokenize-val.stage.json": 0.096561,
-        "tokenizer.stage.json": 0.003416
+        "deduplicate.stage.json": 7.500229,
+        "normalize.stage.json": 3.094947,
+        "split.stage.json": 0.677526,
+        "tokenize-test.stage.json": 0.085468,
+        "tokenize-train.stage.json": 3.831799,
+        "tokenize-val.stage.json": 0.074074,
+        "tokenizer.stage.json": 0.001684
       },
       "tokens": 4370793,
-      "tokens_per_second": 322714.45
+      "tokens_per_second": 276081.78
     },
     {
-      "baseline_idle_rss_mib": 492.55,
-      "baseline_peak_rss_mib": 497.09,
-      "content_id": "f6633fd087e9dc6c497ad8e3d1d76c1a79c05e15f6fdbfe354125624d99c654d",
+      "baseline_idle_rss_mib": 493.03,
+      "baseline_peak_rss_mib": 497.4,
+      "category_independent_overlap": {
+        "train/test": 0,
+        "train/val": 0,
+        "val/test": 0
+      },
+      "content_id": "ade9bb47961b8ee20cd4f16348da208c2c249572530df46e4e68c2c689c82e71",
       "deduplication": {
         "documents": 100000,
         "duplicates_exact": 0,
         "duplicates_near": 0,
+        "duplicates_normalized_exact": 0,
+        "duplicates_raw_exact": 0,
         "fragment_duplicates_exact": 0,
         "fragment_duplicates_near": 0,
         "fragment_search": {
@@ -101,7 +120,7 @@
         "parents_before_near": 100000,
         "parents_selected": 100000
       },
-      "documents_per_second": 599.77,
+      "documents_per_second": 639.34,
       "environment": {
         "measurement": "Linux ru_maxrss; fresh child, imports before baseline; full audit included in peak",
         "platform": "linux",
@@ -115,24 +134,29 @@
         "train/val": 0,
         "val/test": 0
       },
-      "incremental_peak_rss_mib": 48.24,
+      "incremental_peak_rss_mib": 48.32,
       "input_documents": 100000,
       "known_near_duplicate_cross_split_groups": 0,
-      "peak_minus_idle_rss_mib": 52.78,
-      "peak_rss_mib": 545.33,
-      "pipeline_seconds": 166.73,
+      "peak_minus_idle_rss_mib": 52.69,
+      "peak_rss_mib": 545.72,
+      "pipeline_seconds": 156.412,
       "published_documents": 100000,
+      "raw_overlap": {
+        "train/test": 0,
+        "train/val": 0,
+        "val/test": 0
+      },
       "stages_seconds": {
-        "deduplicate.stage.json": 88.082667,
-        "normalize.stage.json": 31.58376,
-        "split.stage.json": 8.391762,
-        "tokenize-test.stage.json": 0.518786,
-        "tokenize-train.stage.json": 31.398628,
-        "tokenize-val.stage.json": 0.536811,
-        "tokenizer.stage.json": 0.001614
+        "deduplicate.stage.json": 78.307735,
+        "normalize.stage.json": 30.835243,
+        "split.stage.json": 7.000981,
+        "tokenize-test.stage.json": 0.652388,
+        "tokenize-train.stage.json": 31.419787,
+        "tokenize-val.stage.json": 0.671447,
+        "tokenizer.stage.json": 0.001551
       },
       "tokens": 43797053,
-      "tokens_per_second": 262682.6
+      "tokens_per_second": 280011.69
     }
   ],
   "dedup_quality": {
@@ -185,11 +209,25 @@
         "exact_removed": 0,
         "expected_duplicate": false,
         "near_removed": 0
+      },
+      {
+        "case": "cross_category_code",
+        "detected_duplicate": true,
+        "exact_removed": 1,
+        "expected_duplicate": true,
+        "near_removed": 0
+      },
+      {
+        "case": "code_indent_variants",
+        "detected_duplicate": false,
+        "exact_removed": 0,
+        "expected_duplicate": false,
+        "near_removed": 0
       }
     ],
     "precision": 1.0,
     "recall": 1.0,
-    "scope": "Seven synthetic labeled pairs only; not an estimate of real-world precision/recall."
+    "scope": "Nine synthetic labeled pairs only; not an estimate of real-world precision/recall."
   },
   "notes": "Synthetic only; throughput depends on hardware, text length and candidate density. No absolute RSS CI assertion."
 }

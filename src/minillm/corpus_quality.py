@@ -67,6 +67,18 @@ def content_hash(text: str, category: str) -> str:
     return hashlib.sha256(canonical(text, category).encode("utf-8")).hexdigest()
 
 
+def raw_content_hash(text: str) -> str:
+    """Category-neutral original identity; preserve indentation and meaningful spaces."""
+    text = unicodedata.normalize("NFC", text.replace("\r\n", "\n").replace("\r", "\n"))
+    return hashlib.sha256(text.encode("utf-8", errors="surrogatepass")).hexdigest()
+
+
+def comparison_hash(text: str) -> str:
+    """Category-neutral split guard, not a deletion key for whitespace-sensitive code."""
+    text = unicodedata.normalize("NFC", text)
+    return hashlib.sha256(re.sub(r"\s+", " ", text).strip().encode("utf-8")).hexdigest()
+
+
 def quality_issue(text: str, category: str, cfg: dict) -> str | None:
     if not text.strip():
         return "empty"

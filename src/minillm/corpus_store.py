@@ -6,13 +6,13 @@ import hashlib
 from pathlib import Path
 
 from .corpus_quality import (CATEGORIES, bands, classify, content_hash, fragments, normalise,
-                             quality_issue, shingles, simhash, similar)
+                             quality_issue, shingles, simhash, similar, raw_content_hash, comparison_hash)
 from .corpus_utils import CorpusError, connect, database_output, identity, json_bytes, verify_file
 from .data import stream_corpus_records
 
 SCHEMA = """
 CREATE TABLE docs(id TEXT PRIMARY KEY, text TEXT NOT NULL, source TEXT, category TEXT, language TEXT,
- license TEXT, priority INTEGER, metadata TEXT, near_parent TEXT, split_parent TEXT, near_root TEXT, sample_key TEXT);
+ license TEXT, priority INTEGER, metadata TEXT, near_parent TEXT, split_parent TEXT, near_root TEXT, sample_key TEXT, content_key TEXT);
 CREATE TABLE families(family TEXT, id TEXT, PRIMARY KEY(family,id));
 CREATE TABLE counts(source TEXT, reason TEXT, n INTEGER, PRIMARY KEY(source,reason));
 CREATE TABLE edges(kind TEXT, a TEXT, b TEXT, PRIMARY KEY(kind,a,b));
@@ -84,22 +84,26 @@ def normalize_sources(path: Path, inputs: list[dict], content: dict, runtime: di
                     if issue:
                         count(db, source, issue)
                         continue
-                    doc = content_hash(text, category)
+                    doc = raw_content_hash(record["text"])
                     language = classify(text)
                     declared = hint if isinstance(hint, str) and hint in CATEGORIES else "unknown"
                     metadata = json_bytes({"source": source, "category": category, "declared_category": declared,
                                            "language": language, "license": license_,
                                            "text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest()}).decode()
-                    old = db.execute("SELECT priority,metadata FROM docs WHERE id=?", (doc,)).fetchone()
+                    old = db.execute("SELECT priority,metadata,category FROM docs WHERE id=?", (doc,)).fetchone()
                     values = (doc, text, source, category, language, license_, item["priority"], metadata, doc, doc, doc,
-                              identity([content["seed"], "sample", doc]))
+                              identity([content["seed"], "sample", doc]), content_hash(text, category))
                     if old is None:
-                        db.execute("INSERT INTO docs VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", values)
+                        db.execute("INSERT INTO docs VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", values)
                         count(db, source, "accepted_unique")
                     else:
                         count(db, source, "duplicates_exact")
-                        if (-item["priority"], metadata) < (-old["priority"], old["metadata"]):
-                            db.execute("UPDATE docs SET text=?,source=?,category=?,language=?,license=?,priority=?,metadata=? WHERE id=?", (*values[1:8], doc))
+                        if category != old["category"]:
+                            count(db, source, "duplicates_cross_category")
+                        # Same original: retain an explicit code version before source priority,
+                        # so a mislabeled prose copy cannot remove meaningful indentation.
+                        if (-int(category == "code"), -item["priority"], metadata) < (-int(old["category"] == "code"), -old["priority"], old["metadata"]):
+                            db.execute("UPDATE docs SET text=?,source=?,category=?,language=?,license=?,priority=?,metadata=?,content_key=? WHERE id=?", (*values[1:8], values[-1], doc))
                     family = record.get("parent_id")
                     if Path(item["path"]).suffix.lower() != ".jsonl":
                         family = "txt-file:" + item["sha256"]
@@ -126,7 +130,9 @@ def near_deduplicate(db, table: str, cfg: dict, on_edge):
         return stats
     db.execute("DROP TABLE IF EXISTS buckets")
     db.execute("CREATE TABLE buckets(band INTEGER, bucket TEXT, id TEXT, fingerprint TEXT, PRIMARY KEY(band,bucket,id))")
-    for row in db.execute(f"SELECT id,text,category FROM {table} ORDER BY id"):
+    query = ("SELECT d.id,d.text,d.category FROM docs d JOIN exact_representatives e ON e.id=d.id ORDER BY d.id"
+             if table == "docs" else f"SELECT id,text,category FROM {table} ORDER BY id")
+    for row in db.execute(query):
         if row["category"] == "code" and not cfg["near_code"]:
             continue
         features = shingles(row["text"], row["category"], cfg["ngram"])
@@ -164,6 +170,17 @@ def deduplicate(path: Path, normalized: Path, content: dict, runtime: dict):
         def doc_edge(a, b):
             union(db, "docs", "near_parent", a, b)
             union(db, "docs", "split_parent", a, b)
+        # Original identities are already category-neutral. Apply the existing
+        # category-specific normalized exact rule only after choosing that version.
+        db.execute("CREATE INDEX docs_content ON docs(content_key,id)")
+        for group in db.execute("SELECT content_key,MIN(id) first FROM docs GROUP BY content_key HAVING COUNT(*)>1"):
+            for member in db.execute("SELECT id FROM docs WHERE content_key=? ORDER BY id", (group["content_key"],)):
+                doc_edge(group["first"], member["id"])
+        for row in db.execute("SELECT id FROM docs ORDER BY id"):
+            db.execute("UPDATE docs SET near_root=? WHERE id=?", (find(db, "docs", "near_parent", row["id"]), row["id"]))
+        db.execute("CREATE TABLE exact_representatives(id TEXT PRIMARY KEY)")
+        db.execute("INSERT INTO exact_representatives SELECT id FROM (SELECT id,ROW_NUMBER() OVER(PARTITION BY near_root ORDER BY (category='code') DESC,priority DESC,id) rn FROM docs) WHERE rn=1")
+        before_near = db.execute("SELECT COUNT(*) FROM exact_representatives").fetchone()[0]
         near = near_deduplicate(db, "docs", cfg, doc_edge)
         for row in db.execute("SELECT family, MIN(id) first FROM families GROUP BY family ORDER BY family"):
             for member in db.execute("SELECT id FROM families WHERE family=? ORDER BY id", (row["family"],)):
@@ -172,11 +189,12 @@ def deduplicate(path: Path, normalized: Path, content: dict, runtime: dict):
             root = find(db, "docs", "near_parent", row["id"])
             db.execute("UPDATE docs SET near_root=? WHERE id=?", (root, row["id"]))
         db.execute("CREATE TABLE representatives(id TEXT PRIMARY KEY)")
-        db.execute("INSERT INTO representatives SELECT id FROM (SELECT id,sample_key,ROW_NUMBER() OVER(PARTITION BY near_root ORDER BY priority DESC,id) rn FROM docs) WHERE rn=1 ORDER BY sample_key,id LIMIT ?", (content["sample"] or -1,))
+        db.execute("INSERT INTO representatives SELECT id FROM (SELECT id,sample_key,ROW_NUMBER() OVER(PARTITION BY near_root ORDER BY (category='code') DESC,priority DESC,id) rn FROM docs) WHERE rn=1 ORDER BY sample_key,id LIMIT ?", (content["sample"] or -1,))
         db.executescript("""CREATE TABLE fragments(id TEXT PRIMARY KEY, parent_id TEXT, text TEXT, source TEXT,
           category TEXT, language TEXT, license TEXT, priority INTEGER, near_parent TEXT, near_root TEXT,
           estimated INTEGER, order_key TEXT);
-          CREATE INDEX docs_near ON docs(near_root,priority,id);""")
+          CREATE INDEX docs_near ON docs(near_root,priority,id);
+          CREATE TABLE comparison_keys(hash TEXT,id TEXT,PRIMARY KEY(hash,id));""")
         duplicate_fragments = 0
         for row in db.execute("SELECT d.* FROM docs d JOIN representatives r ON r.id=d.id ORDER BY d.id"):
             for text in fragments(row["text"], content["quality"]["max_chars"]):
@@ -193,6 +211,12 @@ def deduplicate(path: Path, normalized: Path, content: dict, runtime: dict):
                 db.execute("INSERT OR REPLACE INTO fragments VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", (
                     key, row["id"], text, row["source"], row["category"], row["language"], row["license"],
                     row["priority"], key, key, estimate, identity([content["shuffle_seed"], "order", key])))
+                db.execute("INSERT OR IGNORE INTO comparison_keys VALUES(?,?)", (comparison_hash(text), key))
+        # Conservative grouping across categories does not delete code variants.
+        for group in db.execute("SELECT hash,MIN(id) first FROM comparison_keys GROUP BY hash HAVING COUNT(*)>1"):
+            first = db.execute("SELECT parent_id FROM fragments WHERE id=?", (group["first"],)).fetchone()[0]
+            for member in db.execute("SELECT f.parent_id FROM fragments f JOIN comparison_keys c ON c.id=f.id WHERE c.hash=? ORDER BY f.id", (group["hash"],)):
+                union(db, "docs", "split_parent", first, member["parent_id"])
         def fragment_edge(a, b):
             union(db, "fragments", "near_parent", a, b)
             parents = [db.execute("SELECT parent_id FROM fragments WHERE id=?", (key,)).fetchone()[0] for key in (a, b)]
@@ -206,9 +230,11 @@ def deduplicate(path: Path, normalized: Path, content: dict, runtime: dict):
         groups = db.execute("SELECT COUNT(DISTINCT near_root) FROM docs").fetchone()[0]
         total_fragments = db.execute("SELECT COUNT(*) FROM fragments").fetchone()[0]
         eligible = db.execute("SELECT COUNT(*) FROM eligible").fetchone()[0]
-        stats = {"documents": eligible, "parents_before_near": parents, "parents_after_near": groups,
+        stats = {"documents": eligible, "parents_before_near": before_near, "parents_after_near": groups,
                  "parents_selected": db.execute("SELECT COUNT(*) FROM representatives").fetchone()[0],
-                 "duplicates_exact": db.execute("SELECT COALESCE(SUM(n),0) FROM counts WHERE reason='duplicates_exact'").fetchone()[0],
-                 "duplicates_near": parents - groups, "fragment_duplicates_exact": duplicate_fragments,
+                 "duplicates_raw_exact": db.execute("SELECT COALESCE(SUM(n),0) FROM counts WHERE reason='duplicates_exact'").fetchone()[0],
+                 "duplicates_normalized_exact": parents - before_near,
+                 "duplicates_exact": db.execute("SELECT COALESCE(SUM(n),0) FROM counts WHERE reason='duplicates_exact'").fetchone()[0] + parents - before_near,
+                 "duplicates_near": before_near - groups, "fragment_duplicates_exact": duplicate_fragments,
                  "fragment_duplicates_near": total_fragments - eligible, "parent_search": near, "fragment_search": fragment_near}
     return stats, [path]

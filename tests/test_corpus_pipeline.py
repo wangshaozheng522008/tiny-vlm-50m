@@ -460,3 +460,91 @@ def test_invalid_license_policy_and_config_schema_are_rejected():
         content(license_policy={'allow':'MIT'})
     with pytest.raises(CorpusError,match='schema_version'):
         content(schema_version=2)
+
+
+CODE_EXAMPLE = 'def classify_value(value):\n    if value:\n        return 1\n    return 0\n'
+
+
+@pytest.mark.parametrize('label', ['zh', 'mixed', 'en'])
+@pytest.mark.parametrize('method', ['exact', 'simhash'])
+def test_identical_original_deduplicates_across_sources_and_categories(tmp_path,label,method):
+    a=jsonl(tmp_path/'code.jsonl',[{'text':CODE_EXAMPLE,'category':'code'}])
+    b=jsonl(tmp_path/'mislabeled.jsonl',[{'text':CODE_EXAMPLE,'category':label}])
+    sources=[{'name':'code-source','paths':[str(a)],'priority':0},
+             {'name':'mislabeled-source','paths':[str(b)],'priority':100}]
+    run=Pipeline(tmp_path/'dataset',content(split=[1,0,0],deduplication={'method':method}),inventory([],sources),log=lambda *_:None)
+    run.split()
+    rows=list(read_records(run.out/'train.text.jsonl'))
+    assert len(rows)==1 and rows[0]['category']=='code'
+    assert rows[0]['text']==normalise(CODE_EXAMPLE,'code')
+    assert '        return 1' in rows[0]['text']
+    from minillm.corpus_quality import raw_content_hash,comparison_hash
+    assert rows[0]['raw_sha256']==raw_content_hash(CODE_EXAMPLE)
+    assert rows[0]['comparison_sha256']==comparison_hash(rows[0]['text'])
+    stats=json.loads((run.out/'.pipeline/deduplicate.stage.json').read_text())['stats']
+    assert stats['duplicates_raw_exact']==1 and stats['duplicates_exact']==1
+    assert stats['duplicates_near']==0
+
+
+def test_code_indentation_variants_survive_mislabeled_aliases_and_share_split(tmp_path,tiny_tokenizer):
+    other=CODE_EXAMPLE.replace('    return 0', '        return 0')
+    records=[*synthetic(30),
+             *({'text':text,'category':label,'source':source} for text in (CODE_EXAMPLE,other)
+               for label,source in (('code','code-source'),('zh','mislabeled-source')))]
+    path=jsonl(tmp_path/'variants.jsonl',records)
+    run=pipeline(tmp_path,[path],config=content(split=[.5,.25,.25]))
+    tok=tmp_path/'tok.json';tiny_tokenizer.save(tok)
+    run.tokenize(tok)
+    found=[]
+    for split in ('train','val','test'):
+        found.extend((split,r) for r in read_records(run.out/f'{split}.text.jsonl') if r['category']=='code')
+    assert len(found)==2
+    assert {r['text'] for _,r in found}=={normalise(CODE_EXAMPLE,'code'),normalise(other,'code')}
+    assert len({split for split,_ in found})==len({r['group_id'] for _,r in found})==1
+    assert len({r['raw_sha256'] for _,r in found})==2
+    assert len({r['comparison_sha256'] for _,r in found})==1
+    report=audit_dataset(run.out,retokenize=True)
+    assert report['ok'],report['errors']
+    assert all(n==0 for n in report['category_independent_overlap'].values())
+    assert all(n==0 for n in report['raw_overlap'].values())
+
+
+@pytest.mark.parametrize('cached_key', ['missing', 'forged'])
+def test_audit_independently_detects_cross_category_leakage(tmp_path,tiny_tokenizer,cached_key):
+    from minillm.corpus_utils import write_json
+    path=jsonl(tmp_path/'code.jsonl',[*synthetic(10),{'text':CODE_EXAMPLE,'category':'code','source':'original'}])
+    run=pipeline(tmp_path,[path],config=content(split=[1,0,0]))
+    tok=tmp_path/'tok.json';tiny_tokenizer.save(tok)
+    manifest=run.tokenize(tok)
+    original=next(r for r in read_records(run.out/'train.text.jsonl') if r['category']=='code')
+    duplicate={**original,'text':normalise(CODE_EXAMPLE,'zh'),'category':'zh','source':'mislabeled',
+               'parent_id':'a'*64,'group_id':'b'*64,'raw_sha256':'a'*64}
+    duplicate['id']=content_hash(duplicate['text'],'zh')
+    assert duplicate['id']!=original['id']  # The old category-dependent audit would miss this.
+    if cached_key=='missing':
+        duplicate.pop('comparison_sha256');duplicate.pop('raw_sha256')
+    else:
+        duplicate['comparison_sha256']='f'*64
+    jsonl(run.out/'val.text.jsonl',[duplicate])
+    stats=tokenize_split(iter([duplicate]),tiny_tokenizer,run.out/'val.bin')
+    forged=copy.deepcopy(manifest);forged['splits']['val']=stats
+    summary=json.loads((run.out/'dataset.json').read_text());summary['splits']=forged['splits']
+    write_json(run.out/'dataset.json',summary)
+    for name in ('val.text.jsonl','val.bin','dataset.json'):
+        forged['files'][name]=file_info(run.out/name)
+    forged['identity']['files']=forged['files'];forged['content_id']=identity(forged['identity'])
+    report=audit_dataset(run.out,manifest=forged)
+    assert not report['ok']
+    assert report['exact_overlap']['train/val']==0
+    assert report['category_independent_overlap']['train/val']==1
+    assert any('category-independent cross-split leakage' in error for error in report['errors'])
+    if cached_key=='forged':
+        assert any('comparison key mismatch' in error for error in report['errors'])
+
+
+def test_original_identity_preserves_indentation_and_normalizes_line_endings():
+    from minillm.corpus_quality import raw_content_hash,comparison_hash
+    other=CODE_EXAMPLE.replace('    return 0','        return 0')
+    assert raw_content_hash(CODE_EXAMPLE)==raw_content_hash(CODE_EXAMPLE.replace('\n','\r\n'))
+    assert raw_content_hash(CODE_EXAMPLE)!=raw_content_hash(other)
+    assert comparison_hash(CODE_EXAMPLE)==comparison_hash(other)

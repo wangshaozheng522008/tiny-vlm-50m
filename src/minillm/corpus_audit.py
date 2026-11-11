@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import tempfile
 from pathlib import Path
@@ -9,7 +10,7 @@ from pathlib import Path
 import numpy as np
 
 from .corpus import SPLITS, input_identity, read_records
-from .corpus_quality import CATEGORIES, content_hash
+from .corpus_quality import CATEGORIES, content_hash, comparison_hash
 from .corpus_utils import CorpusError, connect, histogram_add, identity, verify_file
 from .tokenizer import MiniLLMTokenizer
 
@@ -17,7 +18,7 @@ from .tokenizer import MiniLLMTokenizer
 def audit_dataset(directory: Path, *, manifest: dict | None = None, tokenizer_path: Path | None = None,
                   retokenize: bool = False, verify_inputs: bool = False) -> dict:
     directory = Path(directory)
-    report = {"ok": False, "errors": [], "checks": {}, "splits": {}, "exact_overlap": {},
+    report = {"ok": False, "errors": [], "checks": {}, "splits": {}, "exact_overlap": {}, "category_independent_overlap": {}, "raw_overlap": {},
               "known_near_duplicate_cross_split_groups": None}
     def error(message):
         if len(report["errors"]) < 20:
@@ -62,7 +63,8 @@ def audit_dataset(directory: Path, *, manifest: dict | None = None, tokenizer_pa
         with tempfile.TemporaryDirectory(prefix="minillm-audit-") as temporary:
             db = connect(Path(temporary) / "audit.sqlite")
             try:
-                db.executescript("CREATE TABLE records(hash TEXT,split TEXT,parent TEXT,grp TEXT); CREATE INDEX hashes ON records(hash,split); CREATE INDEX groups_ ON records(grp,split); CREATE INDEX parents ON records(parent,split);")
+                db.executescript("CREATE TABLE records(hash TEXT,comparison TEXT,raw TEXT,split TEXT,parent TEXT,grp TEXT); CREATE INDEX hashes ON records(hash,split); CREATE INDEX comparison_keys ON records(comparison,split); CREATE INDEX raw_keys ON records(raw,split); CREATE INDEX groups_ ON records(grp,split); CREATE INDEX parents ON records(parent,split);")
+                missing_raw_ids = 0
                 for split in SPLITS:
                     stats = {"documents": 0, "chars": 0, "tokens": 0, "by_source": {}, "by_category": {},
                              "character_length_histogram": {}, "unknown_license_documents": 0}
@@ -73,7 +75,16 @@ def audit_dataset(directory: Path, *, manifest: dict | None = None, tokenizer_pa
                         digest = content_hash(record["text"], category)
                         if digest != record["id"]:
                             error(f"{split}: normalized text ID mismatch")
-                        db.execute("INSERT INTO records VALUES(?,?,?,?)", (digest, split, record["parent_id"], record["group_id"]))
+                        # Recompute from the text, never from category or a cached key.
+                        comparison = comparison_hash(record["text"])
+                        if record.get("comparison_sha256", comparison) != comparison:
+                            error(f"{split}: category-independent comparison key mismatch")
+                        raw = record.get("raw_sha256")
+                        if raw is None:
+                            missing_raw_ids += 1  # Older published versions remain independently text-auditable.
+                        elif not isinstance(raw, str) or not re.fullmatch(r"[0-9a-f]{64}", raw):
+                            raise CorpusError(f"{split}: invalid original text identity")
+                        db.execute("INSERT INTO records VALUES(?,?,?,?,?,?)", (digest, comparison, raw, split, record["parent_id"], record["group_id"]))
                         stats["documents"] += 1
                         stats["chars"] += len(record["text"])
                         histogram_add(stats["character_length_histogram"], len(record["text"]))
@@ -119,6 +130,11 @@ def audit_dataset(directory: Path, *, manifest: dict | None = None, tokenizer_pa
                     report["exact_overlap"][a + "/" + b] = n
                     if n:
                         error(f"exact cross-split leakage: {a}/{b} ({n})")
+                    for column, field, description in (("comparison", "category_independent_overlap", "category-independent"), ("raw", "raw_overlap", "raw-text")):
+                        overlaps = db.execute(f"SELECT COUNT(DISTINCT a.{column}) FROM records a JOIN records b ON a.{column}=b.{column} WHERE a.split=? AND b.split=?", (a, b)).fetchone()[0]
+                        report[field][a + "/" + b] = overlaps
+                        if overlaps:
+                            error(f"{description} cross-split leakage: {a}/{b} ({overlaps})")
                 duplicate_count = db.execute("SELECT COALESCE(SUM(n-1),0) FROM (SELECT COUNT(*) n FROM records GROUP BY hash HAVING n>1)").fetchone()[0]
                 if duplicate_count:
                     error(f"remaining exact duplicates: {duplicate_count}")
@@ -132,6 +148,9 @@ def audit_dataset(directory: Path, *, manifest: dict | None = None, tokenizer_pa
             finally:
                 db.close()
         report["checks"].update(token_range="full", exact_overlap="full disk-indexed normalized hashes",
+                                 category_independent_overlap="full recomputation from emitted text; ignores category and cached comparison keys",
+                                 original_text_identity={"scope": "recorded pre-cleaning identities checked across splits; original text not reconstructed",
+                                                         "documents_without_identity": missing_raw_ids},
                                  known_group_isolation="full declared groups/parents",
                                  near_duplicates={"scope": "recognized groups only; independent all-pairs near search not performed",
                                                   "algorithm": "64-bit full-character-ngram SimHash + Jaccard confirmation",
@@ -140,7 +159,7 @@ def audit_dataset(directory: Path, *, manifest: dict | None = None, tokenizer_pa
         reasons = {}
         for row in manifest["quality"]["by_source_reason"]:
             reasons[row["reason"]] = reasons.get(row["reason"], 0) + row["n"]
-        excluded = {"records_seen", "accepted_unique", "duplicates_exact", "excluded_source_files"}
+        excluded = {"records_seen", "accepted_unique", "duplicates_exact", "duplicates_cross_category", "excluded_source_files"}
         report["quality"] = {"records_seen": manifest["quality"]["records_seen"], "by_reason": reasons,
                              "filter_rate": sum(n for reason, n in reasons.items() if reason not in excluded) / max(manifest["quality"]["records_seen"], 1),
                              "exact_duplicate_rate": manifest["deduplication"]["duplicates_exact"] / max(manifest["quality"]["records_seen"], 1),

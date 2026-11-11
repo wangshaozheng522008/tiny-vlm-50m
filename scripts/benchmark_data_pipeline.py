@@ -32,10 +32,17 @@ def duplicate_quality_cases(out):
            ('new_title','原标题\n'+body,'新标题\n'+body,True),
            ('same_prefix_different_body',body,body[:256]+other,False),
            ('cross_source_repost',body,body,True),('different_content',body,other,False)]
+    code='def classify_value(value):\n    if value:\n        return 1\n    return 0\n'
+    cases.extend([('cross_category_code',code,code,True),
+                  ('code_indent_variants',code,code.replace('    return 0','        return 0'),False)])
     results=[]
     for name,a,b,expected in cases:
         raw=out/(name+'.jsonl')
-        raw.write_text('\n'.join(json.dumps({'text':text,'source':source,'license':'synthetic-only'},ensure_ascii=False) for text,source in ((a,'original'),(b,'repost')))+'\n')
+        records=[{'text':text,'source':source,'license':'synthetic-only'} for text,source in ((a,'original'),(b,'repost'))]
+        if name in ('cross_category_code','code_indent_variants'):
+            records[0]['category']='code'
+            records[1]['category']='zh' if name=='cross_category_code' else 'code'
+        raw.write_text('\n'.join(json.dumps(record,ensure_ascii=False) for record in records)+'\n')
         pipeline=Pipeline(out/name,make_content({'split':[1,0,0],'quality':{'min_chars':20,'max_chars':4000}}),inventory([str(raw)]),log=lambda *_:None)
         pipeline.split()
         kept=sum(1 for _ in read_records(pipeline.out/'train.text.jsonl'))
@@ -46,7 +53,7 @@ def duplicate_quality_cases(out):
     fp=sum(not r['expected_duplicate'] and r['detected_duplicate'] for r in results)
     fn=sum(r['expected_duplicate'] and not r['detected_duplicate'] for r in results)
     return {'cases':results,'precision':tp/max(tp+fp,1),'recall':tp/max(tp+fn,1),
-            'scope':'Seven synthetic labeled pairs only; not an estimate of real-world precision/recall.'}
+            'scope':'Nine synthetic labeled pairs only; not an estimate of real-world precision/recall.'}
 
 
 def main():
@@ -83,7 +90,8 @@ def main():
                 'baseline_peak_rss_mib':round(baseline_peak,2),'baseline_idle_rss_mib':round(baseline_rss,2),
                 'peak_rss_mib':round(peak,2),'incremental_peak_rss_mib':round(max(0,peak-baseline_peak),2),
                 'peak_minus_idle_rss_mib':round(max(0,peak-baseline_rss),2),'stages_seconds':stages,
-                'exact_overlap':audit['exact_overlap'],'known_near_duplicate_cross_split_groups':audit['known_near_duplicate_cross_split_groups'],
+                'exact_overlap':audit['exact_overlap'],'category_independent_overlap':audit['category_independent_overlap'],
+                'raw_overlap':audit['raw_overlap'],'known_near_duplicate_cross_split_groups':audit['known_near_duplicate_cross_split_groups'],
                 'content_id':manifest['content_id'],'deduplication':manifest['deduplication'],
                 'environment':{'python':sys.version.split()[0],'platform':sys.platform,'torch':torch.__version__,
                                'sqlite_cache_mib':16,'threads':1,'measurement':'Linux ru_maxrss; fresh child, imports before baseline; full audit included in peak'}}
