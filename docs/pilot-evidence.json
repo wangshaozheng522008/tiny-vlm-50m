@@ -1,5 +1,5 @@
 {
-  "status": "V3_DATA_VERIFIED",
+  "status": "PILOT_RUNNING",
   "source_usage": "User-confirmed noncommercial research; combined upstream license declaration, no per-record mapping",
   "rejected_v1": {
     "reason": "Known historical split exposure; within-version audit alone was insufficient for a warm start",
@@ -71,7 +71,7 @@
     "training_reliability": "11 PASS",
     "evaluation_workflow": "PASS"
   },
-  "scope": "V3 full-load and recovery checks in progress; no completed pilot claim",
+  "scope": "V3 full-load, recovery and baseline checks passed; 611-update pilot execution in progress; no final acceptance claim",
   "not_promoted_v2": {
     "reason": "Effective Train tokens below planned minimum",
     "effective_train_tokens": 14967513,
@@ -127,5 +127,287 @@
         "test": 0
       }
     }
-  }
+  },
+  "workload": {
+    "content_id": "d9723f5f4bba58f7c539557cc09214df96cf7bc9a382df5a71555617f78c0d05",
+    "environment": {
+      "python_version": "3.11.17",
+      "torch_version": "2.14.1+cu126",
+      "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.35",
+      "device": "cuda",
+      "device_name": "NVIDIA T1200 Laptop GPU",
+      "cuda_version": "12.6",
+      "threads": 1,
+      "numerical_scope": "same software/device; cross-GPU/version bitwise equality is not guaranteed",
+      "total_memory_bytes": 3895132160,
+      "capability": [
+        7,
+        5
+      ],
+      "uuid": "5e773842-5d12-25ad-eb67-f4788fb7f718",
+      "driver": "GPU-5e773842-5d12-25ad-eb67-f4788fb7f718, 580.178.04"
+    },
+    "initialization": {
+      "sha256": "dab85a443d77fc8d54adcd517fe687f4cd3381282c0cc314cde4a18fbb37688a",
+      "kind": "weights_only"
+    },
+    "measurements": {
+      "updates": [
+        {
+          "global_step": 1,
+          "loss": 6.729826269960823,
+          "tokens": 16368,
+          "seconds": 10.300146010999015,
+          "tokens_per_second": 1589.1036867362293
+        },
+        {
+          "global_step": 2,
+          "loss": 6.907790675307766,
+          "tokens": 16368,
+          "seconds": 10.133388590998948,
+          "tokens_per_second": 1615.254349817295
+        },
+        {
+          "global_step": 3,
+          "loss": 6.749957907817464,
+          "tokens": 16368,
+          "seconds": 10.212035696000385,
+          "tokens_per_second": 1602.8146088845579
+        }
+      ],
+      "optimizer_steps": 3,
+      "validation": {
+        "loss": 6.796632569834878,
+        "perplexity": 894.8289384958107,
+        "tokens": 330429,
+        "batches": 323
+      },
+      "checkpoint_roundtrip": true,
+      "checkpoint_seconds": 1.6510633059988322,
+      "peak_allocated_bytes": 1902630912,
+      "peak_reserved_bytes": 2239758336,
+      "device_total_bytes": 3895132160,
+      "free_before_bytes": 3827236864,
+      "limit_bytes": 3116105728,
+      "effective_tokens": 49104,
+      "training_tokens_per_second": 1602.3196671659684,
+      "scope": "full configured micro-batches/sequence/accumulation, AdamW updates, validation and state roundtrip; not a guarantee against future OOM"
+    }
+  },
+  "recovery": {
+    "status": "PASS",
+    "steps": 20,
+    "interruptions": [
+      5,
+      12
+    ],
+    "maximum_parameter_difference": 0.0,
+    "atol": 1e-06,
+    "rtol": 1e-05,
+    "sample_order_equal": true,
+    "lr_equal": true,
+    "progress": {
+      "global_step": 20,
+      "epoch": 0,
+      "micro_batches_consumed_in_epoch": 320,
+      "samples_seen": 320,
+      "tokens_seen": 327360
+    },
+    "initial_checkpoint": {
+      "bytes": 409066663,
+      "sha256": "dab85a443d77fc8d54adcd517fe687f4cd3381282c0cc314cde4a18fbb37688a"
+    },
+    "scope": "isolated recovery experiment; not part of pilot token count"
+  },
+  "readiness": "READY",
+  "baseline": {
+    "evaluation_id": "a5f765b76a08ede4b225e7093bae823aa3f320e86b5167d1182df6943dcf7898",
+    "language_model": {
+      "loss": 6.758310617879033,
+      "loss_sum": 442912.6446533203,
+      "tokens": 65536,
+      "perplexity": 861.1860937895325,
+      "perplexity_status": "finite",
+      "display_clipped": false,
+      "batches": 129
+    },
+    "scores": {
+      "raw": {
+        "categories": {
+          "code": {
+            "correct": 0,
+            "scored": 7,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "english": {
+            "correct": 0,
+            "scored": 7,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "knowledge": {
+            "correct": 0,
+            "scored": 10,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "language": {
+            "correct": 0,
+            "scored": 15,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "logic": {
+            "correct": 0,
+            "scored": 13,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "math": {
+            "correct": 0,
+            "scored": 12,
+            "manual_review": 0,
+            "accuracy": 0.0
+          }
+        },
+        "tasks": 64,
+        "interpretation": "completion ability"
+      },
+      "chat": {
+        "categories": {
+          "code": {
+            "correct": 0,
+            "scored": 8,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "english": {
+            "correct": 0,
+            "scored": 8,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "instruction": {
+            "correct": 0,
+            "scored": 25,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "knowledge": {
+            "correct": 0,
+            "scored": 15,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "language": {
+            "correct": 0,
+            "scored": 15,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "logic": {
+            "correct": 0,
+            "scored": 12,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "math": {
+            "correct": 0,
+            "scored": 13,
+            "manual_review": 0,
+            "accuracy": 0.0
+          }
+        },
+        "tasks": 96,
+        "interpretation": "instruction following; pretrain-only low scores require stage context"
+      }
+    }
+  },
+  "contamination": {
+    "pretrain": {
+      "status": "CHECKED_KNOWN_SOURCES",
+      "sources": [
+        {
+          "kind": "pretrain/train",
+          "file": "data/processed/minillm-pilot-research-v3/train.text.jsonl",
+          "bytes": 136378185,
+          "sha256": "bac1639dddc5f130d4c1548c2a5461b28312ae86b31d1a8870a5cd0f8476b010",
+          "records_scanned": 122910,
+          "exact_task_ids": [],
+          "near_task_ids": [],
+          "unsupported_records": 0,
+          "near_skipped_long_texts": 0
+        },
+        {
+          "kind": "pretrain/val",
+          "file": "data/processed/minillm-pilot-research-v3/val.text.jsonl",
+          "bytes": 2824029,
+          "sha256": "45a6723c97834787d99648921ac8b1492824fd0dffad9ba678a200e2c4c361ca",
+          "records_scanned": 2524,
+          "exact_task_ids": [],
+          "near_task_ids": [],
+          "unsupported_records": 0,
+          "near_skipped_long_texts": 0
+        },
+        {
+          "kind": "pretrain/test",
+          "file": "data/processed/minillm-pilot-research-v3/test.text.jsonl",
+          "bytes": 2827849,
+          "sha256": "15114def6f4dd299f5260af6b7f9b0d753a0fc30d2e8d36fbe97c6ef50767eb3",
+          "records_scanned": 2566,
+          "exact_task_ids": [],
+          "near_task_ids": [],
+          "unsupported_records": 0,
+          "near_skipped_long_texts": 0
+        }
+      ],
+      "exact_rule": "category-neutral whitespace-folded full prompt / prompt+reference / individual SFT messages and joined conversation",
+      "near_rule": "full character 4-grams, SimHash64 Hamming<=4 + Jaccard>=.85, texts<=20000 chars",
+      "limitations": "no substring, semantic or unknown training-corpus exclusion; short-answer coincidences are not proof of memorization; no exhaustive contamination guarantee"
+    },
+    "sft": {
+      "status": "CHECKED_KNOWN_SOURCES",
+      "sources": [
+        {
+          "kind": "sft",
+          "file": "runs/minillm-87m/sft/train.jsonl",
+          "bytes": 2665590,
+          "sha256": "f21c09ffb90faf810973a2bc66de499e56b704da83ece3964092837f777c1c50",
+          "records_scanned": 2850,
+          "exact_task_ids": [],
+          "near_task_ids": [],
+          "unsupported_records": 0,
+          "near_skipped_long_texts": 0
+        },
+        {
+          "kind": "sft",
+          "file": "runs/minillm-87m/sft/val.jsonl",
+          "bytes": 138904,
+          "sha256": "d44649f12ba010d2ba6ae7ad2d0a33ed163b4cb4929c672d137f9b24ad32637c",
+          "records_scanned": 150,
+          "exact_task_ids": [],
+          "near_task_ids": [],
+          "unsupported_records": 0,
+          "near_skipped_long_texts": 0
+        }
+      ],
+      "exact_rule": "category-neutral whitespace-folded full prompt / prompt+reference / individual SFT messages and joined conversation",
+      "near_rule": "full character 4-grams, SimHash64 Hamming<=4 + Jaccard>=.85, texts<=20000 chars",
+      "limitations": "no substring, semantic or unknown training-corpus exclusion; short-answer coincidences are not proof of memorization; no exhaustive contamination guarantee"
+    }
+  },
+  "planned_pilot": {
+    "global_steps": 611,
+    "effective_tokens": 10000848,
+    "run": "runs/pilot-10m-t1200-v3",
+    "initialization": "original pretrained weights only; fresh optimizer and counters"
+  },
+  "limitations": [
+    "User-confirmed noncommercial research; no per-record license mapping",
+    "Contiguous MiniMind sample; not a balanced zh/en/code mixture",
+    "Known-source full-document exact/approximate checks do not exclude arbitrary substring/semantic/unknown-source exposure",
+    "Full-load short probe does not guarantee future OOM-free operation",
+    "Recovery and excluded v1 experiment tokens are not part of pilot counters"
+  ]
 }
