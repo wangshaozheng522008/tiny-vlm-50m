@@ -587,3 +587,21 @@ python -m minillm.web --ckpt runs/minillm-87m/sft-fixed/model-int4.pt \
 4. 训练脚本没有实现多卡 / FSDP / ZeRO；单卡 4 GB 以内可用，但更大规模需要另做并行。
 5. Web 端是单会话、无鉴权，只适合 `127.0.0.1` 本地使用。
 6. 没有做安全对齐（拒答、越狱防护等）。
+
+### 模型评测与长训练前验收
+
+PR #4 提供只读评测、Checkpoint 对比、训练曲线和启动验收入口：
+
+```bash
+python scripts/evaluate_model.py --ckpt runs/minillm/model.pt \
+  --tokenizer runs/minillm/tokenizer.json --dataset data/processed/minillm-pretrain-v1 \
+  --config configs/evaluation.example.json --out reports/evaluation
+python scripts/analyze_training.py --run runs/minillm --out reports/training-analysis
+python scripts/check_training_readiness.py --dataset data/processed/minillm-pretrain-v1 \
+  --tokenizer data/processed/minillm-pretrain-v1/tokenizer.json --config minillm-87m \
+  --training-config configs/training.example.json --out reports/readiness
+```
+
+Raw/Chat 分开计分，Loss 按真实有效 Token 加权；Dataset、Tokenizer、Checkpoint 与固定评测配置绑定哈希。报告拒绝覆盖已有目录，READY/BLOCKED/INCOMPLETE 分别返回 0/1/2。验收不会启动正式训练。
+
+[完整说明与命令](docs/evaluation-and-readiness.md)包括多 Checkpoint 对比、已完成试训练验收、160条原创固定题/40个生成提示的版本与污染审计限制，以及 CPU Nano 可复现示例。已有模型仍必须使用原 Tokenizer；示例的微小合成词表和能力分数不代表87M实际模型。

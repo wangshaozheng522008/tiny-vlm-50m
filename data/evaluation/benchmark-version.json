@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "version": "minillm-zh-v1",
+  "source": "Original repository probes authored for this change; no external benchmark or model-generated judge",
+  "human_review": "pending; all questions and answers are inspectable, no claim of independent human validation",
+  "license": "MIT",
+  "files": {
+    "minillm-zh-benchmark.jsonl": {
+      "sha256": "07a84b6b311c3c35b20e92537f33d756edd5d1ad05ac954e7a0e1b2c67941f4a",
+      "records": 160
+    },
+    "fixed-prompts.jsonl": {
+      "sha256": "39ada73b830e9b8f362637143a8a2f2b8ba37eefdf8c389658555bb8614cc2a0",
+      "records": 40
+    }
+  },
+  "policy": "Frozen v1; answer/prompt changes require a new version. These probes are diagnostics, not a validated general intelligence test."
+}
