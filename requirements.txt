@@ -2,6 +2,7 @@
 torch>=2.4
 tokenizers>=0.15
 numpy>=1.24
+pyyaml>=6.0
 
 # Development / tests
 pytest>=7.4
