@@ -70,7 +70,18 @@ python scripts/evaluate_chinese_foundation.py \
   --out reports/diagnostics/reviewed-run --max-wall-seconds 120
 ```
 
-复制 `review-template.jsonl` 到新路径编辑，**不要修改冻结文件**。人工逐项检查题意、唯一标准答案、事实/逻辑、候选偏差与文本类别：
+可以直接运行逐题终端审核，无需手动编辑JSONL：
+
+```bash
+.venv/bin/python scripts/review_chinese_foundation.py
+# 也可指定审核人及结果文件；重复运行同一命令会继续未审核题目：
+.venv/bin/python scripts/review_chinese_foundation.py \
+  --reviewer 你的名字 --out reports/reviews/chinese-foundation-v1.jsonl
+```
+
+脚本逐题显示题目、四个候选、参考答案和来源。输入 `1` 回车通过，`2` 回车拒绝（可填写原因），`s` 跳过，`q` 保存退出；直接回车不会通过。每题决定立即原子保存，Ctrl+C/输入结束后可按原命令继续。已审核条目自动跳过，保留原审核人和决定；跳过项保持待审，下次重新显示。结果直接传给评测器 `--reviews reports/reviews/chinese-foundation-v1.jsonl`。脚本默认只审核120道候选题，不自动批准30条Raw前缀；所有选择均需由人工输入。题库版本/哈希不符、冻结目录输出或并发写同一结果文件时拒绝。
+
+也可复制 `review-template.jsonl` 到新路径编辑，**不要修改冻结文件**。人工逐项检查题意、唯一标准答案、事实/逻辑、候选偏差与文本类别：
 
 - `ACCEPT`：reviewer、reason非空，`human_review=true`，题号/版本/对应资产SHA256严格匹配。
 - `REJECT`：排除题目，并保留人工理由。
