@@ -1,0 +1,5791 @@
+{
+  "schema_version": 1,
+  "scope": "CPU Nano engineering and memorization baseline, not pretrained 87M capability",
+  "baseline_commit": "aa39210a8a9bf9588a6f9f78e2b38357bc9a004b",
+  "implementation_commit": "6ec1b77adf9d424578b88c31890095099fc3e401",
+  "commands": [
+    "python -m pytest -q -o addopts=''",
+    "./scripts/smoke_test.sh",
+    "SYNTHETIC=1 ./scripts/smoke_test.sh",
+    "python scripts/check_training_reliability.py",
+    "make diagnose-nano DIAGNOSTIC_OUT=reports/diagnostics/pr7-cpu-nano-final",
+    "make diagnose-nano DIAGNOSTIC_OUT=reports/diagnostics/pr7-cpu-nano-repeat",
+    "python scripts/run_memorization_probe.py --out reports/diagnostics/pr7-memorization-cli --max-steps 120 --max-effective-tokens 30000 --max-wall-seconds 60",
+    "python scripts/evaluate_chinese_foundation.py --ckpt reports/diagnostics/pr7-resource-check/memorization/corpus/model.pt --tokenizer reports/diagnostics/pr7-resource-check/memorization/tokenizer.json --out reports/diagnostics/pr7-evaluate-cli --max-wall-seconds 60"
+  ],
+  "python_environment": "Repository .venv; PATH includes .venv/bin for python commands",
+  "validation": {
+    "pytest": {
+      "passed": 459,
+      "seconds": 145.99
+    },
+    "new_diagnostic_tests": 46,
+    "smoke_real": "PASS",
+    "smoke_synthetic": "PASS",
+    "training_reliability": "PASS (11 checks)",
+    "independent_memorization_cli": "PASS",
+    "independent_evaluation_cli": "PASS"
+  },
+  "hardware_cpu_model": "11th Gen Intel(R) Core(TM) i7-11850H @ 2.50GHz",
+  "manifest": {
+    "schema_version": 1,
+    "seed": 42,
+    "budget": {
+      "max_steps": 200,
+      "max_effective_tokens": 50000,
+      "max_wall_seconds": 120.0,
+      "max_memory_mib": 2048
+    },
+    "code": {
+      "git_commit": "6ec1b77adf9d424578b88c31890095099fc3e401",
+      "git_dirty": false,
+      "implementation_sha256": "61b453366d5cff3fd2c0ed4abd89f04f913cd1b20b6e08cdb95b885e70af04ce",
+      "source_files": {
+        "scripts/analyze_training.py": "d3a374bec72e17fdd8b9ab13c808c3db910bc954a1b87784c7b92249b5d22df6",
+        "scripts/audit_corpus_semantics.py": "1939440fedcf266baf52fa3843d55ae3701cb0ab1d17bda89f5fb99db1313944",
+        "scripts/audit_dataset.py": "1cac4ef25fbad212d423e46f225e19d75fec51f01ab14df48572bcab3df560b2",
+        "scripts/audit_text_policy.py": "302d8c2705d0ad15eb4ea5377d0c7049724eb21941e2633964d98682f46b81a8",
+        "scripts/benchmark.py": "0fc0f7fcecdcb05a71ade9fc27860f30ffd2bfc0ae886a9e6469cc306328ee10",
+        "scripts/benchmark_data_pipeline.py": "45926f4b2bb3916c06da4fae34ec58e528fba07fdb65af56d2db4d6ab92a441f",
+        "scripts/check_evaluation_workflow.py": "2db363edd0b5a88bb9f96e8a8db7f25b93a0aaa5442357a05518ac6ebd6e5640",
+        "scripts/check_pilot_recovery.py": "4aeeda6acdf3f4539202cf1224b34cc7c87401a396cb12f7b167dd8e0a782e0b",
+        "scripts/check_training_readiness.py": "81edd8792011d3462d43fc39787391778c3ff0ab281f20a4cd6a8f8852269a4d",
+        "scripts/check_training_reliability.py": "33b127f4b00e46331e47904362af050c9ce71569d6561c1c04b371f6f5c30d88",
+        "scripts/compare_checkpoints.py": "4b4f09d8d452cb53b1459c1823106d6ad4d06eafcc1e5444289a39ca1f8c903a",
+        "scripts/diagnose_training.py": "2a25e01a006615e280509fbc0324024da877233ac86daed99b01e78c6c342873",
+        "scripts/evaluate_chinese_foundation.py": "bc7764cb042240600758fa8ad896656129347d2d970e925b9858b870bfb6e520",
+        "scripts/evaluate_model.py": "112a1516a819cda54ae9d4125309ba41300c14ea230c8168c815b6ef11ea41bd",
+        "scripts/evaluate_training_pilot.py": "c24a6b047d759704e3e9dc9864610d7a4c25805abbc74b4c2df5e736dcafaab2",
+        "scripts/make_sft_sample.py": "9610a87d8f2362cf9e4c9ab24f4edd6bae6421969dad8421c3bd17c807624b15",
+        "scripts/prepare_pilot_source.py": "75de5da1ed76ec68c43b8e1bc5c880a3c0577f80129cec6834ac44bf98dc9c8d",
+        "scripts/prepare_text.py": "0f8278a6838c6fb68a160ee7996f045c3e0f3702c619563f877a5fe17bb681cd",
+        "scripts/probe_training_workload.py": "edff93741bf71ca5eb3d0535ee91c447440abc84fb3b1cc002c794e5db42e598",
+        "scripts/run_memorization_probe.py": "0e92741a22e44898d81bf8030a865c4a6de27ac07367a9a72b20b8a5aae6a086",
+        "scripts/run_pretraining_pilot.py": "1b1b017e9d70333e70ddef3b523ffd8bdf7ac98fea4ab2ea834c53ef6f26c130",
+        "scripts/train_tokenizer.py": "1e8c74d58388d8d254bb317a067f20ab93452b1daf23f52b4e27a604405fef79",
+        "src/minillm/__init__.py": "5c3a4b8d57cff8747df1a5ae795447607a4c415055422cbc36e3228ee70b4064",
+        "src/minillm/assessment_io.py": "86d37785a6a8eea84abf61784efe176f4f9810a93c5f6c7e385b414059ef27c7",
+        "src/minillm/checkpoint.py": "0fce1ce7a342c01e8f3825b099639e51aa13f69df8ed650c52c944b1a9d23d28",
+        "src/minillm/chinese_foundation_eval.py": "b97f84a6babcf3db43357273055ca4bf01b34f24b83cef25bd57c41d64da197b",
+        "src/minillm/config.py": "0d843399f3d806533b04fc7ba92e63721c3e6df3eac01891915b231435169ca5",
+        "src/minillm/corpus.py": "dae502090685c38563a87b411bc6f825c639f08ac39b6753b78fe4d4647e0796",
+        "src/minillm/corpus_audit.py": "df0dcc38d3b2090cb8bf9c42117bdd840df86b2b9871e6ee6e54953b893ca745",
+        "src/minillm/corpus_quality.py": "7525e44b474cb5cc2e4b8c590927f2249b34097fe8ca81e92d4408091b80d907",
+        "src/minillm/corpus_semantics.py": "027066814ac498ccf0d32faeb293a0f89682b8bcac40ac9e41c3e178becd788e",
+        "src/minillm/corpus_store.py": "5eacb58877f5d3c718e2aa5f7e4864fd66da064bafb64f5964d38ef80d800c49",
+        "src/minillm/corpus_utils.py": "3320b736330c2cd2f89a498dc41e54df5a714c26331d30f7a8bb2196287ef66a",
+        "src/minillm/data.py": "0c673b39866bb6b4ea6dbcc4b2dd8c66f6f2ea176f65489ef9afd3d872895591",
+        "src/minillm/diagnostic_common.py": "b8d6b2a4307c2eb5fb21d6f62d0fa1b5a6a5182437e0aefeb4254ff18921ccf0",
+        "src/minillm/diagnostic_workflow.py": "1a05bb9ff4b7e6250820460e3107931657e3f37302ae7f763c5e9b6166a2e059",
+        "src/minillm/evaluate.py": "eba77f673a50a925e77a2f146d11e7e52603fc7a5fa7f0b47fb2b8e6eb8df9a8",
+        "src/minillm/evaluation.py": "cab88832bda19e5117879e8392ea7e38b393363f537a1cd070f160d017e29970",
+        "src/minillm/evaluation_candidates.py": "5b49d956d37f6166468861b63a716b7b04d89b0812cf126ba0c8cc141313edd1",
+        "src/minillm/evaluation_compare.py": "671657050f3f2fd2dccc10c047d8383e6f81b89bc76a5ecfaf4d0e0c635c6c8e",
+        "src/minillm/evaluation_contamination.py": "ea978d735ac775586763fcccf6eaf6206be4a55981bb7d652dad810319b2e26b",
+        "src/minillm/evaluation_scoring.py": "2de3d85c21d63c130af63d99f7e3dada12330997f9a130dd528a28ec89fc1f36",
+        "src/minillm/generate.py": "557682bcf414dec57bab4c4df7be6df1dd731d63a628494386676402285b16cf",
+        "src/minillm/generation_diagnostics.py": "d8e36c8992e5fb339156ced05543a009a15a725b1927859cf3b5cff473a10abb",
+        "src/minillm/memorization_probe.py": "abfbdab5d53f4476c4db6b12ed6ae9c982a1b882934a1dd259bf1f089e9bc193",
+        "src/minillm/model.py": "0efe0f32624569d577432c90c08c0fef5a3d84805b6933da3843cb5c90f3e858",
+        "src/minillm/pilot_launcher.py": "9a110cfe1f182416560f7278632b8699c3560661a0964a10fa84e10ca62b9228",
+        "src/minillm/pilot_lineage.py": "c1e600e32c3d6dcdaf72055828ae984d2415e09c7f8b636a201a97150212a8e2",
+        "src/minillm/pilot_source.py": "2525414a3ec8565cad543d6714e612422c946a307e6714e3f65b00b3cfb11911",
+        "src/minillm/quantize.py": "c80cd8c1ba3cc02371f0f2f28351562d103623fc3be7c5e209005c5b1925ecd1",
+        "src/minillm/recovery_state.py": "8fbb4d1630d04f68507682072a35f4a95f2741773fb4aa249fa48e89ab450f58",
+        "src/minillm/sft.py": "2333e94d1c31bad8fcdd7d9614caea3771274cc17f33d1f0ab770aff88e65d5e",
+        "src/minillm/text_policy.py": "25d3cc3440f2889f6e13bc70646acccfadf3e99f4bc3e28defa6d8c22d1c64aa",
+        "src/minillm/tokenizer.py": "549403ed38471e168730be5697237151f4244408f8ce8c69b5018311d5444e3e",
+        "src/minillm/train.py": "e1d5d45610203840457166356b71b3bef94486358b5b8b0cc3df297fe68fbf4a",
+        "src/minillm/training_analysis.py": "46093b92f6dcdfc0c34423e6a95cb5733ed5b8c1b901e353d07165f43db07e8e",
+        "src/minillm/training_diagnostics.py": "10a9939b913e8ba5b74da649d6cb21c4bcf6edb28965e9cfb8c1e00309cee3b2",
+        "src/minillm/training_manifest.py": "4053f1d77545396e540a7b0d18042e1b342dcfbc56925f4460bd6ebaa12bf234",
+        "src/minillm/training_pilot.py": "5aa4ca94ab3c06235ad0b1724cf969501cce024bc368f544875a62be61052467",
+        "src/minillm/training_readiness.py": "31b199cd8655ab24434f2aa12870e06e3554605011c7316f6e8cc976173953c1",
+        "src/minillm/utils.py": "9f794f8aaac1ac579bfac0cc27a31ebb8915af81c46dca632a4e83314866a888",
+        "src/minillm/web.py": "cecf76a11b4b45b1b9362890d9fcb7cd442b9b7f620cf5c10cf36c0510733372",
+        "src/minillm/workload.py": "f6abda853850fd454f60450ba8081994822e732c756a056d61cbd053b9cd4639"
+      }
+    },
+    "environment": {
+      "python_version": "3.11.17",
+      "torch_version": "2.14.1+cu126",
+      "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.35",
+      "device": "cpu",
+      "device_name": "x86_64",
+      "cuda_version": "12.6",
+      "threads": 1,
+      "numerical_scope": "same software/device; cross-GPU/version bitwise equality is not guaranteed"
+    },
+    "created_unix": 1794473985.7429452,
+    "interpretation": "Independent engineering, memorization, and provisional evaluation dimensions; no combined capability score.",
+    "assets": {
+      "data/diagnostics/memorization-v1/benchmark-version.json": {
+        "path": "/home/voyah/work_space/git_ws/min_llm/data/diagnostics/memorization-v1/benchmark-version.json",
+        "sha256": "6bcf775718b84576c9a5a86ad6745c2f6cd747535e81c39b0208fa703c6eb5f3",
+        "bytes": 496
+      },
+      "data/diagnostics/memorization-v1/train.jsonl": {
+        "path": "/home/voyah/work_space/git_ws/min_llm/data/diagnostics/memorization-v1/train.jsonl",
+        "sha256": "0f22a5897c7503e52058fd59e0239b1a7540cf330fb0049c1f11090b2407f3a3",
+        "bytes": 50426
+      },
+      "data/diagnostics/memorization-v1/heldout.jsonl": {
+        "path": "/home/voyah/work_space/git_ws/min_llm/data/diagnostics/memorization-v1/heldout.jsonl",
+        "sha256": "f4f3727dce87059779d58bfe27221fcbe98a6bef9e11a91031de7978292783a4",
+        "bytes": 11406
+      },
+      "data/evaluation/chinese-foundation-v1/benchmark-version.json": {
+        "path": "/home/voyah/work_space/git_ws/min_llm/data/evaluation/chinese-foundation-v1/benchmark-version.json",
+        "sha256": "c4ede4cece0c874533325522c5059e6b3961be9adf7e14183379035fe6e40a46",
+        "bytes": 650
+      },
+      "data/evaluation/chinese-foundation-v1/review-template.jsonl": {
+        "path": "/home/voyah/work_space/git_ws/min_llm/data/evaluation/chinese-foundation-v1/review-template.jsonl",
+        "sha256": "3d77dd8b284c41f8c735974eb877d51c8e5a9776e10650d1da76879bff823db7",
+        "bytes": 30960
+      },
+      "data/evaluation/chinese-foundation-v1/candidates.jsonl": {
+        "path": "/home/voyah/work_space/git_ws/min_llm/data/evaluation/chinese-foundation-v1/candidates.jsonl",
+        "sha256": "3a62a4ecb670cfbf7c73f1a4c731c49a1dc936ba3a963e8a89bfefe58a01178e",
+        "bytes": 51240
+      },
+      "data/evaluation/chinese-foundation-v1/prompts.jsonl": {
+        "path": "/home/voyah/work_space/git_ws/min_llm/data/evaluation/chinese-foundation-v1/prompts.jsonl",
+        "sha256": "d4db2f198a8f71267db52b82bf7fdcc1536ef7417b7cf57e8b270ea3f19dd91e",
+        "bytes": 8853
+      }
+    },
+    "requested_options": {
+      "out": "reports/diagnostics/pr7-cpu-nano-final",
+      "max_steps": 200,
+      "max_effective_tokens": 50000,
+      "max_wall_seconds": 120.0,
+      "max_memory_mib": 2048,
+      "seed": 42,
+      "device": "cpu",
+      "model": "nano",
+      "enable_87m": false,
+      "gpu_memory_budget_mib": null,
+      "tokenizer": null,
+      "ckpt": null,
+      "reviews": null,
+      "command": "all",
+      "memory_limit": {
+        "kind": "RLIMIT_AS",
+        "baseline_virtual_bytes": 5137252352,
+        "additional_mib": 2048,
+        "absolute_virtual_limit_bytes": 7284736000,
+        "interpretation": "Virtual address-space ceiling, including inherited child limit; not an RSS cap."
+      }
+    },
+    "memory_limit": {
+      "kind": "RLIMIT_AS",
+      "baseline_virtual_bytes": 5137252352,
+      "additional_mib": 2048,
+      "absolute_virtual_limit_bytes": 7284736000,
+      "interpretation": "Virtual address-space ceiling, including inherited child limit; not an RSS cap."
+    },
+    "memorization": {
+      "model_kind": "nano",
+      "tokenizer_fingerprint": "57c08daff53c0f478bda0d05e1b012b4673d920512f1cbbc0c8978a66e6e2122",
+      "initial_model": {
+        "parameters": 369280,
+        "config": {
+          "vocab_size": 512,
+          "hidden_size": 128,
+          "num_hidden_layers": 2,
+          "num_attention_heads": 4,
+          "num_key_value_heads": 1,
+          "head_dim": 32,
+          "intermediate_size": 288,
+          "max_position_embeddings": 128,
+          "rope_theta": 10000.0,
+          "rms_norm_eps": 1e-06,
+          "attention_dropout": 0.0,
+          "hidden_dropout": 0.0,
+          "tie_word_embeddings": true,
+          "attention_bias": false,
+          "mlp_bias": false,
+          "pad_token_id": 0,
+          "bos_token_id": 1,
+          "eos_token_id": 2,
+          "unk_token_id": 3,
+          "ignore_index": -100,
+          "model_type": "minillm",
+          "arch_version": 2
+        },
+        "checkpoint": {
+          "path": "/home/voyah/work_space/git_ws/min_llm/reports/diagnostics/pr7-cpu-nano-final/memorization/initial.pt",
+          "sha256": "48d922da71b76c5a1e56c4dfb563efe3dd88c33841b4da3ede80d87650476d44",
+          "bytes": 1484455
+        }
+      },
+      "data_sha256": {
+        "single.bin": "7832baedff2b0e4a0cf97eddf95e6ec5aca4be7ef8fd0df78e1e5f0320087032",
+        "train.bin": "2deec3c93a9112de0df12ee979e5f4ea2701020d094378df501af8e3fc4e6771",
+        "heldout.bin": "94f6b1497ed6193f84e0b96ef3322a475dfbf44304d3e5accd53aca49db232c9"
+      }
+    },
+    "evaluation": {
+      "model": {
+        "parameters": 369280,
+        "config": {
+          "vocab_size": 512,
+          "hidden_size": 128,
+          "num_hidden_layers": 2,
+          "num_attention_heads": 4,
+          "num_key_value_heads": 1,
+          "head_dim": 32,
+          "intermediate_size": 288,
+          "max_position_embeddings": 128,
+          "rope_theta": 10000.0,
+          "rms_norm_eps": 1e-06,
+          "attention_dropout": 0.0,
+          "hidden_dropout": 0.0,
+          "tie_word_embeddings": true,
+          "attention_bias": false,
+          "mlp_bias": false,
+          "pad_token_id": 0,
+          "bos_token_id": 1,
+          "eos_token_id": 2,
+          "unk_token_id": 3,
+          "ignore_index": -100,
+          "model_type": "minillm",
+          "arch_version": 2
+        },
+        "checkpoint": {
+          "path": "/home/voyah/work_space/git_ws/min_llm/reports/diagnostics/pr7-cpu-nano-final/memorization/corpus/model.pt",
+          "sha256": "eabaf29eb34f9511a7c8d7e7b1bf5d421713977e8949a89e1dec4ca891ff3919",
+          "bytes": 1484455
+        }
+      },
+      "tokenizer": {
+        "path": "/home/voyah/work_space/git_ws/min_llm/reports/diagnostics/pr7-cpu-nano-final/memorization/tokenizer.json",
+        "sha256": "72ca0795796a65c542de0e11607f4f25fdd1682525cdf682f2105ab2433340ca",
+        "bytes": 24176
+      },
+      "protocol": {
+        "benchmark_sha256": {
+          "benchmark-version.json": "c4ede4cece0c874533325522c5059e6b3961be9adf7e14183379035fe6e40a46",
+          "review-template.jsonl": "3d77dd8b284c41f8c735974eb877d51c8e5a9776e10650d1da76879bff823db7",
+          "candidates.jsonl": "3a62a4ecb670cfbf7c73f1a4c731c49a1dc936ba3a963e8a89bfefe58a01178e",
+          "prompts.jsonl": "d4db2f198a8f71267db52b82bf7fdcc1536ef7417b7cf57e8b270ea3f19dd91e"
+        },
+        "tokenizer_fingerprint": "57c08daff53c0f478bda0d05e1b012b4673d920512f1cbbc0c8978a66e6e2122",
+        "text_policy": "identity-v1",
+        "boundary_policy": "separate",
+        "normalization": "sum",
+        "model_config": {
+          "vocab_size": 512,
+          "hidden_size": 128,
+          "num_hidden_layers": 2,
+          "num_attention_heads": 4,
+          "num_key_value_heads": 1,
+          "head_dim": 32,
+          "intermediate_size": 288,
+          "max_position_embeddings": 128,
+          "rope_theta": 10000.0,
+          "rms_norm_eps": 1e-06,
+          "attention_dropout": 0.0,
+          "hidden_dropout": 0.0,
+          "tie_word_embeddings": true,
+          "attention_bias": false,
+          "mlp_bias": false,
+          "pad_token_id": 0,
+          "bos_token_id": 1,
+          "eos_token_id": 2,
+          "unk_token_id": 3,
+          "ignore_index": -100,
+          "model_type": "minillm",
+          "arch_version": 2
+        },
+        "decoding": {
+          "modes": {
+            "greedy": {
+              "temperature": 0.0,
+              "top_k": 0
+            },
+            "temperature": {
+              "temperature": 0.8,
+              "top_k": 0
+            },
+            "top_k": {
+              "temperature": 0.8,
+              "top_k": 20
+            }
+          },
+          "max_new_tokens": 24,
+          "early_eos_tokens": 4,
+          "use_cache": true,
+          "stop": "EOS",
+          "seed": 42,
+          "per_prompt_seed": "seed+frozen_index"
+        },
+        "implementation_sha256": "61b453366d5cff3fd2c0ed4abd89f04f913cd1b20b6e08cdb95b885e70af04ce",
+        "review_sha256": null
+      },
+      "checkpoint_mode": "pretrain",
+      "scope": "Read-only checkpoint inference. Diagnostic scratch models cannot establish pretrained 87m capability."
+    },
+    "conclusions": {
+      "engineering": "ENGINEERING_PASS",
+      "learning": "LEARNING_DEMONSTRATED",
+      "evaluation": "EVALUATION_PROVISIONAL",
+      "criteria": {
+        "training_chain_correct": true,
+        "nano_learning_demonstrated": true,
+        "candidate_review_complete": false,
+        "raw_readability_review_complete": false,
+        "v4_data_tokenizer_plan_reviewed": false
+      },
+      "ready_for_pr8": false,
+      "required_next": [
+        "Human review of frozen questions and raw continuations",
+        "Versioned v4 tokenizer/corpus plan and contamination audit",
+        "Explicit bounded 87m hardware probe before any real training"
+      ],
+      "reason": "This baseline is not authorization or evidence for a formal v4 training run."
+    },
+    "artifacts": {
+      "recovery-driver.log": {
+        "sha256": "861d3213648fd81d19b0e98931c771dd6e229cb6a2bf451e493aca5057d903a8",
+        "bytes": 1243
+      },
+      "candidate-results.json": {
+        "sha256": "4c9f67b8fb2e514b7002e34166c7c2f2cb4c0f029988925438e3ed99a5250a1a",
+        "bytes": 2925112
+      },
+      "pr8-readiness.json": {
+        "sha256": "2c70e1af04a57a10e815f33575cd57316d4cf17b8dda6b932fdb828bec94a6e3",
+        "bytes": 687
+      },
+      "training-diagnostics.json": {
+        "sha256": "ee5a3797f22b2dda4a3690b670080664e79e9b822b7df4ad9cbcb80b096cc4e4",
+        "bytes": 19523
+      },
+      "single-loss.csv": {
+        "sha256": "fd427f39a19f005bf486a76e021a089c5378f39f4152cb76004236cf60e830d7",
+        "bytes": 4998
+      },
+      "memorization-results.json": {
+        "sha256": "7c1f1e4981b281fb01e3847a3a7ac219c26016a980918a5ee0247b559990fea9",
+        "bytes": 87972
+      },
+      "generation-results.json": {
+        "sha256": "e281e8036ddd3d9f6661d8e7dc214e55500cbebf14847a8dbe8a6c1efbdf07a5",
+        "bytes": 164482
+      },
+      "generation-review.jsonl": {
+        "sha256": "8d3c25e7fefd7a5f5a5e28e5b3d4a526ec8ac40afc19ac818d3017d7ab27cc2b",
+        "bytes": 14005
+      },
+      "corpus-loss.csv": {
+        "sha256": "4bcc54c48ba3cc14370dd49d93f00756f4a8d24fb4d6067e94b2477788d4540b",
+        "bytes": 4878
+      },
+      "diagnostic-report.md": {
+        "sha256": "ee033587c1b7384805cce7a923f1ab6634cd35763b0057a341c496239091093f",
+        "bytes": 3445
+      },
+      "memorization/initial.pt": {
+        "sha256": "48d922da71b76c5a1e56c4dfb563efe3dd88c33841b4da3ede80d87650476d44",
+        "bytes": 1484455
+      },
+      "memorization/tokenizer.json": {
+        "sha256": "72ca0795796a65c542de0e11607f4f25fdd1682525cdf682f2105ab2433340ca",
+        "bytes": 24176
+      },
+      "memorization/data/single.bin": {
+        "sha256": "7832baedff2b0e4a0cf97eddf95e6ec5aca4be7ef8fd0df78e1e5f0320087032",
+        "bytes": 130
+      },
+      "memorization/data/train.bin": {
+        "sha256": "2deec3c93a9112de0df12ee979e5f4ea2701020d094378df501af8e3fc4e6771",
+        "bytes": 3818
+      },
+      "memorization/data/heldout.bin": {
+        "sha256": "94f6b1497ed6193f84e0b96ef3322a475dfbf44304d3e5accd53aca49db232c9",
+        "bytes": 3104
+      },
+      "memorization/single/train-summary.json": {
+        "sha256": "502408728350a5b752ae4690feb29b385bebfc13f9d3a250352b78f1e1b0c94c",
+        "bytes": 608
+      },
+      "memorization/single/config.json": {
+        "sha256": "9988f05b950814380346798aa86e5b0c1713793b2301edacc62ea8e3400ae632",
+        "bytes": 545
+      },
+      "memorization/single/state.pt": {
+        "sha256": "6f954cdc61cdb12d8ac740d9a84ac73d2f4f005f1c8850de7230b932f7aee0b8",
+        "bytes": 4469869
+      },
+      "memorization/single/tokenizer.json": {
+        "sha256": "72ca0795796a65c542de0e11607f4f25fdd1682525cdf682f2105ab2433340ca",
+        "bytes": 24176
+      },
+      "memorization/single/training-manifest.json": {
+        "sha256": "99e3c411a0d8bfb73019308ad1949e17964184b3ccc51b1925ce582b31eb7101",
+        "bytes": 1957
+      },
+      "memorization/single/model.pt": {
+        "sha256": "0d6310cbbbb278d2321267d6cf71cb6c9c0be881090cf85fe966ac3427e58535",
+        "bytes": 1484455
+      },
+      "memorization/single/training-log.jsonl": {
+        "sha256": "7b083a4dbc2ab105a9bbe4f54fae37e0e89b8c0de37a7bf3cda7c4dd02671aac",
+        "bytes": 42800
+      },
+      "memorization/corpus/train-summary.json": {
+        "sha256": "f464220e146cd069dcd05ecbaa1b4a8d84efa351ccd500ed8b66c6773918d9c1",
+        "bytes": 608
+      },
+      "memorization/corpus/config.json": {
+        "sha256": "9988f05b950814380346798aa86e5b0c1713793b2301edacc62ea8e3400ae632",
+        "bytes": 545
+      },
+      "memorization/corpus/state.pt": {
+        "sha256": "5af1bd25a8c0e386cba27c13d96a6cafa15a79efa5dcca565a82c18b7312d14d",
+        "bytes": 4469869
+      },
+      "memorization/corpus/tokenizer.json": {
+        "sha256": "72ca0795796a65c542de0e11607f4f25fdd1682525cdf682f2105ab2433340ca",
+        "bytes": 24176
+      },
+      "memorization/corpus/training-manifest.json": {
+        "sha256": "0537256bf0627342647e4d29954e9cfd787f7541a7447f8ab85d5611640d4ad1",
+        "bytes": 1959
+      },
+      "memorization/corpus/model.pt": {
+        "sha256": "eabaf29eb34f9511a7c8d7e7b1bf5d421713977e8949a89e1dec4ca891ff3919",
+        "bytes": 1484455
+      },
+      "memorization/corpus/training-log.jsonl": {
+        "sha256": "7e75d1d068872a236b6142a7a618ad2096b5d0b825958c7d73b578eafdee3520",
+        "bytes": 42679
+      },
+      "tokenizer-checks/width-fold-prose-v1.bin": {
+        "sha256": "e84cde4eaebb7d61ac13a78bc1b1f0ea0d1b5b377135cbfdbd3abe9a8b703413",
+        "bytes": 696
+      },
+      "tokenizer-checks/width-fold-prose-v1.pt": {
+        "sha256": "289d6eabc7cb0414212f8293e71cc1ad5c4ffedc3f579ce0226d8273583bf620",
+        "bytes": 1484391
+      },
+      "tokenizer-checks/identity-v1.bin": {
+        "sha256": "514bcb8f887e4346030137df4bc7f7955d3f707359e9df8cfc7df766b355afed",
+        "bytes": 716
+      },
+      "tokenizer-checks/identity-v1.pt": {
+        "sha256": "1d94314907c1bd841f0210846192f7e58ffa581ab626dbb319e449f78e74bf59",
+        "bytes": 1484391
+      },
+      "tokenizer-checks/identity.pt": {
+        "sha256": "1d94314907c1bd841f0210846192f7e58ffa581ab626dbb319e449f78e74bf59",
+        "bytes": 1484391
+      },
+      "recovery/reliability.log": {
+        "sha256": "70b11845e210e485fda07bb9185e5daf54d45dc5dc065c6243d1bb380192a7c1",
+        "bytes": 7396
+      },
+      "recovery/reliability-report.json": {
+        "sha256": "2cad06a7f32cb6d9e0f0ecd1df1dbeb2b3d3d728a041ceb3a3cce4e4ec5d22ff",
+        "bytes": 1282
+      },
+      "recovery/train.bin": {
+        "sha256": "10cc3b9183bd29d60ab3679cd35005d556c3c61cce2e93c9f363e9c6f70f9929",
+        "bytes": 266
+      },
+      "recovery/continuous/state.prev.pt": {
+        "sha256": "15ddb21ffd1b712e5849f24cd5ae262d5e2e09623422fa0afdb0c345a1bebba0",
+        "bytes": 4469805
+      },
+      "recovery/continuous/train-summary.json": {
+        "sha256": "3aa441ba651f66bb0d008d63f567d7f05f1775d7e3c64c59df0511afef5a2ff9",
+        "bytes": 547
+      },
+      "recovery/continuous/config.json": {
+        "sha256": "0eb3c883e511940257913addbb93d6537c575f9c9af73bebbf60313d9b5c539d",
+        "bytes": 546
+      },
+      "recovery/continuous/state.pt": {
+        "sha256": "4e1564908fe277cccc2f84e353ab09a1b6fde18f9c435b84ce6f27fcd08d5d7e",
+        "bytes": 4469805
+      },
+      "recovery/continuous/tokenizer.json": {
+        "sha256": "20b6f3fcafb187f53136f00489f3fbafb58a732f2a2b8d30403529cbb0f392ba",
+        "bytes": 21714
+      },
+      "recovery/continuous/training-manifest.json": {
+        "sha256": "66038c78ee797c9f688bc8969f066ed7359218900dc4e0555ce597bb98586ed6",
+        "bytes": 1943
+      },
+      "recovery/continuous/model.pt": {
+        "sha256": "f1309e33ece715690858ef1d909ad8f6864e06d94d50fa0b3fabf8afa498e3b7",
+        "bytes": 1484391
+      },
+      "recovery/continuous/training-log.jsonl": {
+        "sha256": "c984fd92aceddacdc072ebc2fd58c4cdaf17e633415bc42fdc35c872a0b66447",
+        "bytes": 3561
+      },
+      "recovery/resumed/state.prev.pt": {
+        "sha256": "11d510e067d2cdcd7559bd86d27a2f4c20babd43670346b97af99b522c1f0075",
+        "bytes": 7
+      },
+      "recovery/resumed/train-summary.json": {
+        "sha256": "a4606211ce554225f3dbee5088567d3b8c03adfc708fe27bc0ab9b02da5bbbaf",
+        "bytes": 546
+      },
+      "recovery/resumed/config.json": {
+        "sha256": "0eb3c883e511940257913addbb93d6537c575f9c9af73bebbf60313d9b5c539d",
+        "bytes": 546
+      },
+      "recovery/resumed/state.pt": {
+        "sha256": "11d510e067d2cdcd7559bd86d27a2f4c20babd43670346b97af99b522c1f0075",
+        "bytes": 7
+      },
+      "recovery/resumed/tokenizer.json": {
+        "sha256": "20b6f3fcafb187f53136f00489f3fbafb58a732f2a2b8d30403529cbb0f392ba",
+        "bytes": 21714
+      },
+      "recovery/resumed/training-manifest.json": {
+        "sha256": "086f0514afea3a2c78678e4f80a6dea789685455fd921cdb74f773ab32ce3150",
+        "bytes": 1943
+      },
+      "recovery/resumed/model.pt": {
+        "sha256": "59aee78876e99d885ab7727a72f468c045a3abfab8d93cddc056bee3c57799f0",
+        "bytes": 1484391
+      },
+      "recovery/resumed/training-log.jsonl": {
+        "sha256": "c0d3b3ae78f04a2afb5a86fc93774998e4d93acbae2a29ba8c04269603aafc5d",
+        "bytes": 4079
+      }
+    }
+  },
+  "training_diagnostics": {
+    "engineering": "ENGINEERING_PASS",
+    "tokenizer": {
+      "status": "PASS",
+      "cases": [
+        {
+          "policy": "identity-v1",
+          "category": "zh",
+          "input": "春天到了，河边的树长出了新叶。孩子们沿着小路慢慢走，讨论明天的计划。",
+          "expected": "春天到了，河边的树长出了新叶。孩子们沿着小路慢慢走，讨论明天的计划。",
+          "token_ids": [
+            307,
+            106,
+            169,
+            499,
+            169,
+            238,
+            116,
+            346,
+            236,
+            266,
+            170,
+            395,
+            317,
+            389,
+            170,
+            262,
+            247,
+            449,
+            278,
+            237,
+            126,
+            346,
+            236,
+            170,
+            252,
+            277,
+            245,
+            122,
+            270,
+            271,
+            110,
+            272,
+            168,
+            127,
+            113,
+            170,
+            118,
+            131,
+            314,
+            288,
+            172,
+            123,
+            115,
+            170,
+            235,
+            103,
+            170,
+            235,
+            103,
+            172,
+            121,
+            116,
+            266,
+            172,
+            114,
+            109,
+            172,
+            114,
+            126,
+            307,
+            244,
+            169,
+            499,
+            389,
+            172,
+            114,
+            102,
+            169,
+            238,
+            248,
+            270
+          ],
+          "roundtrip": true
+        },
+        {
+          "policy": "identity-v1",
+          "category": "mixed",
+          "input": "今天有12位同学学习Python 3.11，完成率是80%。",
+          "expected": "今天有12位同学学习Python 3.11，完成率是80%。",
+          "token_ids": [
+            168,
+            127,
+            240,
+            169,
+            499,
+            321,
+            491,
+            168,
+            129,
+            243,
+            169,
+            246,
+            242,
+            271,
+            107,
+            271,
+            107,
+            168,
+            125,
+            262,
+            55,
+            96,
+            91,
+            79,
+            86,
+            85,
+            228,
+            26,
+            21,
+            490,
+            266,
+            169,
+            114,
+            242,
+            479,
+            171,
+            244,
+            237,
+            320,
+            31,
+            23,
+            12,
+            270
+          ],
+          "roundtrip": true
+        },
+        {
+          "policy": "identity-v1",
+          "category": "zh",
+          "input": "数学：x² + y² = z²；α ≤ β，π ≈ 3.14，√4 = 2。",
+          "expected": "数学：x² + y² = z²；α ≤ β，π ≈ 3.14，√4 = 2。",
+          "token_ids": [
+            170,
+            251,
+            116,
+            271,
+            107,
+            312,
+            95,
+            134,
+            118,
+            228,
+            18,
+            228,
+            96,
+            134,
+            118,
+            228,
+            36,
+            228,
+            97,
+            134,
+            118,
+            264,
+            257,
+            146,
+            117,
+            228,
+            166,
+            239,
+            105,
+            228,
+            146,
+            118,
+            266,
+            147,
+            230,
+            228,
+            166,
+            239,
+            238,
+            228,
+            26,
+            21,
+            493,
+            266,
+            166,
+            238,
+            256,
+            27,
+            228,
+            36,
+            228,
+            25,
+            270
+          ],
+          "roundtrip": true
+        },
+        {
+          "policy": "identity-v1",
+          "category": "code",
+          "input": "def add(a, b):\n    return a + b\n",
+          "expected": "def add(a, b):\n    return a + b\n",
+          "token_ids": [
+            75,
+            76,
+            77,
+            228,
+            334,
+            75,
+            15,
+            72,
+            19,
+            228,
+            73,
+            16,
+            33,
+            206,
+            228,
+            228,
+            228,
+            228,
+            328,
+            91,
+            92,
+            89,
+            85,
+            228,
+            72,
+            228,
+            18,
+            228,
+            73,
+            206
+          ],
+          "roundtrip": true
+        },
+        {
+          "policy": "identity-v1",
+          "category": "code",
+          "input": "#include <iostream>\nint main() { std::cout << \"你好\"; }\n",
+          "expected": "#include <iostream>\nint main() { std::cout << \"你好\"; }\n",
+          "token_ids": [
+            10,
+            80,
+            85,
+            74,
+            83,
+            92,
+            75,
+            76,
+            228,
+            35,
+            80,
+            86,
+            90,
+            91,
+            328,
+            72,
+            84,
+            37,
+            206,
+            80,
+            85,
+            91,
+            228,
+            84,
+            72,
+            80,
+            85,
+            15,
+            16,
+            228,
+            98,
+            228,
+            90,
+            91,
+            75,
+            33,
+            33,
+            74,
+            86,
+            92,
+            91,
+            228,
+            35,
+            35,
+            354,
+            168,
+            129,
+            262,
+            169,
+            106,
+            129,
+            9,
+            34,
+            228,
+            100,
+            206
+          ],
+          "roundtrip": true
+        },
+        {
+          "policy": "identity-v1",
+          "category": "zh",
+          "input": "全角：ＡＢＣ１２３，价格￥２０。",
+          "expected": "全角：ＡＢＣ１２３，价格￥２０。",
+          "token_ids": [
+            316,
+            109,
+            172,
+            108,
+            248,
+            312,
+            264,
+            102,
+            264,
+            103,
+            264,
+            104,
+            264,
+            247,
+            264,
+            248,
+            264,
+            249,
+            266,
+            168,
+            127,
+            123,
+            170,
+            262,
+            128,
+            179,
+            131,
+            106,
+            264,
+            248,
+            264,
+            246,
+            270
+          ],
+          "roundtrip": true
+        },
+        {
+          "policy": "identity-v1",
+          "category": "code",
+          "input": "变量＝＂全角值＂；Ａ＝１",
+          "expected": "变量＝＂全角值＂；Ａ＝１",
+          "token_ids": [
+            287,
+            254,
+            353,
+            245,
+            264,
+            259,
+            264,
+            232,
+            316,
+            109,
+            172,
+            108,
+            248,
+            169,
+            230,
+            128,
+            264,
+            232,
+            264,
+            257,
+            264,
+            102,
+            264,
+            259,
+            264,
+            247
+          ],
+          "roundtrip": true
+        },
+        {
+          "policy": "identity-v1",
+          "category": "zh",
+          "input": "字面量 `Ａ＝１` 与 $x²$ 保持原样。",
+          "expected": "字面量 `Ａ＝１` 与 $x²$ 保持原样。",
+          "token_ids": [
+            271,
+            253,
+            173,
+            259,
+            103,
+            353,
+            245,
+            228,
+            71,
+            264,
+            102,
+            264,
+            259,
+            264,
+            247,
+            71,
+            228,
+            265,
+            244,
+            228,
+            11,
+            95,
+            134,
+            118,
+            11,
+            228,
+            168,
+            131,
+            259,
+            170,
+            242,
+            231,
+            435,
+            261,
+            170,
+            262,
+            123,
+            270
+          ],
+          "roundtrip": true
+        },
+        {
+          "policy": "width-fold-prose-v1",
+          "category": "zh",
+          "input": "春天到了，河边的树长出了新叶。孩子们沿着小路慢慢走，讨论明天的计划。",
+          "expected": "春天到了,河边的树长出了新叶。孩子们沿着小路慢慢走,讨论明天的计划。",
+          "token_ids": [
+            307,
+            106,
+            169,
+            499,
+            169,
+            238,
+            116,
+            346,
+            236,
+            19,
+            170,
+            395,
+            317,
+            389,
+            170,
+            262,
+            247,
+            449,
+            278,
+            237,
+            126,
+            346,
+            236,
+            170,
+            252,
+            277,
+            245,
+            122,
+            270,
+            271,
+            110,
+            272,
+            168,
+            127,
+            113,
+            170,
+            118,
+            131,
+            314,
+            288,
+            172,
+            123,
+            115,
+            170,
+            235,
+            103,
+            170,
+            235,
+            103,
+            172,
+            121,
+            116,
+            19,
+            172,
+            114,
+            109,
+            172,
+            114,
+            126,
+            307,
+            244,
+            169,
+            499,
+            389,
+            172,
+            114,
+            102,
+            169,
+            238,
+            248,
+            270
+          ],
+          "roundtrip": true
+        },
+        {
+          "policy": "width-fold-prose-v1",
+          "category": "mixed",
+          "input": "今天有12位同学学习Python 3.11，完成率是80%。",
+          "expected": "今天有12位同学学习Python 3.11,完成率是80%。",
+          "token_ids": [
+            168,
+            127,
+            240,
+            169,
+            499,
+            321,
+            491,
+            168,
+            129,
+            243,
+            169,
+            246,
+            242,
+            271,
+            107,
+            271,
+            107,
+            168,
+            125,
+            262,
+            55,
+            96,
+            91,
+            79,
+            86,
+            85,
+            228,
+            26,
+            21,
+            490,
+            19,
+            169,
+            114,
+            242,
+            479,
+            171,
+            244,
+            237,
+            320,
+            31,
+            23,
+            12,
+            270
+          ],
+          "roundtrip": true
+        },
+        {
+          "policy": "width-fold-prose-v1",
+          "category": "zh",
+          "input": "数学：x² + y² = z²；α ≤ β，π ≈ 3.14，√4 = 2。",
+          "expected": "数学:x² + y² = z²;α ≤ β,π ≈ 3.14,√4 = 2。",
+          "token_ids": [
+            170,
+            251,
+            116,
+            271,
+            107,
+            33,
+            95,
+            134,
+            118,
+            228,
+            18,
+            228,
+            96,
+            134,
+            118,
+            228,
+            36,
+            228,
+            97,
+            134,
+            118,
+            34,
+            146,
+            117,
+            228,
+            166,
+            239,
+            105,
+            228,
+            146,
+            118,
+            19,
+            147,
+            230,
+            228,
+            166,
+            239,
+            238,
+            228,
+            26,
+            21,
+            493,
+            19,
+            166,
+            238,
+            256,
+            27,
+            228,
+            36,
+            228,
+            25,
+            270
+          ],
+          "roundtrip": true
+        },
+        {
+          "policy": "width-fold-prose-v1",
+          "category": "code",
+          "input": "def add(a, b):\n    return a + b\n",
+          "expected": "def add(a, b):\n    return a + b\n",
+          "token_ids": [
+            75,
+            76,
+            77,
+            228,
+            334,
+            75,
+            15,
+            72,
+            19,
+            228,
+            73,
+            16,
+            33,
+            206,
+            228,
+            228,
+            228,
+            228,
+            328,
+            91,
+            92,
+            89,
+            85,
+            228,
+            72,
+            228,
+            18,
+            228,
+            73,
+            206
+          ],
+          "roundtrip": true
+        },
+        {
+          "policy": "width-fold-prose-v1",
+          "category": "code",
+          "input": "#include <iostream>\nint main() { std::cout << \"你好\"; }\n",
+          "expected": "#include <iostream>\nint main() { std::cout << \"你好\"; }\n",
+          "token_ids": [
+            10,
+            80,
+            85,
+            74,
+            83,
+            92,
+            75,
+            76,
+            228,
+            35,
+            80,
+            86,
+            90,
+            91,
+            328,
+            72,
+            84,
+            37,
+            206,
+            80,
+            85,
+            91,
+            228,
+            84,
+            72,
+            80,
+            85,
+            15,
+            16,
+            228,
+            98,
+            228,
+            90,
+            91,
+            75,
+            33,
+            33,
+            74,
+            86,
+            92,
+            91,
+            228,
+            35,
+            35,
+            354,
+            168,
+            129,
+            262,
+            169,
+            106,
+            129,
+            9,
+            34,
+            228,
+            100,
+            206
+          ],
+          "roundtrip": true
+        },
+        {
+          "policy": "width-fold-prose-v1",
+          "category": "zh",
+          "input": "全角：ＡＢＣ１２３，价格￥２０。",
+          "expected": "全角:ABC123,价格￥20。",
+          "token_ids": [
+            316,
+            109,
+            172,
+            108,
+            248,
+            33,
+            40,
+            41,
+            42,
+            491,
+            26,
+            19,
+            168,
+            127,
+            123,
+            170,
+            262,
+            128,
+            179,
+            131,
+            106,
+            25,
+            23,
+            270
+          ],
+          "roundtrip": true
+        },
+        {
+          "policy": "width-fold-prose-v1",
+          "category": "code",
+          "input": "变量＝＂全角值＂；Ａ＝１",
+          "expected": "变量＝＂全角值＂；Ａ＝１",
+          "token_ids": [
+            287,
+            254,
+            353,
+            245,
+            264,
+            259,
+            264,
+            232,
+            316,
+            109,
+            172,
+            108,
+            248,
+            169,
+            230,
+            128,
+            264,
+            232,
+            264,
+            257,
+            264,
+            102,
+            264,
+            259,
+            264,
+            247
+          ],
+          "roundtrip": true
+        },
+        {
+          "policy": "width-fold-prose-v1",
+          "category": "zh",
+          "input": "字面量 `Ａ＝１` 与 $x²$ 保持原样。",
+          "expected": "字面量 `Ａ＝１` 与 $x²$ 保持原样。",
+          "token_ids": [
+            271,
+            253,
+            173,
+            259,
+            103,
+            353,
+            245,
+            228,
+            71,
+            264,
+            102,
+            264,
+            259,
+            264,
+            247,
+            71,
+            228,
+            265,
+            244,
+            228,
+            11,
+            95,
+            134,
+            118,
+            11,
+            228,
+            168,
+            131,
+            259,
+            170,
+            242,
+            231,
+            435,
+            261,
+            170,
+            262,
+            123,
+            270
+          ],
+          "roundtrip": true
+        }
+      ],
+      "special_roundtrip": true,
+      "bin_equals_documents": true,
+      "checkpoint_probe_seed": 42,
+      "packed_windows_equal": true,
+      "tokenizer_mismatch_rejected": true,
+      "checkpoint_policy_equal": true,
+      "packing_semantics": "EOS is supervised; EOS separates documents but attention crosses documents. Model shifts within each L window: L-1 targets, boundary next-token targets are omitted by the existing pipeline.",
+      "special_supervision": "PAD/BOS and chat role markers ignored; document EOS and assistant end_of_turn are legitimate targets.",
+      "bin_sha256": {
+        "width-fold-prose-v1.bin": "e84cde4eaebb7d61ac13a78bc1b1f0ea0d1b5b377135cbfdbd3abe9a8b703413",
+        "identity-v1.bin": "514bcb8f887e4346030137df4bc7f7955d3f707359e9df8cfc7df766b355afed"
+      }
+    },
+    "loss_gradient": {
+      "status": "PASS",
+      "initial_loss": 6.236893177032471,
+      "effective_target_tokens": 17,
+      "model_identity": {
+        "seed": 42,
+        "parameters": 369280,
+        "config": {
+          "vocab_size": 512,
+          "hidden_size": 128,
+          "num_hidden_layers": 2,
+          "num_attention_heads": 4,
+          "num_key_value_heads": 1,
+          "head_dim": 32,
+          "intermediate_size": 288,
+          "max_position_embeddings": 128,
+          "rope_theta": 10000.0,
+          "rms_norm_eps": 1e-06,
+          "attention_dropout": 0.0,
+          "hidden_dropout": 0.0,
+          "tie_word_embeddings": true,
+          "attention_bias": false,
+          "mlp_bias": false,
+          "pad_token_id": 0,
+          "bos_token_id": 1,
+          "eos_token_id": 2,
+          "unk_token_id": 3,
+          "ignore_index": -100,
+          "model_type": "minillm",
+          "arch_version": 2
+        },
+        "initial_state_sha256": "5880b3520b34bb0bb7b186fd65bb18135828941ffa6d35ebd9c07c6378198ca7",
+        "scope": "ephemeral CPU Nano numerical probe"
+      },
+      "gradients_finite": true,
+      "parameters_updated": true,
+      "parameters_finite": true,
+      "optimizer_finite": true,
+      "padding_ignore_shift_correct": true,
+      "future_token_max_difference": 0.0,
+      "finite_difference": {
+        "epsilon": 0.005,
+        "atol": 0.0002,
+        "rtol": 0.02,
+        "checks": [
+          {
+            "index": [
+              170,
+              127
+            ],
+            "autograd": -0.4742816388607025,
+            "finite_difference": -0.4741191864013672,
+            "absolute_error": 0.00016245245933532715
+          },
+          {
+            "index": [
+              170,
+              5
+            ],
+            "autograd": -0.4609179198741913,
+            "finite_difference": -0.4608154296875,
+            "absolute_error": 0.00010249018669128418
+          },
+          {
+            "index": [
+              288,
+              127
+            ],
+            "autograd": -0.4492425322532654,
+            "finite_difference": -0.44913291931152344,
+            "absolute_error": 0.00010961294174194336
+          }
+        ]
+      }
+    },
+    "recovery": {
+      "status": "PASS",
+      "continuous": {
+        "steps": 7,
+        "epoch": 3,
+        "micro_batches_consumed_in_epoch": 4,
+        "samples_seen": 41,
+        "tokens_seen": 451
+      },
+      "two_resumes": {
+        "steps": 7,
+        "epoch": 3,
+        "micro_batches_consumed_in_epoch": 4,
+        "samples_seen": 41,
+        "tokens_seen": 451
+      },
+      "interruptions_and_final": [
+        {
+          "steps": 1,
+          "epoch": 0,
+          "micro_batches_consumed_in_epoch": 4
+        },
+        {
+          "steps": 2,
+          "epoch": 1,
+          "micro_batches_consumed_in_epoch": 0
+        },
+        {
+          "steps": 7,
+          "epoch": 3,
+          "micro_batches_consumed_in_epoch": 4
+        }
+      ],
+      "max_parameter_difference": 0.0,
+      "sample_order_equal": true,
+      "rng_equal": true,
+      "lr_equal": true,
+      "optimizer_state_equal": true,
+      "rng_state_equal": true,
+      "optimizer_max_difference": 0.0,
+      "seed": 42,
+      "updates_per_epoch": 2,
+      "target_updates": 7,
+      "backup_recovery_step": 6,
+      "checks": [
+        "continuous_vs_two_resumes",
+        "SIGINT_and_SIGTERM",
+        "incomplete_group_and_epoch_boundary",
+        "max_steps_beyond_one_epoch",
+        "completed_resume_no_extra_step",
+        "configuration_rejected",
+        "dataset_hash_rejected",
+        "fresh_output_reuse_rejected",
+        "cross_run_resume_rejected",
+        "corrupt_primary_explicit_backup",
+        "both_invalid_rejected"
+      ]
+    },
+    "fixed_overhead": "Separate CPU Nano correctness probes; recovery uses fixed 7-update plan, two resumes and backup. Memorization max_steps/tokens apply only to the two learning experiments; all phases share the wall watchdog."
+  },
+  "memorization_results": {
+    "schema_version": 1,
+    "model_kind": "nano",
+    "seed": 42,
+    "budget": {
+      "max_steps": 200,
+      "max_effective_tokens": 50000,
+      "max_wall_seconds": 120.0,
+      "max_memory_mib": 2048
+    },
+    "memory_admission": {
+      "status": "NOT_APPLICABLE_CPU_NANO"
+    },
+    "initial_model": {
+      "parameters": 369280,
+      "config": {
+        "vocab_size": 512,
+        "hidden_size": 128,
+        "num_hidden_layers": 2,
+        "num_attention_heads": 4,
+        "num_key_value_heads": 1,
+        "head_dim": 32,
+        "intermediate_size": 288,
+        "max_position_embeddings": 128,
+        "rope_theta": 10000.0,
+        "rms_norm_eps": 1e-06,
+        "attention_dropout": 0.0,
+        "hidden_dropout": 0.0,
+        "tie_word_embeddings": true,
+        "attention_bias": false,
+        "mlp_bias": false,
+        "pad_token_id": 0,
+        "bos_token_id": 1,
+        "eos_token_id": 2,
+        "unk_token_id": 3,
+        "ignore_index": -100,
+        "model_type": "minillm",
+        "arch_version": 2
+      },
+      "checkpoint": {
+        "path": "/home/voyah/work_space/git_ws/min_llm/reports/diagnostics/pr7-cpu-nano-final/memorization/initial.pt",
+        "sha256": "48d922da71b76c5a1e56c4dfb563efe3dd88c33841b4da3ede80d87650476d44",
+        "bytes": 1484455
+      }
+    },
+    "tokenizer_fingerprint": "57c08daff53c0f478bda0d05e1b012b4673d920512f1cbbc0c8978a66e6e2122",
+    "text_policy": "identity-v1",
+    "data_sha256": {
+      "single.bin": "7832baedff2b0e4a0cf97eddf95e6ec5aca4be7ef8fd0df78e1e5f0320087032",
+      "train.bin": "2deec3c93a9112de0df12ee979e5f4ea2701020d094378df501af8e3fc4e6771",
+      "heldout.bin": "94f6b1497ed6193f84e0b96ef3322a475dfbf44304d3e5accd53aca49db232c9"
+    },
+    "training_rows": 160,
+    "heldout_rows": 32,
+    "training_steps": 200,
+    "effective_tokens": 29232,
+    "experiments": {
+      "single": {
+        "status": "COMPLETED",
+        "initial_loss": 6.390465146019345,
+        "final_loss": 0.0020022522362451705,
+        "loss_reduction_fraction": 0.9996866812993273,
+        "gradients_finite": true,
+        "parameters_finite": true,
+        "parameters_updated": true,
+        "optimizer_finite": true,
+        "initial_teacher_forced": {
+          "correct": 0,
+          "tokens": 7,
+          "accuracy": 0.0
+        },
+        "initial_independent_teacher_forced": null,
+        "curve": [
+          {
+            "step": 1,
+            "loss": 6.390465146019345,
+            "lr": 0.0015,
+            "effective_tokens": 63
+          },
+          {
+            "step": 2,
+            "loss": 5.620727054656498,
+            "lr": 0.003,
+            "effective_tokens": 126
+          },
+          {
+            "step": 3,
+            "loss": 4.921489412822421,
+            "lr": 0.003,
+            "effective_tokens": 189
+          },
+          {
+            "step": 4,
+            "loss": 4.415005638485863,
+            "lr": 0.0029993063918709287,
+            "effective_tokens": 252
+          },
+          {
+            "step": 5,
+            "loss": 3.910218011765253,
+            "lr": 0.002997226280212954,
+            "effective_tokens": 315
+          },
+          {
+            "step": 6,
+            "loss": 3.396455795045883,
+            "lr": 0.002993761802481418,
+            "effective_tokens": 378
+          },
+          {
+            "step": 7,
+            "loss": 2.923215835813492,
+            "lr": 0.0029889165186613824,
+            "effective_tokens": 441
+          },
+          {
+            "step": 8,
+            "loss": 2.5056079682849703,
+            "lr": 0.002982695407609508,
+            "effective_tokens": 504
+          },
+          {
+            "step": 9,
+            "loss": 2.1058555481925842,
+            "lr": 0.0029751048619379382,
+            "effective_tokens": 567
+          },
+          {
+            "step": 10,
+            "loss": 2.2708558582124256,
+            "lr": 0.002966152681445462,
+            "effective_tokens": 630
+          },
+          {
+            "step": 11,
+            "loss": 1.6928374275328621,
+            "lr": 0.00295584806510269,
+            "effective_tokens": 693
+          },
+          {
+            "step": 12,
+            "loss": 1.5683934045216394,
+            "lr": 0.002944201601599492,
+            "effective_tokens": 756
+          },
+          {
+            "step": 13,
+            "loss": 1.763062492249504,
+            "lr": 0.0029312252584644026,
+            "effective_tokens": 819
+          },
+          {
+            "step": 14,
+            "loss": 1.4097805931454612,
+            "lr": 0.0029169323697671766,
+            "effective_tokens": 882
+          },
+          {
+            "step": 15,
+            "loss": 1.247081574939546,
+            "lr": 0.0029013376224171295,
+            "effective_tokens": 945
+          },
+          {
+            "step": 16,
+            "loss": 1.075055682469928,
+            "lr": 0.002884457041071347,
+            "effective_tokens": 1008
+          },
+          {
+            "step": 17,
+            "loss": 0.9704113914853051,
+            "lr": 0.0028663079716682656,
+            "effective_tokens": 1071
+          },
+          {
+            "step": 18,
+            "loss": 0.8293321397569444,
+            "lr": 0.0028469090636035503,
+            "effective_tokens": 1134
+          },
+          {
+            "step": 19,
+            "loss": 0.7067411513555617,
+            "lr": 0.0028262802505665758,
+            "effective_tokens": 1197
+          },
+          {
+            "step": 20,
+            "loss": 0.58989503648546,
+            "lr": 0.0028044427300572177,
+            "effective_tokens": 1260
+          },
+          {
+            "step": 21,
+            "loss": 0.4730160425579737,
+            "lr": 0.002781418941603985,
+            "effective_tokens": 1323
+          },
+          {
+            "step": 22,
+            "loss": 0.3941830226353237,
+            "lr": 0.0027572325437058903,
+            "effective_tokens": 1386
+          },
+          {
+            "step": 23,
+            "loss": 0.3081066192142547,
+            "lr": 0.0027319083895217416,
+            "effective_tokens": 1449
+          },
+          {
+            "step": 24,
+            "loss": 0.2607903556218223,
+            "lr": 0.0027054725013318406,
+            "effective_tokens": 1512
+          },
+          {
+            "step": 25,
+            "loss": 0.20418326059977213,
+            "lr": 0.0026779520437983317,
+            "effective_tokens": 1575
+          },
+          {
+            "step": 26,
+            "loss": 0.16679759252639043,
+            "lr": 0.002649375296051676,
+            "effective_tokens": 1638
+          },
+          {
+            "step": 27,
+            "loss": 0.13986778259277344,
+            "lr": 0.0026197716226319325,
+            "effective_tokens": 1701
+          },
+          {
+            "step": 28,
+            "loss": 0.10174693758525545,
+            "lr": 0.002589171443314707,
+            "effective_tokens": 1764
+          },
+          {
+            "step": 29,
+            "loss": 0.08571687577262757,
+            "lr": 0.0025576062018527776,
+            "effective_tokens": 1827
+          },
+          {
+            "step": 30,
+            "loss": 0.06976705884176587,
+            "lr": 0.0025251083336655144,
+            "effective_tokens": 1890
+          },
+          {
+            "step": 31,
+            "loss": 0.05619250781952389,
+            "lr": 0.0024917112325092902,
+            "effective_tokens": 1953
+          },
+          {
+            "step": 32,
+            "loss": 0.04714267594473703,
+            "lr": 0.0024574492161631416,
+            "effective_tokens": 2016
+          },
+          {
+            "step": 33,
+            "loss": 0.038148721059163414,
+            "lr": 0.002422357491164929,
+            "effective_tokens": 2079
+          },
+          {
+            "step": 34,
+            "loss": 0.032229253223964145,
+            "lr": 0.0023864721166342406,
+            "effective_tokens": 2142
+          },
+          {
+            "step": 35,
+            "loss": 0.0278656558384971,
+            "lr": 0.002349829967219209,
+            "effective_tokens": 2205
+          },
+          {
+            "step": 36,
+            "loss": 0.0234113647824242,
+            "lr": 0.0023124686952053163,
+            "effective_tokens": 2268
+          },
+          {
+            "step": 37,
+            "loss": 0.019919896882677837,
+            "lr": 0.002274426691825128,
+            "effective_tokens": 2331
+          },
+          {
+            "step": 38,
+            "loss": 0.017323768328106594,
+            "lr": 0.0022357430478087037,
+            "effective_tokens": 2394
+          },
+          {
+            "step": 39,
+            "loss": 0.014823923035273476,
+            "lr": 0.0021964575132152318,
+            "effective_tokens": 2457
+          },
+          {
+            "step": 40,
+            "loss": 0.012934627987089612,
+            "lr": 0.0021566104565871554,
+            "effective_tokens": 2520
+          },
+          {
+            "step": 41,
+            "loss": 0.011567294597625732,
+            "lr": 0.0021162428234687653,
+            "effective_tokens": 2583
+          },
+          {
+            "step": 42,
+            "loss": 0.010342537410675532,
+            "lr": 0.0020753960943318884,
+            "effective_tokens": 2646
+          },
+          {
+            "step": 43,
+            "loss": 0.009207077442653595,
+            "lr": 0.0020341122419518937,
+            "effective_tokens": 2709
+          },
+          {
+            "step": 44,
+            "loss": 0.00826407235766214,
+            "lr": 0.001992433688277835,
+            "effective_tokens": 2772
+          },
+          {
+            "step": 45,
+            "loss": 0.007568845673212929,
+            "lr": 0.0019504032608410244,
+            "effective_tokens": 2835
+          },
+          {
+            "step": 46,
+            "loss": 0.007049997174550617,
+            "lr": 0.0019080641487468528,
+            "effective_tokens": 2898
+          },
+          {
+            "step": 47,
+            "loss": 0.00654799361077566,
+            "lr": 0.001865459858295062,
+            "effective_tokens": 2961
+          },
+          {
+            "step": 48,
+            "loss": 0.006029851852901398,
+            "lr": 0.001822634168274083,
+            "effective_tokens": 3024
+          },
+          {
+            "step": 49,
+            "loss": 0.005576296931221371,
+            "lr": 0.0017796310849753703,
+            "effective_tokens": 3087
+          },
+          {
+            "step": 50,
+            "loss": 0.0052049850660657124,
+            "lr": 0.0017364947969739626,
+            "effective_tokens": 3150
+          },
+          {
+            "step": 51,
+            "loss": 0.004890149074887473,
+            "lr": 0.001693269629721735,
+            "effective_tokens": 3213
+          },
+          {
+            "step": 52,
+            "loss": 0.004609737131330702,
+            "lr": 0.00165,
+            "effective_tokens": 3276
+          },
+          {
+            "step": 53,
+            "loss": 0.004354770221407451,
+            "lr": 0.0016067303702782655,
+            "effective_tokens": 3339
+          },
+          {
+            "step": 54,
+            "loss": 0.004124430436936635,
+            "lr": 0.0015635052030260376,
+            "effective_tokens": 3402
+          },
+          {
+            "step": 55,
+            "loss": 0.003920348390700325,
+            "lr": 0.0015203689150246297,
+            "effective_tokens": 3465
+          },
+          {
+            "step": 56,
+            "loss": 0.0037428346418199084,
+            "lr": 0.0014773658317259167,
+            "effective_tokens": 3528
+          },
+          {
+            "step": 57,
+            "loss": 0.003589621138951135,
+            "lr": 0.0014345401417049384,
+            "effective_tokens": 3591
+          },
+          {
+            "step": 58,
+            "loss": 0.003455887238184611,
+            "lr": 0.0013919358512531476,
+            "effective_tokens": 3654
+          },
+          {
+            "step": 59,
+            "loss": 0.0033361821893661743,
+            "lr": 0.0013495967391589756,
+            "effective_tokens": 3717
+          },
+          {
+            "step": 60,
+            "loss": 0.0032256990671157837,
+            "lr": 0.0013075663117221652,
+            "effective_tokens": 3780
+          },
+          {
+            "step": 61,
+            "loss": 0.0031223647178165496,
+            "lr": 0.0012658877580481063,
+            "effective_tokens": 3843
+          },
+          {
+            "step": 62,
+            "loss": 0.003026713454534137,
+            "lr": 0.0012246039056681122,
+            "effective_tokens": 3906
+          },
+          {
+            "step": 63,
+            "loss": 0.0029401597049501208,
+            "lr": 0.0011837571765312349,
+            "effective_tokens": 3969
+          },
+          {
+            "step": 64,
+            "loss": 0.00286357979925852,
+            "lr": 0.001143389543412845,
+            "effective_tokens": 4032
+          },
+          {
+            "step": 65,
+            "loss": 0.0027965744809498863,
+            "lr": 0.0011035424867847684,
+            "effective_tokens": 4095
+          },
+          {
+            "step": 66,
+            "loss": 0.0027377941305675203,
+            "lr": 0.0010642569521912967,
+            "effective_tokens": 4158
+          },
+          {
+            "step": 67,
+            "loss": 0.002685503117621891,
+            "lr": 0.0010255733081748727,
+            "effective_tokens": 4221
+          },
+          {
+            "step": 68,
+            "loss": 0.002638063260487148,
+            "lr": 0.0009875313047946843,
+            "effective_tokens": 4284
+          },
+          {
+            "step": 69,
+            "loss": 0.0025942675651065886,
+            "lr": 0.0009501700327807913,
+            "effective_tokens": 4347
+          },
+          {
+            "step": 70,
+            "loss": 0.0025533146801449006,
+            "lr": 0.0009135278833657594,
+            "effective_tokens": 4410
+          },
+          {
+            "step": 71,
+            "loss": 0.002514902324903579,
+            "lr": 0.0008776425088350712,
+            "effective_tokens": 4473
+          },
+          {
+            "step": 72,
+            "loss": 0.0024787916077507865,
+            "lr": 0.0008425507838368583,
+            "effective_tokens": 4536
+          },
+          {
+            "step": 73,
+            "loss": 0.002445087782920353,
+            "lr": 0.0008082887674907098,
+            "effective_tokens": 4599
+          },
+          {
+            "step": 74,
+            "loss": 0.0024137856468321784,
+            "lr": 0.000774891666334486,
+            "effective_tokens": 4662
+          },
+          {
+            "step": 75,
+            "loss": 0.002384813295470344,
+            "lr": 0.0007423937981472222,
+            "effective_tokens": 4725
+          },
+          {
+            "step": 76,
+            "loss": 0.002358110651137337,
+            "lr": 0.0007108285566852934,
+            "effective_tokens": 4788
+          },
+          {
+            "step": 77,
+            "loss": 0.0023335104896908716,
+            "lr": 0.000680228377368068,
+            "effective_tokens": 4851
+          },
+          {
+            "step": 78,
+            "loss": 0.002310676234109061,
+            "lr": 0.0006506247039483241,
+            "effective_tokens": 4914
+          },
+          {
+            "step": 79,
+            "loss": 0.0022893836573948936,
+            "lr": 0.0006220479562016685,
+            "effective_tokens": 4977
+          },
+          {
+            "step": 80,
+            "loss": 0.0022693990714966303,
+            "lr": 0.0005945274986681598,
+            "effective_tokens": 5040
+          },
+          {
+            "step": 81,
+            "loss": 0.002250480509939648,
+            "lr": 0.0005680916104782587,
+            "effective_tokens": 5103
+          },
+          {
+            "step": 82,
+            "loss": 0.0022326289188294183,
+            "lr": 0.0005427674562941095,
+            "effective_tokens": 5166
+          },
+          {
+            "step": 83,
+            "loss": 0.0022156486908594766,
+            "lr": 0.0005185810583960152,
+            "effective_tokens": 5229
+          },
+          {
+            "step": 84,
+            "loss": 0.0021994601166437544,
+            "lr": 0.0004955572699427827,
+            "effective_tokens": 5292
+          },
+          {
+            "step": 85,
+            "loss": 0.0021841048248230463,
+            "lr": 0.0004737197494334243,
+            "effective_tokens": 5355
+          },
+          {
+            "step": 86,
+            "loss": 0.0021694633695814344,
+            "lr": 0.0004530909363964498,
+            "effective_tokens": 5418
+          },
+          {
+            "step": 87,
+            "loss": 0.002155574777769664,
+            "lr": 0.00043369202833173426,
+            "effective_tokens": 5481
+          },
+          {
+            "step": 88,
+            "loss": 0.002142314873044453,
+            "lr": 0.00041554295892865325,
+            "effective_tokens": 5544
+          },
+          {
+            "step": 89,
+            "loss": 0.002129640607606797,
+            "lr": 0.00039866237758287077,
+            "effective_tokens": 5607
+          },
+          {
+            "step": 90,
+            "loss": 0.002117479131335304,
+            "lr": 0.00038306763023282335,
+            "effective_tokens": 5670
+          },
+          {
+            "step": 91,
+            "loss": 0.002105783612009079,
+            "lr": 0.00036877474153559735,
+            "effective_tokens": 5733
+          },
+          {
+            "step": 92,
+            "loss": 0.0020944601486599635,
+            "lr": 0.0003557983984005082,
+            "effective_tokens": 5796
+          },
+          {
+            "step": 93,
+            "loss": 0.0020834917113894506,
+            "lr": 0.00034415193489731023,
+            "effective_tokens": 5859
+          },
+          {
+            "step": 94,
+            "loss": 0.0020728101806035118,
+            "lr": 0.00033384731855453807,
+            "effective_tokens": 5922
+          },
+          {
+            "step": 95,
+            "loss": 0.002062347436708117,
+            "lr": 0.00032489513806206163,
+            "effective_tokens": 5985
+          },
+          {
+            "step": 96,
+            "loss": 0.0020520847941201833,
+            "lr": 0.00031730459239049226,
+            "effective_tokens": 6048
+          },
+          {
+            "step": 97,
+            "loss": 0.002041999309781998,
+            "lr": 0.0003110834813386178,
+            "effective_tokens": 6111
+          },
+          {
+            "step": 98,
+            "loss": 0.0020320365826288858,
+            "lr": 0.00030623819751858235,
+            "effective_tokens": 6174
+          },
+          {
+            "step": 99,
+            "loss": 0.0020220946697961715,
+            "lr": 0.00030277371978704593,
+            "effective_tokens": 6237
+          },
+          {
+            "step": 100,
+            "loss": 0.002012158433596293,
+            "lr": 0.00030069360812907134,
+            "effective_tokens": 6300
+          }
+        ],
+        "summary": {
+          "mode": "pretrain",
+          "steps": 100,
+          "global_step": 100,
+          "epoch": 100,
+          "micro_batches_consumed_in_epoch": 0,
+          "samples_seen": 100,
+          "tokens_seen": 6300,
+          "target_optimizer_updates": 100,
+          "optimizer_updates_per_epoch": 1,
+          "seconds": 1.081,
+          "stop_reason": "target_reached",
+          "best_val_loss": null,
+          "final_val": null,
+          "last_checkpoint_seconds": 0.01073819600060233,
+          "peak_rss_mb": 795.7,
+          "peak_gpu_mb": 0,
+          "precision": "fp32",
+          "batch_size": 1,
+          "grad_accum": 1,
+          "grad_checkpointing": false,
+          "seed": 42,
+          "params": 369280,
+          "scope": "memorization only; not v4 pretraining"
+        },
+        "options": {
+          "out": "/home/voyah/work_space/git_ws/min_llm/reports/diagnostics/pr7-cpu-nano-final/memorization/single",
+          "epochs": 1,
+          "batch_size": 1,
+          "grad_accum": 1,
+          "lr": 0.003,
+          "min_lr": 0.0003,
+          "warmup_ratio": 0.02,
+          "weight_decay": 0.1,
+          "grad_clip": 1.0,
+          "max_steps": 100,
+          "save_every": 0,
+          "val_every": 0,
+          "val_limit": 0,
+          "max_minutes": 1.9986894123666692,
+          "log_every": 1,
+          "seed": 42,
+          "device": "cpu",
+          "precision": "fp32",
+          "grad_checkpointing": false,
+          "threads": 1,
+          "resume": null,
+          "init_from": null,
+          "extra_meta": {
+            "scope": "memorization only; not v4 pretraining"
+          }
+        },
+        "model": {
+          "parameters": 369280,
+          "config": {
+            "vocab_size": 512,
+            "hidden_size": 128,
+            "num_hidden_layers": 2,
+            "num_attention_heads": 4,
+            "num_key_value_heads": 1,
+            "head_dim": 32,
+            "intermediate_size": 288,
+            "max_position_embeddings": 128,
+            "rope_theta": 10000.0,
+            "rms_norm_eps": 1e-06,
+            "attention_dropout": 0.0,
+            "hidden_dropout": 0.0,
+            "tie_word_embeddings": true,
+            "attention_bias": false,
+            "mlp_bias": false,
+            "pad_token_id": 0,
+            "bos_token_id": 1,
+            "eos_token_id": 2,
+            "unk_token_id": 3,
+            "ignore_index": -100,
+            "model_type": "minillm",
+            "arch_version": 2
+          },
+          "checkpoint": {
+            "path": "/home/voyah/work_space/git_ws/min_llm/reports/diagnostics/pr7-cpu-nano-final/memorization/single/model.pt",
+            "sha256": "0d6310cbbbb278d2321267d6cf71cb6c9c0be881090cf85fe966ac3427e58535",
+            "bytes": 1484455
+          }
+        },
+        "training_samples": {
+          "teacher_forced": {
+            "correct": 7,
+            "tokens": 7,
+            "accuracy": 1.0
+          },
+          "prefix_continuation": {
+            "correct_tokens": 5,
+            "tokens": 5,
+            "accuracy": 1.0,
+            "exact": 1,
+            "samples": 1,
+            "exact_rate": 1.0,
+            "selection": "Evenly spaced indices across the frozen row order, including endpoints; no output-based selection",
+            "boundary_policy": "joint_shared_prefix of actual document encoding and fixed prefix; target includes EOS; extra/missing output tokens count against accuracy"
+          },
+          "generation": {
+            "tasks": 1,
+            "generated": 1,
+            "unscorable": 0,
+            "empty_output": {
+              "numerator": 0,
+              "denominator": 1,
+              "rate": 0.0
+            },
+            "early_eos": {
+              "numerator": 0,
+              "denominator": 1,
+              "rate": 0.0
+            },
+            "eos_emitted": {
+              "numerator": 1,
+              "denominator": 1,
+              "rate": 1.0
+            },
+            "length_limit": {
+              "numerator": 0,
+              "denominator": 1,
+              "rate": 0.0
+            },
+            "special_token_anomaly": {
+              "numerator": 0,
+              "denominator": 1,
+              "rate": 0.0
+            },
+            "observable_tail_loop": {
+              "numerator": 0,
+              "denominator": 1,
+              "rate": 0.0
+            },
+            "generated_length": {
+              "count": 1,
+              "min": 5,
+              "max": 5,
+              "mean": 5.0,
+              "p50": 5.0,
+              "p90": 5.0,
+              "histogram": {
+                "5": 1
+              }
+            },
+            "repeat_4gram": {
+              "count": 1,
+              "min": 0.0,
+              "max": 0.0,
+              "mean": 0.0,
+              "p50": 0.0,
+              "p90": 0.0,
+              "histogram": {
+                "0.0": 1
+              }
+            },
+            "distinct_2": {
+              "count": 1,
+              "min": 1.0,
+              "max": 1.0,
+              "mean": 1.0,
+              "p50": 1.0,
+              "p90": 1.0,
+              "histogram": {
+                "1.0": 1
+              }
+            },
+            "longest_identical_run": {
+              "count": 1,
+              "min": 1,
+              "max": 1,
+              "mean": 1.0,
+              "p50": 1.0,
+              "p90": 1.0,
+              "histogram": {
+                "1": 1
+              }
+            },
+            "readability_review": "REVIEW_PENDING"
+          },
+          "predictions": [
+            {
+              "id": "mem-train-001",
+              "status": "GENERATED",
+              "prompt_token_ids": [
+                474,
+                419,
+                266
+              ],
+              "expected_token_ids": [
+                304,
+                266,
+                303,
+                270,
+                2
+              ],
+              "token_ids": [
+                304,
+                266,
+                303,
+                270,
+                2
+              ],
+              "exact": true,
+              "shared_prefix_tokens": 3,
+              "independent_prefix_tokens": 3,
+              "text": "看见一片叶子，便停下来画画。",
+              "generated_tokens": 5,
+              "content_tokens": 4,
+              "empty": false,
+              "eos_emitted": true,
+              "early_eos": false,
+              "hit_length_limit": false,
+              "special_token_anomalies": [],
+              "distinct_2": 1.0,
+              "longest_identical_run": 1,
+              "tail_loop_period": null,
+              "token_4gram_repeat_ratio": 0.0,
+              "character_3gram_repeat_ratio": 0.0,
+              "sentence_repeat_ratio": 0.0,
+              "readability_review": "REVIEW_PENDING"
+            }
+          ]
+        },
+        "independent_samples": null
+      },
+      "corpus": {
+        "status": "COMPLETED",
+        "initial_loss": 6.312129195557309,
+        "final_loss": 1.1285489922217091,
+        "loss_reduction_fraction": 0.8212094592398362,
+        "gradients_finite": true,
+        "parameters_finite": true,
+        "parameters_updated": true,
+        "optimizer_finite": true,
+        "initial_teacher_forced": {
+          "correct": 1,
+          "tokens": 1749,
+          "accuracy": 0.0005717552887364208
+        },
+        "initial_independent_teacher_forced": {
+          "correct": 1,
+          "tokens": 1520,
+          "accuracy": 0.0006578947368421052
+        },
+        "curve": [
+          {
+            "step": 1,
+            "loss": 6.262143089657738,
+            "lr": 0.0015,
+            "effective_tokens": 252
+          },
+          {
+            "step": 2,
+            "loss": 6.0220525832403276,
+            "lr": 0.003,
+            "effective_tokens": 504
+          },
+          {
+            "step": 3,
+            "loss": 5.653651646205357,
+            "lr": 0.003,
+            "effective_tokens": 756
+          },
+          {
+            "step": 4,
+            "loss": 5.805842808314732,
+            "lr": 0.0029993063918709287,
+            "effective_tokens": 1008
+          },
+          {
+            "step": 5,
+            "loss": 5.1170455690414185,
+            "lr": 0.002997226280212954,
+            "effective_tokens": 1260
+          },
+          {
+            "step": 6,
+            "loss": 4.927913605220734,
+            "lr": 0.002993761802481418,
+            "effective_tokens": 1512
+          },
+          {
+            "step": 7,
+            "loss": 4.358817448691716,
+            "lr": 0.0029889165186613824,
+            "effective_tokens": 1764
+          },
+          {
+            "step": 8,
+            "loss": 4.977356441437252,
+            "lr": 0.002982695407609508,
+            "effective_tokens": 1827
+          },
+          {
+            "step": 9,
+            "loss": 4.748985169425843,
+            "lr": 0.0029751048619379382,
+            "effective_tokens": 2079
+          },
+          {
+            "step": 10,
+            "loss": 4.400215754433284,
+            "lr": 0.002966152681445462,
+            "effective_tokens": 2331
+          },
+          {
+            "step": 11,
+            "loss": 3.6269635397290427,
+            "lr": 0.00295584806510269,
+            "effective_tokens": 2583
+          },
+          {
+            "step": 12,
+            "loss": 4.287594265407986,
+            "lr": 0.002944201601599492,
+            "effective_tokens": 2835
+          },
+          {
+            "step": 13,
+            "loss": 3.9912337045820934,
+            "lr": 0.0029312252584644026,
+            "effective_tokens": 3087
+          },
+          {
+            "step": 14,
+            "loss": 4.066572885664683,
+            "lr": 0.0029169323697671766,
+            "effective_tokens": 3339
+          },
+          {
+            "step": 15,
+            "loss": 3.2248404366629466,
+            "lr": 0.0029013376224171295,
+            "effective_tokens": 3591
+          },
+          {
+            "step": 16,
+            "loss": 2.688697693839906,
+            "lr": 0.002884457041071347,
+            "effective_tokens": 3654
+          },
+          {
+            "step": 17,
+            "loss": 3.778866722470238,
+            "lr": 0.0028663079716682656,
+            "effective_tokens": 3906
+          },
+          {
+            "step": 18,
+            "loss": 4.535209534660218,
+            "lr": 0.0028469090636035503,
+            "effective_tokens": 4158
+          },
+          {
+            "step": 19,
+            "loss": 3.3500128851996527,
+            "lr": 0.0028262802505665758,
+            "effective_tokens": 4410
+          },
+          {
+            "step": 20,
+            "loss": 3.1147921123201887,
+            "lr": 0.0028044427300572177,
+            "effective_tokens": 4662
+          },
+          {
+            "step": 21,
+            "loss": 3.3356185186476934,
+            "lr": 0.002781418941603985,
+            "effective_tokens": 4914
+          },
+          {
+            "step": 22,
+            "loss": 2.6175711495535716,
+            "lr": 0.0027572325437058903,
+            "effective_tokens": 5166
+          },
+          {
+            "step": 23,
+            "loss": 3.3271692669580855,
+            "lr": 0.0027319083895217416,
+            "effective_tokens": 5418
+          },
+          {
+            "step": 24,
+            "loss": 4.106123666914683,
+            "lr": 0.0027054725013318406,
+            "effective_tokens": 5481
+          },
+          {
+            "step": 25,
+            "loss": 3.5250091552734375,
+            "lr": 0.0026779520437983317,
+            "effective_tokens": 5733
+          },
+          {
+            "step": 26,
+            "loss": 2.960361056857639,
+            "lr": 0.002649375296051676,
+            "effective_tokens": 5985
+          },
+          {
+            "step": 27,
+            "loss": 3.04300774468316,
+            "lr": 0.0026197716226319325,
+            "effective_tokens": 6237
+          },
+          {
+            "step": 28,
+            "loss": 3.4597342354910716,
+            "lr": 0.002589171443314707,
+            "effective_tokens": 6489
+          },
+          {
+            "step": 29,
+            "loss": 2.8885638524615573,
+            "lr": 0.0025576062018527776,
+            "effective_tokens": 6741
+          },
+          {
+            "step": 30,
+            "loss": 2.500335451156374,
+            "lr": 0.0025251083336655144,
+            "effective_tokens": 6993
+          },
+          {
+            "step": 31,
+            "loss": 3.2079559810577876,
+            "lr": 0.0024917112325092902,
+            "effective_tokens": 7245
+          },
+          {
+            "step": 32,
+            "loss": 1.6620844280908977,
+            "lr": 0.0024574492161631416,
+            "effective_tokens": 7308
+          },
+          {
+            "step": 33,
+            "loss": 2.5279894632006448,
+            "lr": 0.002422357491164929,
+            "effective_tokens": 7560
+          },
+          {
+            "step": 34,
+            "loss": 2.226803249782986,
+            "lr": 0.0023864721166342406,
+            "effective_tokens": 7812
+          },
+          {
+            "step": 35,
+            "loss": 3.472298031761533,
+            "lr": 0.002349829967219209,
+            "effective_tokens": 8064
+          },
+          {
+            "step": 36,
+            "loss": 2.172661433144221,
+            "lr": 0.0023124686952053163,
+            "effective_tokens": 8316
+          },
+          {
+            "step": 37,
+            "loss": 2.5367271786644343,
+            "lr": 0.002274426691825128,
+            "effective_tokens": 8568
+          },
+          {
+            "step": 38,
+            "loss": 2.651246328202505,
+            "lr": 0.0022357430478087037,
+            "effective_tokens": 8820
+          },
+          {
+            "step": 39,
+            "loss": 2.2974185035342263,
+            "lr": 0.0021964575132152318,
+            "effective_tokens": 9072
+          },
+          {
+            "step": 40,
+            "loss": 3.1362527514260914,
+            "lr": 0.0021566104565871554,
+            "effective_tokens": 9135
+          },
+          {
+            "step": 41,
+            "loss": 2.0512530614459323,
+            "lr": 0.0021162428234687653,
+            "effective_tokens": 9387
+          },
+          {
+            "step": 42,
+            "loss": 2.3541027250744047,
+            "lr": 0.0020753960943318884,
+            "effective_tokens": 9639
+          },
+          {
+            "step": 43,
+            "loss": 2.024168226453993,
+            "lr": 0.0020341122419518937,
+            "effective_tokens": 9891
+          },
+          {
+            "step": 44,
+            "loss": 1.9378795321025546,
+            "lr": 0.001992433688277835,
+            "effective_tokens": 10143
+          },
+          {
+            "step": 45,
+            "loss": 2.4716663663349454,
+            "lr": 0.0019504032608410244,
+            "effective_tokens": 10395
+          },
+          {
+            "step": 46,
+            "loss": 2.4154212588355657,
+            "lr": 0.0019080641487468528,
+            "effective_tokens": 10647
+          },
+          {
+            "step": 47,
+            "loss": 2.613408890981523,
+            "lr": 0.001865459858295062,
+            "effective_tokens": 10899
+          },
+          {
+            "step": 48,
+            "loss": 3.3895646352616566,
+            "lr": 0.001822634168274083,
+            "effective_tokens": 10962
+          },
+          {
+            "step": 49,
+            "loss": 3.0001397511315724,
+            "lr": 0.0017796310849753703,
+            "effective_tokens": 11214
+          },
+          {
+            "step": 50,
+            "loss": 1.435413300044953,
+            "lr": 0.0017364947969739626,
+            "effective_tokens": 11466
+          },
+          {
+            "step": 51,
+            "loss": 2.070533146933904,
+            "lr": 0.001693269629721735,
+            "effective_tokens": 11718
+          },
+          {
+            "step": 52,
+            "loss": 2.6908327132936507,
+            "lr": 0.00165,
+            "effective_tokens": 11970
+          },
+          {
+            "step": 53,
+            "loss": 1.7617218986390129,
+            "lr": 0.0016067303702782655,
+            "effective_tokens": 12222
+          },
+          {
+            "step": 54,
+            "loss": 1.647992451985677,
+            "lr": 0.0015635052030260376,
+            "effective_tokens": 12474
+          },
+          {
+            "step": 55,
+            "loss": 2.078643072219122,
+            "lr": 0.0015203689150246297,
+            "effective_tokens": 12726
+          },
+          {
+            "step": 56,
+            "loss": 2.8982960534474205,
+            "lr": 0.0014773658317259167,
+            "effective_tokens": 12789
+          },
+          {
+            "step": 57,
+            "loss": 2.6942051478794644,
+            "lr": 0.0014345401417049384,
+            "effective_tokens": 13041
+          },
+          {
+            "step": 58,
+            "loss": 2.0465925913008434,
+            "lr": 0.0013919358512531476,
+            "effective_tokens": 13293
+          },
+          {
+            "step": 59,
+            "loss": 1.1718185667007688,
+            "lr": 0.0013495967391589756,
+            "effective_tokens": 13545
+          },
+          {
+            "step": 60,
+            "loss": 1.5268633403475322,
+            "lr": 0.0013075663117221652,
+            "effective_tokens": 13797
+          },
+          {
+            "step": 61,
+            "loss": 1.6952540079752605,
+            "lr": 0.0012658877580481063,
+            "effective_tokens": 14049
+          },
+          {
+            "step": 62,
+            "loss": 1.9237307593936013,
+            "lr": 0.0012246039056681122,
+            "effective_tokens": 14301
+          },
+          {
+            "step": 63,
+            "loss": 2.0226498558407737,
+            "lr": 0.0011837571765312349,
+            "effective_tokens": 14553
+          },
+          {
+            "step": 64,
+            "loss": 0.9137215992761036,
+            "lr": 0.001143389543412845,
+            "effective_tokens": 14616
+          },
+          {
+            "step": 65,
+            "loss": 1.3508741590711806,
+            "lr": 0.0011035424867847684,
+            "effective_tokens": 14868
+          },
+          {
+            "step": 66,
+            "loss": 1.3967601231166296,
+            "lr": 0.0010642569521912967,
+            "effective_tokens": 15120
+          },
+          {
+            "step": 67,
+            "loss": 1.4739900619264632,
+            "lr": 0.0010255733081748727,
+            "effective_tokens": 15372
+          },
+          {
+            "step": 68,
+            "loss": 1.6822911822606648,
+            "lr": 0.0009875313047946843,
+            "effective_tokens": 15624
+          },
+          {
+            "step": 69,
+            "loss": 1.5506808568560888,
+            "lr": 0.0009501700327807913,
+            "effective_tokens": 15876
+          },
+          {
+            "step": 70,
+            "loss": 1.7226371159629217,
+            "lr": 0.0009135278833657594,
+            "effective_tokens": 16128
+          },
+          {
+            "step": 71,
+            "loss": 1.950697036016555,
+            "lr": 0.0008776425088350712,
+            "effective_tokens": 16380
+          },
+          {
+            "step": 72,
+            "loss": 2.101170373341394,
+            "lr": 0.0008425507838368583,
+            "effective_tokens": 16443
+          },
+          {
+            "step": 73,
+            "loss": 1.420116969517299,
+            "lr": 0.0008082887674907098,
+            "effective_tokens": 16695
+          },
+          {
+            "step": 74,
+            "loss": 1.32315184578063,
+            "lr": 0.000774891666334486,
+            "effective_tokens": 16947
+          },
+          {
+            "step": 75,
+            "loss": 1.029343014671689,
+            "lr": 0.0007423937981472222,
+            "effective_tokens": 17199
+          },
+          {
+            "step": 76,
+            "loss": 1.4372557382734994,
+            "lr": 0.0007108285566852934,
+            "effective_tokens": 17451
+          },
+          {
+            "step": 77,
+            "loss": 1.9538608127170138,
+            "lr": 0.000680228377368068,
+            "effective_tokens": 17703
+          },
+          {
+            "step": 78,
+            "loss": 1.5065174405536954,
+            "lr": 0.0006506247039483241,
+            "effective_tokens": 17955
+          },
+          {
+            "step": 79,
+            "loss": 1.4535021100725447,
+            "lr": 0.0006220479562016685,
+            "effective_tokens": 18207
+          },
+          {
+            "step": 80,
+            "loss": 0.6990724593874008,
+            "lr": 0.0005945274986681598,
+            "effective_tokens": 18270
+          },
+          {
+            "step": 81,
+            "loss": 1.1017824203249007,
+            "lr": 0.0005680916104782587,
+            "effective_tokens": 18522
+          },
+          {
+            "step": 82,
+            "loss": 1.2347003997318329,
+            "lr": 0.0005427674562941095,
+            "effective_tokens": 18774
+          },
+          {
+            "step": 83,
+            "loss": 1.4163845001705109,
+            "lr": 0.0005185810583960152,
+            "effective_tokens": 19026
+          },
+          {
+            "step": 84,
+            "loss": 1.311568366156684,
+            "lr": 0.0004955572699427827,
+            "effective_tokens": 19278
+          },
+          {
+            "step": 85,
+            "loss": 1.2235453772166418,
+            "lr": 0.0004737197494334243,
+            "effective_tokens": 19530
+          },
+          {
+            "step": 86,
+            "loss": 1.66836426750062,
+            "lr": 0.0004530909363964498,
+            "effective_tokens": 19782
+          },
+          {
+            "step": 87,
+            "loss": 1.2672031947544642,
+            "lr": 0.00043369202833173426,
+            "effective_tokens": 20034
+          },
+          {
+            "step": 88,
+            "loss": 0.6640717037140377,
+            "lr": 0.00041554295892865325,
+            "effective_tokens": 20097
+          },
+          {
+            "step": 89,
+            "loss": 0.868751949734158,
+            "lr": 0.00039866237758287077,
+            "effective_tokens": 20349
+          },
+          {
+            "step": 90,
+            "loss": 1.1902693491133431,
+            "lr": 0.00038306763023282335,
+            "effective_tokens": 20601
+          },
+          {
+            "step": 91,
+            "loss": 1.7285817464192708,
+            "lr": 0.00036877474153559735,
+            "effective_tokens": 20853
+          },
+          {
+            "step": 92,
+            "loss": 0.9488355848524306,
+            "lr": 0.0003557983984005082,
+            "effective_tokens": 21105
+          },
+          {
+            "step": 93,
+            "loss": 0.7642333621070498,
+            "lr": 0.00034415193489731023,
+            "effective_tokens": 21357
+          },
+          {
+            "step": 94,
+            "loss": 1.3308996775793651,
+            "lr": 0.00033384731855453807,
+            "effective_tokens": 21609
+          },
+          {
+            "step": 95,
+            "loss": 1.507631089952257,
+            "lr": 0.00032489513806206163,
+            "effective_tokens": 21861
+          },
+          {
+            "step": 96,
+            "loss": 1.4447870405893477,
+            "lr": 0.00031730459239049226,
+            "effective_tokens": 21924
+          },
+          {
+            "step": 97,
+            "loss": 1.3311446659148685,
+            "lr": 0.0003110834813386178,
+            "effective_tokens": 22176
+          },
+          {
+            "step": 98,
+            "loss": 1.1190753512912326,
+            "lr": 0.00030623819751858235,
+            "effective_tokens": 22428
+          },
+          {
+            "step": 99,
+            "loss": 0.9312925187368242,
+            "lr": 0.00030277371978704593,
+            "effective_tokens": 22680
+          },
+          {
+            "step": 100,
+            "loss": 1.1249928550114707,
+            "lr": 0.00030069360812907134,
+            "effective_tokens": 22932
+          }
+        ],
+        "summary": {
+          "mode": "pretrain",
+          "steps": 100,
+          "global_step": 100,
+          "epoch": 12,
+          "micro_batches_consumed_in_epoch": 4,
+          "samples_seen": 364,
+          "tokens_seen": 22932,
+          "target_optimizer_updates": 100,
+          "optimizer_updates_per_epoch": 8,
+          "seconds": 1.398,
+          "stop_reason": "target_reached",
+          "best_val_loss": null,
+          "final_val": null,
+          "last_checkpoint_seconds": 0.01119321599981049,
+          "peak_rss_mb": 806.0,
+          "peak_gpu_mb": 0,
+          "precision": "fp32",
+          "batch_size": 4,
+          "grad_accum": 1,
+          "grad_checkpointing": false,
+          "seed": 42,
+          "params": 369280,
+          "scope": "memorization only; not v4 pretraining"
+        },
+        "options": {
+          "out": "/home/voyah/work_space/git_ws/min_llm/reports/diagnostics/pr7-cpu-nano-final/memorization/corpus",
+          "epochs": 1,
+          "batch_size": 4,
+          "grad_accum": 1,
+          "lr": 0.003,
+          "min_lr": 0.0003,
+          "warmup_ratio": 0.02,
+          "weight_decay": 0.1,
+          "grad_clip": 1.0,
+          "max_steps": 100,
+          "save_every": 0,
+          "val_every": 0,
+          "val_limit": 0,
+          "max_minutes": 1.9619117789333056,
+          "log_every": 1,
+          "seed": 42,
+          "device": "cpu",
+          "precision": "fp32",
+          "grad_checkpointing": false,
+          "threads": 1,
+          "resume": null,
+          "init_from": null,
+          "extra_meta": {
+            "scope": "memorization only; not v4 pretraining"
+          }
+        },
+        "model": {
+          "parameters": 369280,
+          "config": {
+            "vocab_size": 512,
+            "hidden_size": 128,
+            "num_hidden_layers": 2,
+            "num_attention_heads": 4,
+            "num_key_value_heads": 1,
+            "head_dim": 32,
+            "intermediate_size": 288,
+            "max_position_embeddings": 128,
+            "rope_theta": 10000.0,
+            "rms_norm_eps": 1e-06,
+            "attention_dropout": 0.0,
+            "hidden_dropout": 0.0,
+            "tie_word_embeddings": true,
+            "attention_bias": false,
+            "mlp_bias": false,
+            "pad_token_id": 0,
+            "bos_token_id": 1,
+            "eos_token_id": 2,
+            "unk_token_id": 3,
+            "ignore_index": -100,
+            "model_type": "minillm",
+            "arch_version": 2
+          },
+          "checkpoint": {
+            "path": "/home/voyah/work_space/git_ws/min_llm/reports/diagnostics/pr7-cpu-nano-final/memorization/corpus/model.pt",
+            "sha256": "eabaf29eb34f9511a7c8d7e7b1bf5d421713977e8949a89e1dec4ca891ff3919",
+            "bytes": 1484455
+          }
+        },
+        "training_samples": {
+          "teacher_forced": {
+            "correct": 1150,
+            "tokens": 1749,
+            "accuracy": 0.657518582046884
+          },
+          "prefix_continuation": {
+            "correct_tokens": 53,
+            "tokens": 238,
+            "accuracy": 0.22268907563025211,
+            "exact": 8,
+            "samples": 16,
+            "exact_rate": 0.5,
+            "selection": "Evenly spaced indices across the frozen row order, including endpoints; no output-based selection",
+            "boundary_policy": "joint_shared_prefix of actual document encoding and fixed prefix; target includes EOS; extra/missing output tokens count against accuracy"
+          },
+          "generation": {
+            "tasks": 16,
+            "generated": 16,
+            "unscorable": 0,
+            "empty_output": {
+              "numerator": 0,
+              "denominator": 16,
+              "rate": 0.0
+            },
+            "early_eos": {
+              "numerator": 2,
+              "denominator": 16,
+              "rate": 0.125
+            },
+            "eos_emitted": {
+              "numerator": 14,
+              "denominator": 16,
+              "rate": 0.875
+            },
+            "length_limit": {
+              "numerator": 2,
+              "denominator": 16,
+              "rate": 0.125
+            },
+            "special_token_anomaly": {
+              "numerator": 0,
+              "denominator": 16,
+              "rate": 0.0
+            },
+            "observable_tail_loop": {
+              "numerator": 2,
+              "denominator": 16,
+              "rate": 0.125
+            },
+            "generated_length": {
+              "count": 16,
+              "min": 3,
+              "max": 64,
+              "mean": 14.375,
+              "p50": 5.0,
+              "p90": 43.5,
+              "histogram": {
+                "3": 1,
+                "4": 1,
+                "5": 8,
+                "7": 2,
+                "18": 1,
+                "23": 1,
+                "64": 2
+              }
+            },
+            "repeat_4gram": {
+              "count": 16,
+              "min": 0.0,
+              "max": 0.9836065573770492,
+              "mean": 0.17722713546160485,
+              "p50": 0.0,
+              "p90": 0.7418032786885246,
+              "histogram": {
+                "0.0": 12,
+                "0.3684210526315789": 1,
+                "0.5": 1,
+                "0.9836065573770492": 2
+              }
+            },
+            "distinct_2": {
+              "count": 16,
+              "min": 0.015873015873015872,
+              "max": 1.0,
+              "mean": 0.7917534722222221,
+              "p50": 1.0,
+              "p90": 1.0,
+              "histogram": {
+                "0.015873015873015872": 2,
+                "0.3125": 1,
+                "0.5238095238095238": 1,
+                "0.8": 1,
+                "1.0": 11
+              }
+            },
+            "longest_identical_run": {
+              "count": 16,
+              "min": 1,
+              "max": 64,
+              "mean": 10.0625,
+              "p50": 1.0,
+              "p90": 37.5,
+              "histogram": {
+                "1": 12,
+                "10": 1,
+                "11": 1,
+                "64": 2
+              }
+            },
+            "readability_review": "REVIEW_PENDING"
+          },
+          "predictions": [
+            {
+              "id": "mem-train-001",
+              "status": "GENERATED",
+              "prompt_token_ids": [
+                474,
+                419,
+                266
+              ],
+              "expected_token_ids": [
+                304,
+                266,
+                303,
+                270,
+                2
+              ],
+              "token_ids": [
+                304,
+                266,
+                303,
+                270,
+                2
+              ],
+              "exact": true,
+              "shared_prefix_tokens": 3,
+              "independent_prefix_tokens": 3,
+              "text": "看见一片叶子，便停下来画画。",
+              "generated_tokens": 5,
+              "content_tokens": 4,
+              "empty": false,
+              "eos_emitted": true,
+              "early_eos": false,
+              "hit_length_limit": false,
+              "special_token_anomalies": [],
+              "distinct_2": 1.0,
+              "longest_identical_run": 1,
+              "tail_loop_period": null,
+              "token_4gram_repeat_ratio": 0.0,
+              "character_3gram_repeat_ratio": 0.0,
+              "sentence_repeat_ratio": 0.0,
+              "readability_review": "REVIEW_PENDING"
+            },
+            {
+              "id": "mem-train-012",
+              "status": "GENERATED",
+              "prompt_token_ids": [
+                471,
+                416,
+                266
+              ],
+              "expected_token_ids": [
+                304,
+                266,
+                303,
+                270,
+                2
+              ],
+              "token_ids": [
+                303,
+                270,
+                2
+              ],
+              "exact": false,
+              "shared_prefix_tokens": 3,
+              "independent_prefix_tokens": 3,
+              "text": "便停下来画画。",
+              "generated_tokens": 3,
+              "content_tokens": 2,
+              "empty": false,
+              "eos_emitted": true,
+              "early_eos": true,
+              "hit_length_limit": false,
+              "special_token_anomalies": [],
+              "distinct_2": 1.0,
+              "longest_identical_run": 1,
+              "tail_loop_period": null,
+              "token_4gram_repeat_ratio": 0.0,
+              "character_3gram_repeat_ratio": 0.0,
+              "sentence_repeat_ratio": 0.0,
+              "readability_review": "REVIEW_PENDING"
+            },
+            {
+              "id": "mem-train-022",
+              "status": "GENERATED",
+              "prompt_token_ids": [
+                471,
+                414,
+                266
+              ],
+              "expected_token_ids": [
+                304,
+                266,
+                303,
+                270,
+                2
+              ],
+              "token_ids": [
+                304,
+                266,
+                303,
+                270,
+                2
+              ],
+              "exact": true,
+              "shared_prefix_tokens": 3,
+              "independent_prefix_tokens": 3,
+              "text": "看见一片叶子，便停下来画画。",
+              "generated_tokens": 5,
+              "content_tokens": 4,
+              "empty": false,
+              "eos_emitted": true,
+              "early_eos": false,
+              "hit_length_limit": false,
+              "special_token_anomalies": [],
+              "distinct_2": 1.0,
+              "longest_identical_run": 1,
+              "tail_loop_period": null,
+              "token_4gram_repeat_ratio": 0.0,
+              "character_3gram_repeat_ratio": 0.0,
+              "sentence_repeat_ratio": 0.0,
+              "readability_review": "REVIEW_PENDING"
+            },
+            {
+              "id": "mem-train-033",
+              "status": "GENERATED",
+              "prompt_token_ids": [
+                463,
+                415,
+                266
+              ],
+              "expected_token_ids": [
+                304,
+                266,
+                303,
+                270,
+                2
+              ],
+              "token_ids": [
+                304,
+                266,
+                303,
+                270,
+                2
+              ],
+              "exact": true,
+              "shared_prefix_tokens": 3,
+              "independent_prefix_tokens": 3,
+              "text": "看见一片叶子，便停下来画画。",
+              "generated_tokens": 5,
+              "content_tokens": 4,
+              "empty": false,
+              "eos_emitted": true,
+              "early_eos": false,
+              "hit_length_limit": false,
+              "special_token_anomalies": [],
+              "distinct_2": 1.0,
+              "longest_identical_run": 1,
+              "tail_loop_period": null,
+              "token_4gram_repeat_ratio": 0.0,
+              "character_3gram_repeat_ratio": 0.0,
+              "sentence_repeat_ratio": 0.0,
+              "readability_review": "REVIEW_PENDING"
+            },
+            {
+              "id": "mem-train-043",
+              "status": "GENERATED",
+              "prompt_token_ids": [
+                463,
+                418,
+                266
+              ],
+              "expected_token_ids": [
+                304,
+                266,
+                303,
+                270,
+                2
+              ],
+              "token_ids": [
+                304,
+                266,
+                303,
+                270,
+                2
+              ],
+              "exact": true,
+              "shared_prefix_tokens": 3,
+              "independent_prefix_tokens": 3,
+              "text": "看见一片叶子，便停下来画画。",
+              "generated_tokens": 5,
+              "content_tokens": 4,
+              "empty": false,
+              "eos_emitted": true,
+              "early_eos": false,
+              "hit_length_limit": false,
+              "special_token_anomalies": [],
+              "distinct_2": 1.0,
+              "longest_identical_run": 1,
+              "tail_loop_period": null,
+              "token_4gram_repeat_ratio": 0.0,
+              "character_3gram_repeat_ratio": 0.0,
+              "sentence_repeat_ratio": 0.0,
+              "readability_review": "REVIEW_PENDING"
+            },
+            {
+              "id": "mem-train-054",
+              "status": "GENERATED",
+              "prompt_token_ids": [
+                472,
+                407,
+                266
+              ],
+              "expected_token_ids": [
+                304,
+                266,
+                303,
+                270,
+                2
+              ],
+              "token_ids": [
+                304,
+                266,
+                303,
+                270,
+                2
+              ],
+              "exact": true,
+              "shared_prefix_tokens": 3,
+              "independent_prefix_tokens": 3,
+              "text": "看见一片叶子，便停下来画画。",
+              "generated_tokens": 5,
+              "content_tokens": 4,
+              "empty": false,
+              "eos_emitted": true,
+              "early_eos": false,
+              "hit_length_limit": false,
+              "special_token_anomalies": [],
+              "distinct_2": 1.0,
+              "longest_identical_run": 1,
+              "tail_loop_period": null,
+              "token_4gram_repeat_ratio": 0.0,
+              "character_3gram_repeat_ratio": 0.0,
+              "sentence_repeat_ratio": 0.0,
+              "readability_review": "REVIEW_PENDING"
+            },
+            {
+              "id": "mem-train-065",
+              "status": "GENERATED",
+              "prompt_token_ids": [
+                465,
+                417,
+                266
+              ],
+              "expected_token_ids": [
+                304,
+                266,
+                303,
+                270,
+                2
+              ],
+              "token_ids": [
+                304,
+                266,
+                303,
+                270,
+                2
+              ],
+              "exact": true,
+              "shared_prefix_tokens": 3,
+              "independent_prefix_tokens": 3,
+              "text": "看见一片叶子，便停下来画画。",
+              "generated_tokens": 5,
+              "content_tokens": 4,
+              "empty": false,
+              "eos_emitted": true,
+              "early_eos": false,
+              "hit_length_limit": false,
+              "special_token_anomalies": [],
+              "distinct_2": 1.0,
+              "longest_identical_run": 1,
+              "tail_loop_period": null,
+              "token_4gram_repeat_ratio": 0.0,
+              "character_3gram_repeat_ratio": 0.0,
+              "sentence_repeat_ratio": 0.0,
+              "readability_review": "REVIEW_PENDING"
+            },
+            {
+              "id": "mem-train-075",
+              "status": "GENERATED",
+              "prompt_token_ids": [
+                465,
+                420,
+                266
+              ],
+              "expected_token_ids": [
+                304,
+                266,
+                303,
+                270,
+                2
+              ],
+              "token_ids": [
+                304,
+                266,
+                303,
+                270,
+                2
+              ],
+              "exact": true,
+              "shared_prefix_tokens": 3,
+              "independent_prefix_tokens": 3,
+              "text": "看见一片叶子，便停下来画画。",
+              "generated_tokens": 5,
+              "content_tokens": 4,
+              "empty": false,
+              "eos_emitted": true,
+              "early_eos": false,
+              "hit_length_limit": false,
+              "special_token_anomalies": [],
+              "distinct_2": 1.0,
+              "longest_identical_run": 1,
+              "tail_loop_period": null,
+              "token_4gram_repeat_ratio": 0.0,
+              "character_3gram_repeat_ratio": 0.0,
+              "sentence_repeat_ratio": 0.0,
+              "readability_review": "REVIEW_PENDING"
+            },
+            {
+              "id": "mem-train-086",
+              "status": "GENERATED",
+              "prompt_token_ids": [
+                325,
+                29,
+                326,
+                312,
+                442,
+                437,
+                503,
+                435,
+                241,
+                280,
+                170,
+                510,
+                445,
+                434,
+                253
+              ],
+              "expected_token_ids": [
+                511,
+                124,
+                505,
+                171,
+                331,
+                386,
+                475,
+                434,
+                247,
+                234,
+                170,
+                279,
+                438,
+                270,
+                2
+              ],
+              "token_ids": [
+                511,
+                124,
+                505,
+                505,
+                171,
+                331,
+                386,
+                386,
+                386,
+                386,
+                386,
+                386,
+                386,
+                386,
+                386,
+                386,
+                386,
+                306,
+                306,
+                306,
+                231,
+                270,
+                2
+              ],
+              "exact": false,
+              "shared_prefix_tokens": 15,
+              "independent_prefix_tokens": 16,
+              "text": "�温度�度约为为为为为为为为为为为��十。",
+              "generated_tokens": 23,
+              "content_tokens": 22,
+              "empty": false,
+              "eos_emitted": true,
+              "early_eos": false,
+              "hit_length_limit": false,
+              "special_token_anomalies": [],
+              "distinct_2": 0.5238095238095238,
+              "longest_identical_run": 11,
+              "tail_loop_period": null,
+              "token_4gram_repeat_ratio": 0.3684210526315789,
+              "character_3gram_repeat_ratio": 0.42105263157894735,
+              "sentence_repeat_ratio": 0.0,
+              "readability_review": "REVIEW_PENDING"
+            },
+            {
+              "id": "mem-train-096",
+              "status": "GENERATED",
+              "prompt_token_ids": [
+                325,
+                495,
+                326,
+                312,
+                387,
+                431,
+                389,
+                483
+              ],
+              "expected_token_ids": [
+                481,
+                346,
+                244,
+                475,
+                130,
+                435,
+                254,
+                171,
+                431,
+                270,
+                2
+              ],
+              "token_ids": [
+                481,
+                346,
+                244,
+                475,
+                130,
+                270,
+                2
+              ],
+              "exact": false,
+              "shared_prefix_tokens": 8,
+              "independent_prefix_tokens": 8,
+              "text": "等于一百。",
+              "generated_tokens": 7,
+              "content_tokens": 6,
+              "empty": false,
+              "eos_emitted": true,
+              "early_eos": false,
+              "hit_length_limit": false,
+              "special_token_anomalies": [],
+              "distinct_2": 1.0,
+              "longest_identical_run": 1,
+              "tail_loop_period": null,
+              "token_4gram_repeat_ratio": 0.0,
+              "character_3gram_repeat_ratio": 0.0,
+              "sentence_repeat_ratio": 0.0,
+              "readability_review": "REVIEW_PENDING"
+            },
+            {
+              "id": "mem-train-107",
+              "status": "GENERATED",
+              "prompt_token_ids": [
+                325,
+                25,
+                30,
+                326,
+                312,
+                170,
+                263,
+                498,
+                252,
+                125,
+                169,
+                129,
+                497,
+                436,
+                257,
+                457,
+                317
+              ],
+              "expected_token_ids": [
+                483,
+                332,
+                124,
+                481,
+                270,
+                2
+              ],
+              "token_ids": [
+                483,
+                483,
+                483,
+                483,
+                483,
+                481,
+                346,
+                346,
+                346,
+                346,
+                346,
+                346,
+                346,
+                346,
+                346,
+                346,
+                270,
+                2
+              ],
+              "exact": false,
+              "shared_prefix_tokens": 17,
+              "independent_prefix_tokens": 17,
+              "text": "长度长度长度长度长度等����������。",
+              "generated_tokens": 18,
+              "content_tokens": 17,
+              "empty": false,
+              "eos_emitted": true,
+              "early_eos": false,
+              "hit_length_limit": false,
+              "special_token_anomalies": [],
+              "distinct_2": 0.3125,
+              "longest_identical_run": 10,
+              "tail_loop_period": null,
+              "token_4gram_repeat_ratio": 0.5,
+              "character_3gram_repeat_ratio": 0.65,
+              "sentence_repeat_ratio": 0.0,
+              "readability_review": "REVIEW_PENDING"
+            },
+            {
+              "id": "mem-train-118",
+              "status": "GENERATED",
+              "prompt_token_ids": [
+                381,
+                29,
+                376,
+                266,
+                378,
+                25,
+                311,
+                266
+              ],
+              "expected_token_ids": [
+                375,
+                31,
+                311,
+                270,
+                2
+              ],
+              "token_ids": [
+                375,
+                311,
+                266,
+                375,
+                311,
+                270,
+                2
+              ],
+              "exact": false,
+              "shared_prefix_tokens": 8,
+              "independent_prefix_tokens": 8,
+              "text": "一共有颗，一共有颗。",
+              "generated_tokens": 7,
+              "content_tokens": 6,
+              "empty": false,
+              "eos_emitted": true,
+              "early_eos": false,
+              "hit_length_limit": false,
+              "special_token_anomalies": [],
+              "distinct_2": 0.8,
+              "longest_identical_run": 1,
+              "tail_loop_period": null,
+              "token_4gram_repeat_ratio": 0.0,
+              "character_3gram_repeat_ratio": 0.25,
+              "sentence_repeat_ratio": 0.0,
+              "readability_review": "REVIEW_PENDING"
+            },
+            {
+              "id": "mem-train-128",
+              "status": "GENERATED",
+              "prompt_token_ids": [
+                381,
+                495,
+                376,
+                266,
+                378,
+                25,
+                311,
+                266
+              ],
+              "expected_token_ids": [
+                375,
+                24,
+                31,
+                311,
+                270,
+                2
+              ],
+              "token_ids": [
+                375,
+                311,
+                270,
+                2
+              ],
+              "exact": false,
+              "shared_prefix_tokens": 8,
+              "independent_prefix_tokens": 8,
+              "text": "一共有颗。",
+              "generated_tokens": 4,
+              "content_tokens": 3,
+              "empty": false,
+              "eos_emitted": true,
+              "early_eos": true,
+              "hit_length_limit": false,
+              "special_token_anomalies": [],
+              "distinct_2": 1.0,
+              "longest_identical_run": 1,
+              "tail_loop_period": null,
+              "token_4gram_repeat_ratio": 0.0,
+              "character_3gram_repeat_ratio": 0.0,
+              "sentence_repeat_ratio": 0.0,
+              "readability_review": "REVIEW_PENDING"
+            },
+            {
+              "id": "mem-train-139",
+              "status": "GENERATED",
+              "prompt_token_ids": [
+                350,
+                490,
+                382,
+                312
+              ],
+              "expected_token_ids": [
+                486,
+                266,
+                487,
+                270,
+                2
+              ],
+              "token_ids": [
+                486,
+                266,
+                487,
+                270,
+                2
+              ],
+              "exact": true,
+              "shared_prefix_tokens": 4,
+              "independent_prefix_tokens": 4,
+              "text": "red是红色，blue是蓝色。",
+              "generated_tokens": 5,
+              "content_tokens": 4,
+              "empty": false,
+              "eos_emitted": true,
+              "early_eos": false,
+              "hit_length_limit": false,
+              "special_token_anomalies": [],
+              "distinct_2": 1.0,
+              "longest_identical_run": 1,
+              "tail_loop_period": null,
+              "token_4gram_repeat_ratio": 0.0,
+              "character_3gram_repeat_ratio": 0.0,
+              "sentence_repeat_ratio": 0.0,
+              "readability_review": "REVIEW_PENDING"
+            },
+            {
+              "id": "mem-train-149",
+              "status": "GENERATED",
+              "prompt_token_ids": [
+                339,
+                370,
+                322,
+                228,
+                28,
+                19
+              ],
+              "expected_token_ids": [
+                354,
+                380,
+                322,
+                355,
+                100,
+                2
+              ],
+              "token_ids": [
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322
+              ],
+              "exact": false,
+              "shared_prefix_tokens": 6,
+              "independent_prefix_tokens": 7,
+              "text": "\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":",
+              "generated_tokens": 64,
+              "content_tokens": 64,
+              "empty": false,
+              "eos_emitted": false,
+              "early_eos": false,
+              "hit_length_limit": true,
+              "special_token_anomalies": [],
+              "distinct_2": 0.015873015873015872,
+              "longest_identical_run": 64,
+              "tail_loop_period": 1,
+              "token_4gram_repeat_ratio": 0.9836065573770492,
+              "character_3gram_repeat_ratio": 0.9841269841269841,
+              "sentence_repeat_ratio": 0.0,
+              "readability_review": "REVIEW_PENDING"
+            },
+            {
+              "id": "mem-train-160",
+              "status": "GENERATED",
+              "prompt_token_ids": [
+                339,
+                370,
+                322,
+                450,
+                29,
+                19
+              ],
+              "expected_token_ids": [
+                354,
+                380,
+                322,
+                355,
+                100,
+                2
+              ],
+              "token_ids": [
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322,
+                322
+              ],
+              "exact": false,
+              "shared_prefix_tokens": 6,
+              "independent_prefix_tokens": 7,
+              "text": "\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":\":",
+              "generated_tokens": 64,
+              "content_tokens": 64,
+              "empty": false,
+              "eos_emitted": false,
+              "early_eos": false,
+              "hit_length_limit": true,
+              "special_token_anomalies": [],
+              "distinct_2": 0.015873015873015872,
+              "longest_identical_run": 64,
+              "tail_loop_period": 1,
+              "token_4gram_repeat_ratio": 0.9836065573770492,
+              "character_3gram_repeat_ratio": 0.9841269841269841,
+              "sentence_repeat_ratio": 0.0,
+              "readability_review": "REVIEW_PENDING"
+            }
+          ]
+        },
+        "independent_samples": {
+          "teacher_forced": {
+            "correct": 32,
+            "tokens": 1520,
+            "accuracy": 0.021052631578947368
+          },
+          "prefix_continuation": {
+            "correct_tokens": 0,
+            "tokens": 232,
+            "accuracy": 0.0,
+            "exact": 0,
+            "samples": 8,
+            "exact_rate": 0.0,
+            "selection": "Evenly spaced indices across the frozen row order, including endpoints; no output-based selection",
+            "boundary_policy": "joint_shared_prefix of actual document encoding and fixed prefix; target includes EOS; extra/missing output tokens count against accuracy"
+          },
+          "generation": {
+            "tasks": 8,
+            "generated": 8,
+            "unscorable": 0,
+            "empty_output": {
+              "numerator": 0,
+              "denominator": 8,
+              "rate": 0.0
+            },
+            "early_eos": {
+              "numerator": 8,
+              "denominator": 8,
+              "rate": 1.0
+            },
+            "eos_emitted": {
+              "numerator": 8,
+              "denominator": 8,
+              "rate": 1.0
+            },
+            "length_limit": {
+              "numerator": 0,
+              "denominator": 8,
+              "rate": 0.0
+            },
+            "special_token_anomaly": {
+              "numerator": 0,
+              "denominator": 8,
+              "rate": 0.0
+            },
+            "observable_tail_loop": {
+              "numerator": 0,
+              "denominator": 8,
+              "rate": 0.0
+            },
+            "generated_length": {
+              "count": 8,
+              "min": 3,
+              "max": 3,
+              "mean": 3.0,
+              "p50": 3.0,
+              "p90": 3.0,
+              "histogram": {
+                "3": 8
+              }
+            },
+            "repeat_4gram": {
+              "count": 8,
+              "min": 0.0,
+              "max": 0.0,
+              "mean": 0.0,
+              "p50": 0.0,
+              "p90": 0.0,
+              "histogram": {
+                "0.0": 8
+              }
+            },
+            "distinct_2": {
+              "count": 8,
+              "min": 1.0,
+              "max": 1.0,
+              "mean": 1.0,
+              "p50": 1.0,
+              "p90": 1.0,
+              "histogram": {
+                "1.0": 8
+              }
+            },
+            "longest_identical_run": {
+              "count": 8,
+              "min": 1,
+              "max": 1,
+              "mean": 1.0,
+              "p50": 1.0,
+              "p90": 1.0,
+              "histogram": {
+                "1": 8
+              }
+            },
+            "readability_review": "REVIEW_PENDING"
+          },
+          "predictions": [
+            {
+              "id": "mem-heldout-001",
+              "status": "GENERATED",
+              "prompt_token_ids": [
+                362,
+                125,
+                278,
+                258,
+                109,
+                350,
+                24,
+                169,
+                499,
+                170,
+                239,
+                249,
+                169,
+                128,
+                230,
+                398,
+                440,
+                123,
+                266
+              ],
+              "expected_token_ids": [
+                169,
+                246,
+                113,
+                290,
+                172,
+                131,
+                258,
+                169,
+                105,
+                234,
+                168,
+                344,
+                276,
+                106,
+                172,
+                129,
+                127,
+                172,
+                129,
+                127,
+                389,
+                171,
+                113,
+                257,
+                169,
+                104,
+                116,
+                270,
+                2
+              ],
+              "token_ids": [
+                303,
+                270,
+                2
+              ],
+              "exact": false,
+              "shared_prefix_tokens": 19,
+              "independent_prefix_tokens": 19,
+              "text": "便停下来画画。",
+              "generated_tokens": 3,
+              "content_tokens": 2,
+              "empty": false,
+              "eos_emitted": true,
+              "early_eos": true,
+              "hit_length_limit": false,
+              "special_token_anomalies": [],
+              "distinct_2": 1.0,
+              "longest_identical_run": 1,
+              "tail_loop_period": null,
+              "token_4gram_repeat_ratio": 0.0,
+              "character_3gram_repeat_ratio": 0.0,
+              "sentence_repeat_ratio": 0.0,
+              "readability_review": "REVIEW_PENDING"
+            },
+            {
+              "id": "mem-heldout-005",
+              "status": "GENERATED",
+              "prompt_token_ids": [
+                362,
+                125,
+                278,
+                258,
+                109,
+                350,
+                28,
+                169,
+                499,
+                170,
+                239,
+                249,
+                169,
+                128,
+                230,
+                398,
+                440,
+                123,
+                266
+              ],
+              "expected_token_ids": [
+                169,
+                246,
+                113,
+                290,
+                172,
+                131,
+                258,
+                169,
+                105,
+                234,
+                168,
+                344,
+                276,
+                106,
+                172,
+                129,
+                127,
+                172,
+                129,
+                127,
+                389,
+                171,
+                113,
+                257,
+                169,
+                104,
+                116,
+                270,
+                2
+              ],
+              "token_ids": [
+                303,
+                270,
+                2
+              ],
+              "exact": false,
+              "shared_prefix_tokens": 19,
+              "independent_prefix_tokens": 19,
+              "text": "便停下来画画。",
+              "generated_tokens": 3,
+              "content_tokens": 2,
+              "empty": false,
+              "eos_emitted": true,
+              "early_eos": true,
+              "hit_length_limit": false,
+              "special_token_anomalies": [],
+              "distinct_2": 1.0,
+              "longest_identical_run": 1,
+              "tail_loop_period": null,
+              "token_4gram_repeat_ratio": 0.0,
+              "character_3gram_repeat_ratio": 0.0,
+              "sentence_repeat_ratio": 0.0,
+              "readability_review": "REVIEW_PENDING"
+            },
+            {
+              "id": "mem-heldout-010",
+              "status": "GENERATED",
+              "prompt_token_ids": [
+                362,
+                125,
+                278,
+                258,
+                109,
+                350,
+                489,
+                169,
+                499,
+                170,
+                239,
+                249,
+                169,
+                128,
+                230,
+                398,
+                440,
+                123,
+                266
+              ],
+              "expected_token_ids": [
+                169,
+                246,
+                113,
+                290,
+                172,
+                131,
+                258,
+                169,
+                105,
+                234,
+                168,
+                344,
+                276,
+                106,
+                172,
+                129,
+                127,
+                172,
+                129,
+                127,
+                389,
+                171,
+                113,
+                257,
+                169,
+                104,
+                116,
+                270,
+                2
+              ],
+              "token_ids": [
+                303,
+                270,
+                2
+              ],
+              "exact": false,
+              "shared_prefix_tokens": 19,
+              "independent_prefix_tokens": 19,
+              "text": "便停下来画画。",
+              "generated_tokens": 3,
+              "content_tokens": 2,
+              "empty": false,
+              "eos_emitted": true,
+              "early_eos": true,
+              "hit_length_limit": false,
+              "special_token_anomalies": [],
+              "distinct_2": 1.0,
+              "longest_identical_run": 1,
+              "tail_loop_period": null,
+              "token_4gram_repeat_ratio": 0.0,
+              "character_3gram_repeat_ratio": 0.0,
+              "sentence_repeat_ratio": 0.0,
+              "readability_review": "REVIEW_PENDING"
+            },
+            {
+              "id": "mem-heldout-014",
+              "status": "GENERATED",
+              "prompt_token_ids": [
+                362,
+                125,
+                278,
+                258,
+                109,
+                350,
+                493,
+                169,
+                499,
+                170,
+                239,
+                249,
+                169,
+                128,
+                230,
+                398,
+                440,
+                123,
+                266
+              ],
+              "expected_token_ids": [
+                169,
+                246,
+                113,
+                290,
+                172,
+                131,
+                258,
+                169,
+                105,
+                234,
+                168,
+                344,
+                276,
+                106,
+                172,
+                129,
+                127,
+                172,
+                129,
+                127,
+                389,
+                171,
+                113,
+                257,
+                169,
+                104,
+                116,
+                270,
+                2
+              ],
+              "token_ids": [
+                303,
+                270,
+                2
+              ],
+              "exact": false,
+              "shared_prefix_tokens": 19,
+              "independent_prefix_tokens": 19,
+              "text": "便停下来画画。",
+              "generated_tokens": 3,
+              "content_tokens": 2,
+              "empty": false,
+              "eos_emitted": true,
+              "early_eos": true,
+              "hit_length_limit": false,
+              "special_token_anomalies": [],
+              "distinct_2": 1.0,
+              "longest_identical_run": 1,
+              "tail_loop_period": null,
+              "token_4gram_repeat_ratio": 0.0,
+              "character_3gram_repeat_ratio": 0.0,
+              "sentence_repeat_ratio": 0.0,
+              "readability_review": "REVIEW_PENDING"
+            },
+            {
+              "id": "mem-heldout-019",
+              "status": "GENERATED",
+              "prompt_token_ids": [
+                362,
+                125,
+                278,
+                258,
+                109,
+                350,
+                24,
+                32,
+                169,
+                499,
+                170,
+                239,
+                249,
+                169,
+                128,
+                230,
+                398,
+                440,
+                123,
+                266
+              ],
+              "expected_token_ids": [
+                169,
+                246,
+                113,
+                290,
+                172,
+                131,
+                258,
+                169,
+                105,
+                234,
+                168,
+                344,
+                276,
+                106,
+                172,
+                129,
+                127,
+                172,
+                129,
+                127,
+                389,
+                171,
+                113,
+                257,
+                169,
+                104,
+                116,
+                270,
+                2
+              ],
+              "token_ids": [
+                303,
+                270,
+                2
+              ],
+              "exact": false,
+              "shared_prefix_tokens": 20,
+              "independent_prefix_tokens": 20,
+              "text": "便停下来画画。",
+              "generated_tokens": 3,
+              "content_tokens": 2,
+              "empty": false,
+              "eos_emitted": true,
+              "early_eos": true,
+              "hit_length_limit": false,
+              "special_token_anomalies": [],
+              "distinct_2": 1.0,
+              "longest_identical_run": 1,
+              "tail_loop_period": null,
+              "token_4gram_repeat_ratio": 0.0,
+              "character_3gram_repeat_ratio": 0.0,
+              "sentence_repeat_ratio": 0.0,
+              "readability_review": "REVIEW_PENDING"
+            },
+            {
+              "id": "mem-heldout-023",
+              "status": "GENERATED",
+              "prompt_token_ids": [
+                362,
+                125,
+                278,
+                258,
+                109,
+                350,
+                25,
+                26,
+                169,
+                499,
+                170,
+                239,
+                249,
+                169,
+                128,
+                230,
+                398,
+                440,
+                123,
+                266
+              ],
+              "expected_token_ids": [
+                169,
+                246,
+                113,
+                290,
+                172,
+                131,
+                258,
+                169,
+                105,
+                234,
+                168,
+                344,
+                276,
+                106,
+                172,
+                129,
+                127,
+                172,
+                129,
+                127,
+                389,
+                171,
+                113,
+                257,
+                169,
+                104,
+                116,
+                270,
+                2
+              ],
+              "token_ids": [
+                303,
+                270,
+                2
+              ],
+              "exact": false,
+              "shared_prefix_tokens": 20,
+              "independent_prefix_tokens": 20,
+              "text": "便停下来画画。",
+              "generated_tokens": 3,
+              "content_tokens": 2,
+              "empty": false,
+              "eos_emitted": true,
+              "early_eos": true,
+              "hit_length_limit": false,
+              "special_token_anomalies": [],
+              "distinct_2": 1.0,
+              "longest_identical_run": 1,
+              "tail_loop_period": null,
+              "token_4gram_repeat_ratio": 0.0,
+              "character_3gram_repeat_ratio": 0.0,
+              "sentence_repeat_ratio": 0.0,
+              "readability_review": "REVIEW_PENDING"
+            },
+            {
+              "id": "mem-heldout-028",
+              "status": "GENERATED",
+              "prompt_token_ids": [
+                362,
+                125,
+                278,
+                258,
+                109,
+                350,
+                25,
+                31,
+                169,
+                499,
+                170,
+                239,
+                249,
+                169,
+                128,
+                230,
+                398,
+                440,
+                123,
+                266
+              ],
+              "expected_token_ids": [
+                169,
+                246,
+                113,
+                290,
+                172,
+                131,
+                258,
+                169,
+                105,
+                234,
+                168,
+                344,
+                276,
+                106,
+                172,
+                129,
+                127,
+                172,
+                129,
+                127,
+                389,
+                171,
+                113,
+                257,
+                169,
+                104,
+                116,
+                270,
+                2
+              ],
+              "token_ids": [
+                303,
+                270,
+                2
+              ],
+              "exact": false,
+              "shared_prefix_tokens": 20,
+              "independent_prefix_tokens": 20,
+              "text": "便停下来画画。",
+              "generated_tokens": 3,
+              "content_tokens": 2,
+              "empty": false,
+              "eos_emitted": true,
+              "early_eos": true,
+              "hit_length_limit": false,
+              "special_token_anomalies": [],
+              "distinct_2": 1.0,
+              "longest_identical_run": 1,
+              "tail_loop_period": null,
+              "token_4gram_repeat_ratio": 0.0,
+              "character_3gram_repeat_ratio": 0.0,
+              "sentence_repeat_ratio": 0.0,
+              "readability_review": "REVIEW_PENDING"
+            },
+            {
+              "id": "mem-heldout-032",
+              "status": "GENERATED",
+              "prompt_token_ids": [
+                362,
+                125,
+                278,
+                258,
+                109,
+                350,
+                26,
+                25,
+                169,
+                499,
+                170,
+                239,
+                249,
+                169,
+                128,
+                230,
+                398,
+                440,
+                123,
+                266
+              ],
+              "expected_token_ids": [
+                169,
+                246,
+                113,
+                290,
+                172,
+                131,
+                258,
+                169,
+                105,
+                234,
+                168,
+                344,
+                276,
+                106,
+                172,
+                129,
+                127,
+                172,
+                129,
+                127,
+                389,
+                171,
+                113,
+                257,
+                169,
+                104,
+                116,
+                270,
+                2
+              ],
+              "token_ids": [
+                303,
+                270,
+                2
+              ],
+              "exact": false,
+              "shared_prefix_tokens": 20,
+              "independent_prefix_tokens": 20,
+              "text": "便停下来画画。",
+              "generated_tokens": 3,
+              "content_tokens": 2,
+              "empty": false,
+              "eos_emitted": true,
+              "early_eos": true,
+              "hit_length_limit": false,
+              "special_token_anomalies": [],
+              "distinct_2": 1.0,
+              "longest_identical_run": 1,
+              "tail_loop_period": null,
+              "token_4gram_repeat_ratio": 0.0,
+              "character_3gram_repeat_ratio": 0.0,
+              "sentence_repeat_ratio": 0.0,
+              "readability_review": "REVIEW_PENDING"
+            }
+          ]
+        }
+      }
+    },
+    "engineering": "ENGINEERING_PASS",
+    "learning": "LEARNING_DEMONSTRATED",
+    "failure_localization": null,
+    "interpretation": "Training-set memorization and independent heldout performance are separate. Heldout uses one withheld prose template, not a representative generalization benchmark. Scratch 87m memorization never establishes real pretrained 87m capability."
+  },
+  "candidate_summary": {
+    "version": "chinese-foundation-v1",
+    "status": "EVALUATION_PROVISIONAL",
+    "label": "PROVISIONAL",
+    "formal": {
+      "separate": {
+        "correct": 0,
+        "scored": 0,
+        "accuracy": null,
+        "wilson_95": null,
+        "tasks": 0,
+        "unscorable": 0,
+        "ties": 0,
+        "categories": {
+          "chinese": {
+            "correct": 0,
+            "scored": 0,
+            "accuracy": null,
+            "wilson_95": null,
+            "tasks": 0,
+            "unscorable": 0,
+            "ties": 0
+          },
+          "commonsense": {
+            "correct": 0,
+            "scored": 0,
+            "accuracy": null,
+            "wilson_95": null,
+            "tasks": 0,
+            "unscorable": 0,
+            "ties": 0
+          },
+          "english_code": {
+            "correct": 0,
+            "scored": 0,
+            "accuracy": null,
+            "wilson_95": null,
+            "tasks": 0,
+            "unscorable": 0,
+            "ties": 0
+          },
+          "math_logic": {
+            "correct": 0,
+            "scored": 0,
+            "accuracy": null,
+            "wilson_95": null,
+            "tasks": 0,
+            "unscorable": 0,
+            "ties": 0
+          },
+          "world": {
+            "correct": 0,
+            "scored": 0,
+            "accuracy": null,
+            "wilson_95": null,
+            "tasks": 0,
+            "unscorable": 0,
+            "ties": 0
+          }
+        }
+      },
+      "joint_shared_prefix": {
+        "correct": 0,
+        "scored": 0,
+        "accuracy": null,
+        "wilson_95": null,
+        "tasks": 0,
+        "unscorable": 0,
+        "ties": 0,
+        "categories": {
+          "chinese": {
+            "correct": 0,
+            "scored": 0,
+            "accuracy": null,
+            "wilson_95": null,
+            "tasks": 0,
+            "unscorable": 0,
+            "ties": 0
+          },
+          "commonsense": {
+            "correct": 0,
+            "scored": 0,
+            "accuracy": null,
+            "wilson_95": null,
+            "tasks": 0,
+            "unscorable": 0,
+            "ties": 0
+          },
+          "english_code": {
+            "correct": 0,
+            "scored": 0,
+            "accuracy": null,
+            "wilson_95": null,
+            "tasks": 0,
+            "unscorable": 0,
+            "ties": 0
+          },
+          "math_logic": {
+            "correct": 0,
+            "scored": 0,
+            "accuracy": null,
+            "wilson_95": null,
+            "tasks": 0,
+            "unscorable": 0,
+            "ties": 0
+          },
+          "world": {
+            "correct": 0,
+            "scored": 0,
+            "accuracy": null,
+            "wilson_95": null,
+            "tasks": 0,
+            "unscorable": 0,
+            "ties": 0
+          }
+        }
+      }
+    },
+    "exploratory": {
+      "separate": {
+        "correct": 35,
+        "scored": 120,
+        "accuracy": 0.2916666666666667,
+        "wilson_95": [
+          0.2178156362103854,
+          0.3784423497974078
+        ],
+        "tasks": 120,
+        "unscorable": 0,
+        "ties": 0,
+        "categories": {
+          "chinese": {
+            "correct": 9,
+            "scored": 30,
+            "accuracy": 0.3,
+            "wilson_95": [
+              0.16664748268243793,
+              0.47875787458714947
+            ],
+            "tasks": 30,
+            "unscorable": 0,
+            "ties": 0
+          },
+          "commonsense": {
+            "correct": 5,
+            "scored": 20,
+            "accuracy": 0.25,
+            "wilson_95": [
+              0.11186170140766569,
+              0.468700877618744
+            ],
+            "tasks": 20,
+            "unscorable": 0,
+            "ties": 0
+          },
+          "english_code": {
+            "correct": 4,
+            "scored": 10,
+            "accuracy": 0.4,
+            "wilson_95": [
+              0.16818032970623614,
+              0.6873262302663417
+            ],
+            "tasks": 10,
+            "unscorable": 0,
+            "ties": 0
+          },
+          "math_logic": {
+            "correct": 5,
+            "scored": 20,
+            "accuracy": 0.25,
+            "wilson_95": [
+              0.11186170140766569,
+              0.468700877618744
+            ],
+            "tasks": 20,
+            "unscorable": 0,
+            "ties": 0
+          },
+          "world": {
+            "correct": 12,
+            "scored": 40,
+            "accuracy": 0.3,
+            "wilson_95": [
+              0.18074845229746528,
+              0.45430018818144935
+            ],
+            "tasks": 40,
+            "unscorable": 0,
+            "ties": 0
+          }
+        }
+      },
+      "joint_shared_prefix": {
+        "correct": 35,
+        "scored": 120,
+        "accuracy": 0.2916666666666667,
+        "wilson_95": [
+          0.2178156362103854,
+          0.3784423497974078
+        ],
+        "tasks": 120,
+        "unscorable": 0,
+        "ties": 0,
+        "categories": {
+          "chinese": {
+            "correct": 9,
+            "scored": 30,
+            "accuracy": 0.3,
+            "wilson_95": [
+              0.16664748268243793,
+              0.47875787458714947
+            ],
+            "tasks": 30,
+            "unscorable": 0,
+            "ties": 0
+          },
+          "commonsense": {
+            "correct": 5,
+            "scored": 20,
+            "accuracy": 0.25,
+            "wilson_95": [
+              0.11186170140766569,
+              0.468700877618744
+            ],
+            "tasks": 20,
+            "unscorable": 0,
+            "ties": 0
+          },
+          "english_code": {
+            "correct": 4,
+            "scored": 10,
+            "accuracy": 0.4,
+            "wilson_95": [
+              0.16818032970623614,
+              0.6873262302663417
+            ],
+            "tasks": 10,
+            "unscorable": 0,
+            "ties": 0
+          },
+          "math_logic": {
+            "correct": 5,
+            "scored": 20,
+            "accuracy": 0.25,
+            "wilson_95": [
+              0.11186170140766569,
+              0.468700877618744
+            ],
+            "tasks": 20,
+            "unscorable": 0,
+            "ties": 0
+          },
+          "world": {
+            "correct": 12,
+            "scored": 40,
+            "accuracy": 0.3,
+            "wilson_95": [
+              0.18074845229746528,
+              0.45430018818144935
+            ],
+            "tasks": 40,
+            "unscorable": 0,
+            "ties": 0
+          }
+        }
+      }
+    },
+    "review_counts": {
+      "REVIEW_PENDING": 120,
+      "ACCEPT": 0,
+      "REJECT": 0,
+      "REVISE": 0
+    },
+    "interpretation": "Only ACCEPT contributes to formal counts. Pending items are exploratory. Wilson intervals describe item uncertainty, not benchmark representativeness. Separate and joint_shared_prefix must never be mixed or compared as a capability delta."
+  },
+  "generation_summary": {
+    "status": "EVALUATION_PROVISIONAL",
+    "modes": {
+      "greedy": {
+        "parameters": {
+          "temperature": 0.0,
+          "top_k": 0,
+          "max_new_tokens": 24,
+          "early_eos_tokens": 4
+        },
+        "summary": {
+          "tasks": 30,
+          "generated": 30,
+          "unscorable": 0,
+          "empty_output": {
+            "numerator": 11,
+            "denominator": 30,
+            "rate": 0.36666666666666664
+          },
+          "early_eos": {
+            "numerator": 13,
+            "denominator": 30,
+            "rate": 0.43333333333333335
+          },
+          "eos_emitted": {
+            "numerator": 29,
+            "denominator": 30,
+            "rate": 0.9666666666666667
+          },
+          "length_limit": {
+            "numerator": 1,
+            "denominator": 30,
+            "rate": 0.03333333333333333
+          },
+          "special_token_anomaly": {
+            "numerator": 0,
+            "denominator": 30,
+            "rate": 0.0
+          },
+          "observable_tail_loop": {
+            "numerator": 1,
+            "denominator": 30,
+            "rate": 0.03333333333333333
+          },
+          "generated_length": {
+            "count": 30,
+            "min": 1,
+            "max": 24,
+            "mean": 4.3,
+            "p50": 5.0,
+            "p90": 7.0,
+            "histogram": {
+              "1": 11,
+              "2": 1,
+              "3": 1,
+              "5": 11,
+              "6": 1,
+              "7": 4,
+              "24": 1
+            }
+          },
+          "repeat_4gram": {
+            "count": 30,
+            "min": 0.0,
+            "max": 0.9047619047619048,
+            "mean": 0.03015873015873016,
+            "p50": 0.0,
+            "p90": 0.0,
+            "histogram": {
+              "0.0": 29,
+              "0.9047619047619048": 1
+            }
+          },
+          "distinct_2": {
+            "count": 18,
+            "min": 0.08695652173913043,
+            "max": 1.0,
+            "mean": 0.9270531400966183,
+            "p50": 1.0,
+            "p90": 1.0,
+            "histogram": {
+              "0.08695652173913043": 1,
+              "0.8": 2,
+              "1.0": 15
+            }
+          },
+          "longest_identical_run": {
+            "count": 30,
+            "min": 0,
+            "max": 23,
+            "mean": 1.4,
+            "p50": 1.0,
+            "p90": 1.0,
+            "histogram": {
+              "0": 11,
+              "1": 17,
+              "2": 1,
+              "23": 1
+            }
+          },
+          "readability_review": "REVIEW_PENDING"
+        }
+      },
+      "temperature": {
+        "parameters": {
+          "temperature": 0.8,
+          "top_k": 0,
+          "max_new_tokens": 24,
+          "early_eos_tokens": 4
+        },
+        "summary": {
+          "tasks": 30,
+          "generated": 30,
+          "unscorable": 0,
+          "empty_output": {
+            "numerator": 7,
+            "denominator": 30,
+            "rate": 0.23333333333333334
+          },
+          "early_eos": {
+            "numerator": 16,
+            "denominator": 30,
+            "rate": 0.5333333333333333
+          },
+          "eos_emitted": {
+            "numerator": 30,
+            "denominator": 30,
+            "rate": 1.0
+          },
+          "length_limit": {
+            "numerator": 0,
+            "denominator": 30,
+            "rate": 0.0
+          },
+          "special_token_anomaly": {
+            "numerator": 0,
+            "denominator": 30,
+            "rate": 0.0
+          },
+          "observable_tail_loop": {
+            "numerator": 0,
+            "denominator": 30,
+            "rate": 0.0
+          },
+          "generated_length": {
+            "count": 30,
+            "min": 1,
+            "max": 13,
+            "mean": 4.333333333333333,
+            "p50": 4.0,
+            "p90": 7.0,
+            "histogram": {
+              "1": 7,
+              "2": 2,
+              "3": 5,
+              "4": 2,
+              "5": 5,
+              "6": 2,
+              "7": 5,
+              "11": 1,
+              "13": 1
+            }
+          },
+          "repeat_4gram": {
+            "count": 30,
+            "min": 0.0,
+            "max": 0.42857142857142855,
+            "mean": 0.014285714285714285,
+            "p50": 0.0,
+            "p90": 0.0,
+            "histogram": {
+              "0.0": 29,
+              "0.42857142857142855": 1
+            }
+          },
+          "distinct_2": {
+            "count": 21,
+            "min": 0.4444444444444444,
+            "max": 1.0,
+            "mean": 0.9259259259259258,
+            "p50": 1.0,
+            "p90": 1.0,
+            "histogram": {
+              "0.4444444444444444": 1,
+              "0.8": 5,
+              "1.0": 15
+            }
+          },
+          "longest_identical_run": {
+            "count": 30,
+            "min": 0,
+            "max": 2,
+            "mean": 0.8333333333333334,
+            "p50": 1.0,
+            "p90": 1.0,
+            "histogram": {
+              "0": 7,
+              "1": 21,
+              "2": 2
+            }
+          },
+          "readability_review": "REVIEW_PENDING"
+        }
+      },
+      "top_k": {
+        "parameters": {
+          "temperature": 0.8,
+          "top_k": 20,
+          "max_new_tokens": 24,
+          "early_eos_tokens": 4
+        },
+        "summary": {
+          "tasks": 30,
+          "generated": 30,
+          "unscorable": 0,
+          "empty_output": {
+            "numerator": 10,
+            "denominator": 30,
+            "rate": 0.3333333333333333
+          },
+          "early_eos": {
+            "numerator": 18,
+            "denominator": 30,
+            "rate": 0.6
+          },
+          "eos_emitted": {
+            "numerator": 30,
+            "denominator": 30,
+            "rate": 1.0
+          },
+          "length_limit": {
+            "numerator": 0,
+            "denominator": 30,
+            "rate": 0.0
+          },
+          "special_token_anomaly": {
+            "numerator": 0,
+            "denominator": 30,
+            "rate": 0.0
+          },
+          "observable_tail_loop": {
+            "numerator": 0,
+            "denominator": 30,
+            "rate": 0.0
+          },
+          "generated_length": {
+            "count": 30,
+            "min": 1,
+            "max": 11,
+            "mean": 3.7666666666666666,
+            "p50": 3.0,
+            "p90": 7.0,
+            "histogram": {
+              "1": 10,
+              "2": 1,
+              "3": 5,
+              "4": 2,
+              "5": 4,
+              "6": 2,
+              "7": 5,
+              "11": 1
+            }
+          },
+          "repeat_4gram": {
+            "count": 30,
+            "min": 0.0,
+            "max": 0.42857142857142855,
+            "mean": 0.014285714285714285,
+            "p50": 0.0,
+            "p90": 0.0,
+            "histogram": {
+              "0.0": 29,
+              "0.42857142857142855": 1
+            }
+          },
+          "distinct_2": {
+            "count": 19,
+            "min": 0.4444444444444444,
+            "max": 1.0,
+            "mean": 0.9181286549707601,
+            "p50": 1.0,
+            "p90": 1.0,
+            "histogram": {
+              "0.4444444444444444": 1,
+              "0.8": 5,
+              "1.0": 13
+            }
+          },
+          "longest_identical_run": {
+            "count": 30,
+            "min": 0,
+            "max": 2,
+            "mean": 0.7,
+            "p50": 1.0,
+            "p90": 1.0,
+            "histogram": {
+              "0": 10,
+              "1": 19,
+              "2": 1
+            }
+          },
+          "readability_review": "REVIEW_PENDING"
+        }
+      }
+    }
+  },
+  "full_result_artifacts": {
+    "diagnostic-manifest.json": {
+      "path": "/home/voyah/work_space/git_ws/min_llm/reports/diagnostics/pr7-cpu-nano-final/diagnostic-manifest.json",
+      "sha256": "48acc4f2d7278a980243080c4d65594f81f7492d6da7fba8a7ab5e6c6d34f870"
+    },
+    "training-diagnostics.json": {
+      "path": "/home/voyah/work_space/git_ws/min_llm/reports/diagnostics/pr7-cpu-nano-final/training-diagnostics.json",
+      "sha256": "ee5a3797f22b2dda4a3690b670080664e79e9b822b7df4ad9cbcb80b096cc4e4"
+    },
+    "memorization-results.json": {
+      "path": "/home/voyah/work_space/git_ws/min_llm/reports/diagnostics/pr7-cpu-nano-final/memorization-results.json",
+      "sha256": "7c1f1e4981b281fb01e3847a3a7ac219c26016a980918a5ee0247b559990fea9"
+    },
+    "candidate-results.json": {
+      "path": "/home/voyah/work_space/git_ws/min_llm/reports/diagnostics/pr7-cpu-nano-final/candidate-results.json",
+      "sha256": "4c9f67b8fb2e514b7002e34166c7c2f2cb4c0f029988925438e3ed99a5250a1a"
+    },
+    "generation-results.json": {
+      "path": "/home/voyah/work_space/git_ws/min_llm/reports/diagnostics/pr7-cpu-nano-final/generation-results.json",
+      "sha256": "e281e8036ddd3d9f6661d8e7dc214e55500cbebf14847a8dbe8a6c1efbdf07a5"
+    },
+    "diagnostic-report.md": {
+      "path": "/home/voyah/work_space/git_ws/min_llm/reports/diagnostics/pr7-cpu-nano-final/diagnostic-report.md",
+      "sha256": "ee033587c1b7384805cce7a923f1ab6634cd35763b0057a341c496239091093f"
+    }
+  },
+  "reproducibility": {
+    "status": "PASS",
+    "runs": [
+      "reports/diagnostics/pr7-cpu-nano-final",
+      "reports/diagnostics/pr7-cpu-nano-repeat"
+    ],
+    "models": {
+      "single": {
+        "parameter_max_difference": 0.0,
+        "adamw_max_difference": 0.0,
+        "rng_exact": true,
+        "loss_curves_and_sample_predictions_equal": true
+      },
+      "corpus": {
+        "parameter_max_difference": 0.0,
+        "adamw_max_difference": 0.0,
+        "rng_exact": true,
+        "loss_curves_and_sample_predictions_equal": true
+      }
+    },
+    "candidate-results.json": {
+      "json_equal": true,
+      "sha256": "4c9f67b8fb2e514b7002e34166c7c2f2cb4c0f029988925438e3ed99a5250a1a"
+    },
+    "generation-results.json": {
+      "json_equal": true,
+      "sha256": "e281e8036ddd3d9f6661d8e7dc214e55500cbebf14847a8dbe8a6c1efbdf07a5"
+    },
+    "training-diagnostics.json": {
+      "json_equal": true,
+      "sha256": "ee5a3797f22b2dda4a3690b670080664e79e9b822b7df4ad9cbcb80b096cc4e4"
+    },
+    "both_manifests_verified": true,
+    "interpretation": "Exact within this software/device. Independent run IDs, output paths and checkpoint serialization timestamps may differ."
+  },
+  "historical_protection": {
+    "checked_existing_files": 333,
+    "protected_files": 225,
+    "protected_unchanged": true,
+    "sha256": {
+      "data/evaluation/benchmark-version.json": "7bb7d33292376ccd239007d29b46ef6a633551cd0b0bcae783edd1640cda7d8b",
+      "data/evaluation/fixed-prompts.jsonl": "39ada73b830e9b8f362637143a8a2f2b8ba37eefdf8c389658555bb8614cc2a0",
+      "data/evaluation/minillm-zh-benchmark.jsonl": "07a84b6b311c3c35b20e92537f33d756edd5d1ad05ac954e7a0e1b2c67941f4a",
+      "data/evaluation/pretrain-v1/benchmark-version.json": "812481fb3476fd854d400848d16782d9cdab7e147215fefb9fc043551a25cd95",
+      "data/evaluation/pretrain-v1/candidates.jsonl": "c54cd9297908953cd3189649f2e5e83a7729264bdd61e21f5000833448830b71",
+      "data/evaluation/pretrain-v1/prompts.jsonl": "be8b35f8e940d28d9b77a81218aaa4b53b65b0ff430bcd41f0474512009b149c",
+      "data/minimind/download-metadata.json": "3697853aa5009611daa6b9b792f925ea72422f2c8638c29811545e3f310387e4",
+      "data/minimind/pretrain_t2t_mini.jsonl": "6dd6716c84ab36897bdbfc7f88e04f4441c48c1ab7ecee88ce0b0e7d4685560c",
+      "data/multimodal/meta.json": "0cfc306d2f36b8f79dc350bd7d3bc9b4fca4824201818047a342ba1f27b0701b",
+      "data/multimodal/test.jsonl": "d4a4d53dcf6d98a3409a80eedd0c1fa63b102da00411066e0298d3f56a64dea3",
+      "data/multimodal/train.jsonl": "e0e33ae84626dcd4e81c39b29ce68a3391ce141cdfed587ab2426cbc5849e00d",
+      "data/multimodal/val-mini.jsonl": "75581d093f1f4c5edefa658c6b0a0d8886adbe2989e21b6978163d0608a92800",
+      "data/multimodal/val.jsonl": "0d101819e2f0927d63e6edaf7258980ba8ab580cf46d0759e0f07080897f436d",
+      "data/multimodal/validation.json": "e68bee7c8bd9e44e769c5d230850f48de6a07838cc579d9ea360c896b499a0da",
+      "data/pilot-sources/minimind-unexposed-v2/historical-exclusion.json": "7d924f4116271656f632d2717f695e3cc2f8e3dd687cf767e96aeae120634bb9",
+      "data/pilot-sources/minimind-unexposed-v2/source.jsonl": "dc210d35fb7fcfa8fa2c0cb0318179d7adb5b499bfd99866ff5a173f266da89b",
+      "data/pretrain-minimind/dataset.json": "f484db94af193641d50c8eb903e55e4cd7d7e74729d629e20d0f75ec0b6dc40e",
+      "data/pretrain-minimind/preview.json": "d4ece0522e27589dc0dc4e164d6ab526dea6c8dc77c08e4fe1543f4c1efd8889",
+      "data/pretrain-minimind/test.jsonl": "7678041e6c444aba13c6abc4c6696bddb0d4f92f8b71dcaf6f0916e84f576814",
+      "data/pretrain-minimind/train-20k.jsonl": "647f04750bbabd0d3126cb0ea807028755c578174156a2b6b83641ab63298b61",
+      "data/pretrain-minimind/train.jsonl": "459160a7feb7df4f6e83bb340ac443f34fdd6c7c492c67a569d38a85afe5858c",
+      "data/pretrain-minimind/val.jsonl": "a1960e9f02a913a3c7e0f42accf8d0fbccbe645a317330afd9b9d42efa70d3da",
+      "data/processed/minillm-pilot-research-v1/.pipeline/deduplicate.stage.json": "a26db7c57007181120d5bdaf7e50510847e6baae38ecf19cad88473d3e27bdc3",
+      "data/processed/minillm-pilot-research-v1/.pipeline/normalize.stage.json": "574c9d1d7f97ff6de2464c3dc43acf76f60bd94f8e53ff75b43cbeae1a691903",
+      "data/processed/minillm-pilot-research-v1/.pipeline/plan.json": "c7df7c278205b9a5ded161f82986683208015b9d3e4347d95a702e2245f977b3",
+      "data/processed/minillm-pilot-research-v1/.pipeline/split.stage.json": "c44528799bb6afc93e32d0cebfedbe2759b828584cb68f32a5e890a12ae5ca86",
+      "data/processed/minillm-pilot-research-v1/.pipeline/tokenize-test.stage.json": "3e40f1942bbfc1ca530dfbeb39c1e43fc54ce3320179085db45c6ceb405d8a21",
+      "data/processed/minillm-pilot-research-v1/.pipeline/tokenize-train.stage.json": "eeeb5ce1d131a8840fd81eb5e2a8a7bf0491cd4e022496f826fa62d2bc7db2aa",
+      "data/processed/minillm-pilot-research-v1/.pipeline/tokenize-val.stage.json": "63c9a1139e571e22b280a0312713177336dc30a58f39a67d0fc6d5198ea6069c",
+      "data/processed/minillm-pilot-research-v1/.pipeline/tokenizer.stage.json": "68c0f64db6ac920e9f818adf39f983ac0ca3841d8e1ffd475c7a319065459a41",
+      "data/processed/minillm-pilot-research-v1/dataset-manifest.json": "c92c9a332a5cdbde87c4b402e9ec538909b4d9849398b9ab0d8e3a24627bd032",
+      "data/processed/minillm-pilot-research-v1/dataset.json": "3242c934c270a89b76e0b549b73ba902b7f06bd8c498f3afb06b440ea4bdf89a",
+      "data/processed/minillm-pilot-research-v1/quality-report.json": "1e78e0b662093e392dd24fa4d4c8f5eaea91443210cc0f1100e9ce3c5d969625",
+      "data/processed/minillm-pilot-research-v1/test.bin": "b5aec471dbe5ea10ff8c34fc38d17339b34c51ec4e0d91111eca7668483107d7",
+      "data/processed/minillm-pilot-research-v1/test.text.jsonl": "c059fb738a8da27c7226b50de22668069910f988659dc939b242fd096f0559ae",
+      "data/processed/minillm-pilot-research-v1/tokenizer.json": "355d857235dc1806e194239efdcaa4ae3d7a00d3bcad31b658ef5871770b42e0",
+      "data/processed/minillm-pilot-research-v1/train.bin": "cdd2a535365a07e16ea4968b1f1e9e8e4a5cd202edc0b6a00c865e7a45b4d75a",
+      "data/processed/minillm-pilot-research-v1/train.text.jsonl": "1753cc48361340ce9535457d228175d413b77b169e455129a513d7b14dbcb372",
+      "data/processed/minillm-pilot-research-v1/val.bin": "213400519f1b11096612db2e693247038e86bf949b4db3929cb9ea5f765e2e39",
+      "data/processed/minillm-pilot-research-v1/val.text.jsonl": "b72a275a858d5189a69d8d36666d976a9bcbf05e46caca2a0ff55d6b2d11eee5",
+      "data/processed/minillm-pilot-research-v2/.pipeline/deduplicate.stage.json": "58bf02d6f2ef4806bf35e242c8840b7ba7fd7de1bfb9624e9768c5c5078c7269",
+      "data/processed/minillm-pilot-research-v2/.pipeline/normalize.stage.json": "3dc4eb976deb24345cce317f6960caa34eafb99ef6ce52417f6a99c2e266f2fc",
+      "data/processed/minillm-pilot-research-v2/.pipeline/plan.json": "5f6ac1e3bbc65b9e2e3bbee38fd914256a4a43f994130df67f01ea01edeca19b",
+      "data/processed/minillm-pilot-research-v2/.pipeline/split.stage.json": "a3b75742fc96f4e93f677efa2eceabcc9e1c60a652fb6c961de0aa3b89d9ac70",
+      "data/processed/minillm-pilot-research-v2/.pipeline/tokenize-test.stage.json": "7b89cbd03099dd8a065f568bb9944abb5264d7223f9f477f6fa7ce827d3a9f74",
+      "data/processed/minillm-pilot-research-v2/.pipeline/tokenize-train.stage.json": "96b763e65cd0da35f9810130590e50febcaaf0aebc2479ff18dbdf11401093f0",
+      "data/processed/minillm-pilot-research-v2/.pipeline/tokenize-val.stage.json": "99a47afa096b333790f4205a33957db74a3575a7834dcd339ab871db366fd4cd",
+      "data/processed/minillm-pilot-research-v2/.pipeline/tokenizer.stage.json": "c4417ea3904f1324bd7cf627ed8c9eb7d310157009e874eee1b53f622cf0cefb",
+      "data/processed/minillm-pilot-research-v2/dataset-manifest.json": "1194af5ad63494f8b6867568bb851bb904551ddcd41c7cd6f55c153a87eab9cb",
+      "data/processed/minillm-pilot-research-v2/dataset.json": "eff65342adf391e2edc2d55e7078593af90f566742f86f655662b6ce7876261a",
+      "data/processed/minillm-pilot-research-v2/quality-report.json": "96a260e208bd6a71d5e6c37577a3dcca220f7ba3033aa8bf217d5be88879a2bb",
+      "data/processed/minillm-pilot-research-v2/test.bin": "654f18dafb6ce95918c04c6357953ea19ad40d6505d4061f3500daa18985da69",
+      "data/processed/minillm-pilot-research-v2/test.text.jsonl": "3c60119734209b7c498aa127555f9f94e69933bb7e6d83b20cab751d60053e59",
+      "data/processed/minillm-pilot-research-v2/tokenizer.json": "355d857235dc1806e194239efdcaa4ae3d7a00d3bcad31b658ef5871770b42e0",
+      "data/processed/minillm-pilot-research-v2/train.bin": "c1efe00a85687ac26332b9b942f5ccc8953031dc1bf62999682f4e316cd5c7d6",
+      "data/processed/minillm-pilot-research-v2/train.text.jsonl": "3d679b211ca71cc1b2124444e850dd42409ff4be88f779c68a19d41e55723de5",
+      "data/processed/minillm-pilot-research-v2/val.bin": "c3e5db3234804ccf155572aba9e398fd0de8dea1fce2863266679872f402530c",
+      "data/processed/minillm-pilot-research-v2/val.text.jsonl": "8f6b6fe6d89dbba1ca40118052573257ffc853a958b7b5c9605fae0831899984",
+      "data/processed/minillm-pilot-research-v3/.pipeline/deduplicate.stage.json": "f05be4e1c5ea840d597548f7b544f3862dbe662722da90d788e0a8e1bebde58c",
+      "data/processed/minillm-pilot-research-v3/.pipeline/normalize.stage.json": "92d9893901ec7da7fd054920c300e15a7aea0b9bb3a6c002ad69e9a9f4c6daa6",
+      "data/processed/minillm-pilot-research-v3/.pipeline/plan.json": "dd20f1b906b9c8d20c037fe7cde919fecf987e1d6524d494efc425117c2cfa35",
+      "data/processed/minillm-pilot-research-v3/.pipeline/split.stage.json": "1a8fa39e9d549c66efd62743576cf9bf653edbfbe11733e04d0b5aeabd60be0e",
+      "data/processed/minillm-pilot-research-v3/.pipeline/tokenize-test.stage.json": "7cd98ceefd21939d8a34706d21f1f15b11ef64907d55d25608e0a51ea79b7519",
+      "data/processed/minillm-pilot-research-v3/.pipeline/tokenize-train.stage.json": "fa2ef3cc13a7a64a644045159103d5e0cc13427fae82c64245edb51c5ccd2bf6",
+      "data/processed/minillm-pilot-research-v3/.pipeline/tokenize-val.stage.json": "7ca62ca7e417b86b749445cde341950295f61612e93eee10b95e12f69b310edd",
+      "data/processed/minillm-pilot-research-v3/.pipeline/tokenizer.stage.json": "5dd4c84d812172df3d97f12f0e546619206867c7bc46b75b872bbd2403e0cd67",
+      "data/processed/minillm-pilot-research-v3/dataset-manifest.json": "c992309196436d8c31d843f8bfaaec3bb76139cac201cf059d918fab506226cd",
+      "data/processed/minillm-pilot-research-v3/dataset.json": "9e2d92e03501b8bb76b6bca92eca286f72a8a1f75e40ef81c087e22a9b9ff25f",
+      "data/processed/minillm-pilot-research-v3/quality-report.json": "3dcb23268a08238a94f77dedcd3a53d44e9005e1c1050486b3f01a802c3a7f55",
+      "data/processed/minillm-pilot-research-v3/test.bin": "9470b650c19776878a5e668200d3dadae7b8f594964431e8450eb5b318a64ad3",
+      "data/processed/minillm-pilot-research-v3/test.text.jsonl": "15114def6f4dd299f5260af6b7f9b0d753a0fc30d2e8d36fbe97c6ef50767eb3",
+      "data/processed/minillm-pilot-research-v3/tokenizer.json": "355d857235dc1806e194239efdcaa4ae3d7a00d3bcad31b658ef5871770b42e0",
+      "data/processed/minillm-pilot-research-v3/train.bin": "909e3a319bb226c77c4d26e88bf1263d85a3bd3ea137d1710b22cda766e9088c",
+      "data/processed/minillm-pilot-research-v3/train.text.jsonl": "bac1639dddc5f130d4c1548c2a5461b28312ae86b31d1a8870a5cd0f8476b010",
+      "data/processed/minillm-pilot-research-v3/val.bin": "c433fa003e780b29f576c7658beedf356b234a27db42422985e041801c8a506c",
+      "data/processed/minillm-pilot-research-v3/val.text.jsonl": "45a6723c97834787d99648921ac8b1492824fd0dffad9ba678a200e2c4c361ca",
+      "data/shapes/meta.json": "11047e76e57aeda0e4599d92092ae31e93276d97106daea29e7d1eb3b7eb7970",
+      "data/shapes/test_seen.jsonl": "9a6367684a69649ff4a87ddfb8d13414091ded79559aa447e2eb4c6e4048becd",
+      "data/shapes/test_unseen.jsonl": "91486a352c789ec4d4fd3fe4558f0e61625b849c86460279c2de60b753de9959",
+      "data/shapes/train.jsonl": "bdcd21b8fe47e2886e28597c03079958e4a416d4384f9fc63f3be34dc9ac89d1",
+      "data/shapes/train_eval_50.jsonl": "951d041e46fbc4ee5099fdd47757305615f0ae283a51970147594c121df021d9",
+      "docs/pilot-evidence.json": "1efa24c0d2bffcfe17dade2d720cc5604cdb9958bf319f90dcb35f842153022e",
+      "docs/pr6-category-boundary-evidence.json": "0bdfd8557bd0d28e3fcb64b865cfb16ba45d92fea379267ed63aeb3ce42ed211",
+      "docs/quality-stage-evidence.json": "0cfa63099a23455bedaed099c978712032e2d51e7799db32eea0c3fb49e1225b",
+      "runs/full/model-int4.pt": "313225ae0997294844f5e30b92dd94b91cf5d216ed45fbfd907da55757336d8c",
+      "runs/full/model-int8.pt": "e9d896e9456fcab030b3aeaca80c4a74c3c5ba573b7ac9b3dc9eb43a559ff80d",
+      "runs/full/model.pt": "997799b0277a61468a911764c3992bdc79e01b7a30956c928c18dec4a89dba7b",
+      "runs/full336/model-int4.pt": "f79319291d285a82b3471cffe59e93b022dc9a00f9a3790b87b0cc8076775927",
+      "runs/full336/model-int8.pt": "c755534a27b8335a5ae70d98e72d084d8418f4542c63b010aec9f4d9d9c08665",
+      "runs/full336/model.pt": "20379d248e5c03d96ef4cd4b0ee311f3a60f5388ad5df7a8cb9e2f1dc3fb581d",
+      "runs/full336train/config.json": "30771296beadcc1b3fa255f197347ccd13a711b24d16924ef6b1f5147d23be26",
+      "runs/full336train/model.pt": "fe2fae8fb4e79bb0d6bdffed322942a3c039daaaabdcbd5f79374a183621a6d2",
+      "runs/full336train/tokenizer.json": "e5949113c8d74e6af3cfcd424753432f437edc56f05ecddda1266260080b9173",
+      "runs/fulltrain/config.json": "cde94a796aa8ab6604985918c8b2f89ab26fdce733e23eef79e02d176db7efdd",
+      "runs/fulltrain/model-int8.pt": "3fb227ae74df70ca7688e8a2460cfaa368062d213db832f857fd6612bc241bba",
+      "runs/fulltrain/model.pt": "b81f6f4f57bc4d4d3a1c32d22addd3b711a6e01e08b954d7e9c1de4b0234bd10",
+      "runs/fulltrain/tokenizer.json": "e5949113c8d74e6af3cfcd424753432f437edc56f05ecddda1266260080b9173",
+      "runs/gpu/config.json": "3d4216ab1a9d8bb4541525378be7930d0ace986dc25f04f6927fce3a5fbe35ce",
+      "runs/gpu/model.pt": "bc38924e5c96ade0e616942ef797a396913b2577cc7361d12ac81945fd11b901",
+      "runs/gpu/tokenizer.json": "7ede1882e87a07429373de854e86f748a5cf856a6d36d951ff1e3c5e178b9783",
+      "runs/minillm-87m/bench-cpu.json": "7f62de059b43c6e20abc18d45f53703a95de0434cb3cb03d75adc670acad476a",
+      "runs/minillm-87m/bench-gpu.json": "828bd307c18681d408ca6d05baba14a62d2a20d457c184a4347b54d105c21041",
+      "runs/minillm-87m/corpus/dataset.json": "82ea630d98f24caf9b587d30c6cabfcdb8c6ef0ffbc35a5f7e002a158b7a978b",
+      "runs/minillm-87m/corpus/test.bin": "24e071825a5990870c14e982b99fb5faac117e63bec276cc62803f2466da94d6",
+      "runs/minillm-87m/corpus/test.text.jsonl": "3602b7adb75f54b2d26e88332f627783f2246d63a3cf09e566008817549d686b",
+      "runs/minillm-87m/corpus/tokenizer-report.json": "fcf264140239ee8302213a85042aedda833fd3a88ea75870625eeb3690210b77",
+      "runs/minillm-87m/corpus/tokenizer.json": "355d857235dc1806e194239efdcaa4ae3d7a00d3bcad31b658ef5871770b42e0",
+      "runs/minillm-87m/corpus/train.bin": "b629b2d724b152e5760c9e213aa9bc125af45594f12c71ac9406081535dddb35",
+      "runs/minillm-87m/corpus/train.text.jsonl": "9f66c79286f3c2d0a7c253cfd2755546038997c61f1c136225a86f5f166a9d63",
+      "runs/minillm-87m/corpus/val.bin": "837c369d75f4c6fe6bf60ed127736d0e65603855d7d3238e92cca75b279bcecd",
+      "runs/minillm-87m/corpus/val.text.jsonl": "885a39ef23a5580489ab2a2f5dc95b1c180bd35d63709f6af67360d8b3d32c6e",
+      "runs/minillm-87m/eval-pretrain.json": "4cb9e34ba7969033aa0a178be280d5d1005a615cedd3241abb368ecd71216773",
+      "runs/minillm-87m/eval-sft-fixed.json": "446c864e5a0900cf7058682b24083460e5da23f38b430602682b4e47e267920c",
+      "runs/minillm-87m/eval.json": "fe965518c333e313d4ae598e48cb3613e12d60187b77a105f26efe2323f24d14",
+      "runs/minillm-87m/run/best.pt": "2ef1a793c03d3b158b12b262be565ba61f8cc97fd2876be301eb41d427bb3134",
+      "runs/minillm-87m/run/config.json": "180a40a8be2da63de47913b539a5e6924f763ec56cefa7c83179ba7ba066af0c",
+      "runs/minillm-87m/run/metrics.json": "8e14ab6af6fa00ddc9cdc19591d2f12d007b20c3a5b68e7add67bdc260b19c0c",
+      "runs/minillm-87m/run/model-int4.pt": "4d96b9a58092da485d7404e50cdd5e5c316d08838b55dbbc860135a0a25322c5",
+      "runs/minillm-87m/run/model.pt": "dab85a443d77fc8d54adcd517fe687f4cd3381282c0cc314cde4a18fbb37688a",
+      "runs/minillm-87m/run/state.pt": "180ba40e70ae77b980fd26753ae76a8a557f3b4f169dd5e441cf896825e15848",
+      "runs/minillm-87m/run/tokenizer.json": "355d857235dc1806e194239efdcaa4ae3d7a00d3bcad31b658ef5871770b42e0",
+      "runs/minillm-87m/run/train-summary.json": "c1fcbf22941e7866c0b5add21073f2b629f063e52003992b39ffeedb8e02b972",
+      "runs/minillm-87m/sft-fixed/best.pt": "9e5010786ec344b22cc5453e1f5b6b5db0ef22db647e485eeee4e0dfbfd44fa2",
+      "runs/minillm-87m/sft-fixed/config.json": "180a40a8be2da63de47913b539a5e6924f763ec56cefa7c83179ba7ba066af0c",
+      "runs/minillm-87m/sft-fixed/metrics.json": "37f8dfecce7164e4076f826c8e3c66fb51f66c793ab439ff1229d34c36b67068",
+      "runs/minillm-87m/sft-fixed/model-int4.pt": "1d25a645df824795c9452e41c49ad59fb4927977cd28daa8c9bd8a2e58aadddd",
+      "runs/minillm-87m/sft-fixed/model.pt": "61ef0b9dfc685ed929b83d4f4af13bf2df6e3c9db2d4287c649670d845a53e3b",
+      "runs/minillm-87m/sft-fixed/state.pt": "dc1e8f514c0ca764d595ddf85f15a916606ab8686e3213482ce7a215d2076208",
+      "runs/minillm-87m/sft-fixed/tokenizer.json": "355d857235dc1806e194239efdcaa4ae3d7a00d3bcad31b658ef5871770b42e0",
+      "runs/minillm-87m/sft-fixed/train-summary.json": "7b58d2c15fea69031122ad80cac7ab3f37a909685747e430cbe337f91ca6b117",
+      "runs/minillm-87m/sft-run/best.pt": "9d649d4cb9ed046f11e320adbdef77f4954b0f115e2f481c2c8aad96b68f5dcc",
+      "runs/minillm-87m/sft-run/config.json": "180a40a8be2da63de47913b539a5e6924f763ec56cefa7c83179ba7ba066af0c",
+      "runs/minillm-87m/sft-run/metrics.json": "b20fb88520cf32640261d4ba3c7acf37eec9eea25a5fe4e1af8bfbf87a16d088",
+      "runs/minillm-87m/sft-run/model-int4.pt": "482925568bb2f6d1ed2708d0a9a4c6db03c77f9c455a198fc2d53ea8c0d5e47b",
+      "runs/minillm-87m/sft-run/model.pt": "9f530d3da0af2b09b016ccb76763d2794e6cbcef7375f1834fafa5192e181861",
+      "runs/minillm-87m/sft-run/state.pt": "8bfadef8c4e0da77baa95e99da285e39e330b7b90049011f360ffd3aa9e183a0",
+      "runs/minillm-87m/sft-run/tokenizer.json": "355d857235dc1806e194239efdcaa4ae3d7a00d3bcad31b658ef5871770b42e0",
+      "runs/minillm-87m/sft-run/train-summary.json": "e9e09beac504643acd249ae29dad18f053eb43ef639c8f2325d55223c682ad46",
+      "runs/minillm-87m/sft/train.jsonl": "f21c09ffb90faf810973a2bc66de499e56b704da83ece3964092837f777c1c50",
+      "runs/minillm-87m/sft/val.jsonl": "d44649f12ba010d2ba6ae7ad2d0a33ed163b4cb4929c672d137f9b24ad32637c",
+      "runs/multimodal-tiny-stage2/best.pt": "7479665dce670970513e97e1cf195013c5ffe5cfa62338e0447fe2fd9b7679f4",
+      "runs/multimodal-tiny-stage2/config.json": "d2191ba54298c59a725fb2abcea6b8829f9b2a64f05e2932a8895e8a9f86202b",
+      "runs/multimodal-tiny-stage2/metrics.json": "5fb40cecef5e44e6ac1828ebbb4d3dab97e6bd9ece8c49dbefe0cba3a8881b0c",
+      "runs/multimodal-tiny-stage2/model-int8.pt": "be3378872e164d655ed3f74599ead6522cbbd740b168de144a509f8b69c1746f",
+      "runs/multimodal-tiny-stage2/model.pt": "86d72c2dca9357e89dff5113824a6a05577f9a1c2985e600574c3dbb9ca39d60",
+      "runs/multimodal-tiny-stage2/run-config.json": "cc280a111e1f865af9a74e00554d3a106c476dad4e4960681ef0fce59574017d",
+      "runs/multimodal-tiny-stage2/test-metrics.json": "00622822b97e4f0325c706b2dfa7a02b1f8dd380f2ce56ace62aa90b2ecb93c4",
+      "runs/multimodal-tiny-stage2/tokenizer.json": "d9f3fb54420fc00da8f87c11747da4448c0b4b01a5c065b9cb27d84f7666b2b1",
+      "runs/multimodal-tiny/best.pt": "02890fff9b4fbc7cd8c7dd766a735421855885732520d5d3791f33236ccb9efa",
+      "runs/multimodal-tiny/config.json": "d2191ba54298c59a725fb2abcea6b8829f9b2a64f05e2932a8895e8a9f86202b",
+      "runs/multimodal-tiny/metrics.json": "2fb723399eb81e605decf57409406942d24ed3e020fca4a76700463ae9961aad",
+      "runs/multimodal-tiny/model.pt": "b3eefe86ec66a17096507435e48fafbd91f137decb0c86f221b7e3131317db1e",
+      "runs/multimodal-tiny/test-metrics.json": "9817ee7389569369ea512db8318181a45e6f6f8a97d50a1511734a1eb65c460e",
+      "runs/multimodal-tiny/tokenizer.json": "d9f3fb54420fc00da8f87c11747da4448c0b4b01a5c065b9cb27d84f7666b2b1",
+      "runs/pilot-10m-t1200-v1/config.json": "180a40a8be2da63de47913b539a5e6924f763ec56cefa7c83179ba7ba066af0c",
+      "runs/pilot-10m-t1200-v1/model.pt": "935b4bc012db124cddd9173a316c2bcdcfde751b0ca3f2f35bb85e18fa099b66",
+      "runs/pilot-10m-t1200-v1/pilot-lineage.json": "b0549b62263b3ab33e66b542a7af7e8ae60e91d19f540d069c7ac3de4b9b29cb",
+      "runs/pilot-10m-t1200-v1/state.prev.pt": "648abb7dc6b79dec3e3b882d96e87e3e7275cde0243a2eeac890273ce7855639",
+      "runs/pilot-10m-t1200-v1/state.pt": "be83b082a40bc645735d1dc59a72bb9662ee8ba5ca106e110441d97cef23b68f",
+      "runs/pilot-10m-t1200-v1/tokenizer.json": "355d857235dc1806e194239efdcaa4ae3d7a00d3bcad31b658ef5871770b42e0",
+      "runs/pilot-10m-t1200-v1/train-summary.json": "38b135394abb55521e5f9fba9803871dc4bb1ece9e002ae38b341d3da190cbd7",
+      "runs/pilot-10m-t1200-v1/training-log.jsonl": "4b4252bb8dd46ae8d5a7b8829b61883490d65a81e6fc63688574c0e189d408a0",
+      "runs/pilot-10m-t1200-v1/training-manifest.json": "7ae8f2b757e32f9748de0deae1829d67da89cefced91f479c05383427b2c652b",
+      "runs/pilot-10m-t1200-v3/best.pt": "fc7fe59e774bf92fc42a7b1e56c1484cf78caf1be8973ac17e43766a490f5b0a",
+      "runs/pilot-10m-t1200-v3/config.json": "180a40a8be2da63de47913b539a5e6924f763ec56cefa7c83179ba7ba066af0c",
+      "runs/pilot-10m-t1200-v3/metrics.json": "50fffe6691c27feb54b48bfdb04e5c818af438de2268e77a1a03157e366efe24",
+      "runs/pilot-10m-t1200-v3/model.pt": "6046ebc61b9196c554758b5982f44da00b4a7e4e6daebfa6100af6a1dea9fec9",
+      "runs/pilot-10m-t1200-v3/pilot-lineage.json": "0a2c18d5eca55c564409d20a07e530ec99eb906873610491297be3d7d8401524",
+      "runs/pilot-10m-t1200-v3/state.prev.pt": "40062b45c671a2b1445174c3686e19f3704ff50e85df1615362e0a1ab52c8a1c",
+      "runs/pilot-10m-t1200-v3/state.pt": "2bfeecab6c0dd093c5c05d27b34b7b76c1e8aa501d2746c8d3c17cb3f47989fc",
+      "runs/pilot-10m-t1200-v3/tokenizer.json": "355d857235dc1806e194239efdcaa4ae3d7a00d3bcad31b658ef5871770b42e0",
+      "runs/pilot-10m-t1200-v3/train-summary.json": "2e7b2fe27169cb0522388b31c781d488ecf99ceabbe3ca15d26b66c03ef6bfb1",
+      "runs/pilot-10m-t1200-v3/training-log.jsonl": "b7995cd2abcf131bd862983aa670a7cf02ed25e646f9bcee9c5bbe6dd5de0d87",
+      "runs/pilot-10m-t1200-v3/training-manifest.json": "1f47b69297aa5641885a0246e0b9ab97ae80fe4883554cd07ccee6138422831a",
+      "runs/shapes/config.json": "72edd0c338384478edd298b294e8461ae34d4d17789632e02b77b22077494f25",
+      "runs/shapes/model.pt": "2a5358f71bd2d88f0b75f5d48118c6c87db73457483200d07f42dc66fe3033d9",
+      "runs/shapes/tokenizer.json": "71ac6d786b5104cc2be286c8bbf26fbc471da82e21d337bd6a0ed4d7a67f32ea",
+      "runs/smoke/config.json": "fcc3f4e30602ce4dfd2abfd7d649702228996e5691a8fcdfb069db9c89446f28",
+      "runs/smoke/model-int8.pt": "16b7cde95352a537371790ca78de7627a5aa1e3b3c2f546457a2555c5a45b6cd",
+      "runs/smoke/model.pt": "a353d9f7a6f7d087eaffe81219e50cb5767a9af4516eeaadd45b132a6ed907c7",
+      "runs/smoke/tokenizer.json": "d9136ec39d587dc17c9cc42839403fff0eff5cfe94b8ae3f2349c971bb1a7555",
+      "runs/text-gpu-trial/best.pt": "10d5dac177b5ddb66a9bdceeedc7506e7b30c7dd0219db27a393725aa7ac3dac",
+      "runs/text-gpu-trial/config.json": "d2191ba54298c59a725fb2abcea6b8829f9b2a64f05e2932a8895e8a9f86202b",
+      "runs/text-gpu-trial/metrics.json": "ffac31bd4f813cadff03f1c414b9d729d524b1caca37b16a19aa38e67b0a25b8",
+      "runs/text-gpu-trial/model.pt": "c5bf274df6088bfe9b232b4c3216340e942d14bfba6d325255aa2f4d996a91ea",
+      "runs/text-gpu-trial/run-config.json": "fd598b624418e0012f75f07ea1da90215f40cf03ef97454641617a2acd426b58",
+      "runs/text-gpu-trial/state.pt": "9fdc76428983eb1b13c612107e5ee59c95d27da926d7014bdcdb3822d9203a3a",
+      "runs/text-gpu-trial/tokenizer.json": "d9f3fb54420fc00da8f87c11747da4448c0b4b01a5c065b9cb27d84f7666b2b1",
+      "runs/text-minimind-baseline/generation-old.json": "c453af1b25f80999acc77f351391e8bd5523f42446d36209570f7beed9732884",
+      "runs/text-minimind-baseline/multimodal-test.json": "742e46daab40a8759bdc315764f4b9abbdc65d3e73ffcf4f02f4821b9c609539",
+      "runs/text-minimind-baseline/test-metrics.json": "36e8ef6ab1f7e8b6b5d57c888e9a241d9b89206c8e40326730098976d7ce913f",
+      "runs/text-minimind-baseline/val-metrics.json": "4925c2ba7f6661d515179ac2c9d953c6f9e5e3221f02a1715e3f858ce90b4c78",
+      "runs/text-minimind-replay/best.pt": "667bac0a18a5c2823f8bc08d99923cc40bffaf303ef703888f16049ce2a5116b",
+      "runs/text-minimind-replay/config.json": "d2191ba54298c59a725fb2abcea6b8829f9b2a64f05e2932a8895e8a9f86202b",
+      "runs/text-minimind-replay/metrics.json": "7948b7feae8b6a2e293e3688b9fa7350b897dbc0744bf551361742c39cc8d020",
+      "runs/text-minimind-replay/model-int8.pt": "841419c843879309932d4268458a29cb599ba3d1410b9ca33983b834483a2439",
+      "runs/text-minimind-replay/model.pt": "5b47f3f906a51a158c947314baeb78df5a8bd57b208843c82145d4e612d290b9",
+      "runs/text-minimind-replay/multimodal-test.json": "92292bee4936eb8a428f569815f4e0de9dc546c92ef7a68347183fa76f2d6c37",
+      "runs/text-minimind-replay/run-config.json": "7cf3ac617e6db4ba9970f9a36404dd6531cbaf66405a9c9de4dc137ce807c4a1",
+      "runs/text-minimind-replay/state.pt": "b526840e5c50c2e9a60dfc349fecd67c61f7ed3794575fb857a91a7d6c8104e6",
+      "runs/text-minimind-replay/text-test.json": "a69c70f3d6c6446b4d0810c5c1e15938b09f56ea3577b26a1f5c098cc8fc1f9f",
+      "runs/text-minimind-replay/text-val.json": "ea9b08059098e7ea9a7d304606cab55c7ed465d9477bd94830f354e4a61b6125",
+      "runs/text-minimind-replay/tokenizer.json": "d9f3fb54420fc00da8f87c11747da4448c0b4b01a5c065b9cb27d84f7666b2b1",
+      "runs/text-minimind-trial/best.pt": "85e36808f5ce290a07b4ccd69aa5bb2d7be732a14d5b9e94ac787786ac117789",
+      "runs/text-minimind-trial/config.json": "d2191ba54298c59a725fb2abcea6b8829f9b2a64f05e2932a8895e8a9f86202b",
+      "runs/text-minimind-trial/metrics.json": "dd8548ad0e1bd34fe1c60fc3780b4b1ff1f344d7f89094e5d7661ec160fb011a",
+      "runs/text-minimind-trial/model.pt": "a3c82bd01cb95bca2bb42e1f05200e9dd8b755a346a3365b3a97944d681b9bc8",
+      "runs/text-minimind-trial/run-config.json": "8ab9080316a7d6aaed4a8f50e72b6595882ebf5857fcb53045ffbec70d7349da",
+      "runs/text-minimind-trial/state.pt": "f0fb11ed676f24d0b9b5abcf749a112ac9dff8f132f1ebcde5b74fc41579cac7",
+      "runs/text-minimind-trial/tokenizer.json": "d9f3fb54420fc00da8f87c11747da4448c0b4b01a5c065b9cb27d84f7666b2b1",
+      "runs/text-minimind/best.pt": "936c0060d621be421ae59fb942c39d0105219c0fa80b19225462f021b5222d1c",
+      "runs/text-minimind/config.json": "d2191ba54298c59a725fb2abcea6b8829f9b2a64f05e2932a8895e8a9f86202b",
+      "runs/text-minimind/generation-greedy.json": "3ed148fc1dda3312990ef2ae46f9e960717f5d6d380f1d7b180eaa9be49487e5",
+      "runs/text-minimind/generation-text.json": "9aa2579ab4a4eb8ad768ad83005a091e9ed2191bfb4912aa9845c0755d6ee2e4",
+      "runs/text-minimind/metrics.json": "5dbf5b915023ec53c0d9ea88ea4dad8513a633754068c4c48afb9b4185f0d07f",
+      "runs/text-minimind/model.pt": "277bd4c8e9df8a2979d1a6cd29133894e0f324ad73ab2c3d2ca1694427c74ef5",
+      "runs/text-minimind/multimodal-test-mid.json": "53d64a1bdb97de1045069828b365743d6e1443d1dc540142c96615bcf48060a7",
+      "runs/text-minimind/multimodal-test.json": "8461ad2141cad461cc0e65b65761b21a7b71e8fe95d43e3d5fa4d978d71cb0a4",
+      "runs/text-minimind/run-config.json": "274ad2e5ab2a28d9ff14cdf45db0be20c12d32172f3a92a5cbc1b773005f5df6",
+      "runs/text-minimind/state.pt": "21985fe762199a10eee692c3a609cc903125244dac73e5c4b744e605ef4bc668",
+      "runs/text-minimind/text-test.json": "72cee5b07f55be49bb3806c996f0cc7d529ecaf483bb725a7ae26b62e5cd9edc",
+      "runs/text-minimind/text-val.json": "5ccf2ccf716917c72a03f03c2d75c348d8aa0a6a4e973c174b68fc0064b348ef",
+      "runs/text-minimind/tokenizer.json": "d9f3fb54420fc00da8f87c11747da4448c0b4b01a5c065b9cb27d84f7666b2b1",
+      "runs/web-preview/browser-report.json": "1300bc71a72fcebb876d9de8288fa2b4e5e341676ea18f3b9c9aa1ef942318ea",
+      "runs/web-preview/exported-records.json": "1f572de94d055ac911068563163ec18eef7703d9cf5d9d352880908ecca8c4ad"
+    }
+  },
+  "experiment_87m": {
+    "executed": false,
+    "reason": "Task requires CPU Nano execution and explicitly bounded opt-in for 87M; no 87M training was requested or started."
+  },
+  "training_chain_findings": [
+    "No new P0/P1 correctness fault observed. Existing loss/optimizer/scheduler/cursor/recovery semantics unchanged.",
+    "Existing packed L windows supervise L-1 targets and allow attention across EOS; documented, not altered.",
+    "Small-corpus diagnostic tokenizer initially refused 1024 requested tokens (744 available); final diagnostic uses existing Nano 512-token preset. Strict tokenizer validation was not relaxed."
+  ],
+  "pr8": {
+    "engineering": "ENGINEERING_PASS",
+    "learning": "LEARNING_DEMONSTRATED",
+    "evaluation": "EVALUATION_PROVISIONAL",
+    "criteria": {
+      "training_chain_correct": true,
+      "nano_learning_demonstrated": true,
+      "candidate_review_complete": false,
+      "raw_readability_review_complete": false,
+      "v4_data_tokenizer_plan_reviewed": false
+    },
+    "ready_for_pr8": false,
+    "required_next": [
+      "Human review of frozen questions and raw continuations",
+      "Versioned v4 tokenizer/corpus plan and contamination audit",
+      "Explicit bounded 87m hardware probe before any real training"
+    ],
+    "reason": "This baseline is not authorization or evidence for a formal v4 training run."
+  }
+}
