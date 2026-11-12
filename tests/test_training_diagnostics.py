@@ -61,7 +61,12 @@ def test_complete_nano_workflow_manifest_and_acceptance(tmp_path):
     assert manifest['conclusions']==json.loads((out/'pr8-readiness.json').read_text())
     assert manifest['conclusions']['learning']=='LEARNING_DEMONSTRATED'
     assert manifest['conclusions']['evaluation']=='EVALUATION_PROVISIONAL'
-    assert not manifest['conclusions']['ready_for_pr8']
+    gate=manifest['conclusions']
+    assert gate['ready_for_pr8'] is False  # Known pending candidate review, not an unassessed failure.
+    assert gate['status']=='NOT_READY' and gate['scope']=='PR8_INFORMATIONAL_ONLY'
+    assert gate['failed_criteria']==['candidate_review_complete']
+    assert gate['criteria']['raw_readability_review_complete']=='NOT_ASSESSED'
+    assert gate['criteria']['v4_data_tokenizer_plan_reviewed']=='NOT_ASSESSED'
     for path,expected in manifest['artifacts'].items():
         assert file_sha256(out/path)==expected['sha256']
     assert {'training-diagnostics.json','memorization-results.json','candidate-results.json','generation-results.json','diagnostic-report.md'}<=manifest['artifacts'].keys()
@@ -91,3 +96,44 @@ def test_insufficient_budget_keeps_structured_report(tmp_path):
     assert json.loads((out/'candidate-results.json').read_text())['status']=='NOT_RUN'
     assert json.loads((out/'diagnostic-manifest.json').read_text())['conclusions']['engineering']=='ENGINEERING_PASS'
     # Correctness passes independently; learning/incomplete memorization does not acquire a blanket PASS.
+
+
+@pytest.mark.parametrize('criteria,status,ready,failed,unassessed',[
+    ({'training_chain_correct':'PASS','nano_learning_demonstrated':'PASS','candidate_review_complete':'PASS',
+      'raw_readability_review_complete':'NOT_ASSESSED','v4_data_tokenizer_plan_reviewed':'NOT_ASSESSED'},
+     'NOT_ASSESSED',None,[],['raw_readability_review_complete','v4_data_tokenizer_plan_reviewed']),
+    ({'engineering':'FAIL','human_review':'NOT_ASSESSED'},'NOT_READY',False,['engineering'],['human_review']),
+    ({'engineering':'PASS','human_review':'PASS'},'READY',True,[],[]),
+    ({'engineering':'NOT_ASSESSED','human_review':'NOT_ASSESSED'},'NOT_ASSESSED',None,[],['engineering','human_review']),
+])
+def test_pr8_readiness_uses_explicit_statuses(criteria,status,ready,failed,unassessed):
+    from minillm.diagnostic_workflow import summarize_pr8_readiness
+    result=summarize_pr8_readiness(criteria)
+    assert result=={'status':status,'ready_for_pr8':ready,'failed_criteria':failed,'unassessed_criteria':unassessed}
+
+
+@pytest.mark.parametrize('criteria',[{}, {'review':True}, {'review':None}, {'review':'UNKNOWN'}])
+def test_pr8_readiness_rejects_missing_or_ambiguous_assessments(criteria):
+    from minillm.diagnostic_workflow import summarize_pr8_readiness
+    with pytest.raises(ValueError,match='explicit'):
+        summarize_pr8_readiness(criteria)
+
+
+def test_reviewed_candidates_leave_external_pr8_evidence_unassessed(tmp_path):
+    from minillm.diagnostic_workflow import report
+    manifest={'seed':42,'code':{'git_commit':'test','git_dirty':False},'environment':{}}
+    candidates={'status':'EVALUATION_REVIEWED','label':'REVIEWED',
+                'exploratory':{'separate':{'categories':{}}},'formal':{'separate':{'scored':1,'correct':1}}}
+    report(tmp_path,manifest,candidates=candidates)
+    gate=json.loads((tmp_path/'pr8-readiness.json').read_text())
+    assert gate['schema_version']==2 and gate['scope']=='PR8_INFORMATIONAL_ONLY'
+    assert gate['criteria']['candidate_review_complete']=='PASS'
+    assert gate['criteria']['training_chain_correct']=='NOT_ASSESSED'
+    assert gate['criteria']['nano_learning_demonstrated']=='NOT_ASSESSED'
+    assert gate['criteria']['raw_readability_review_complete']=='NOT_ASSESSED'
+    assert gate['criteria']['v4_data_tokenizer_plan_reviewed']=='NOT_ASSESSED'
+    assert gate['ready_for_pr8'] is None and gate['status']=='NOT_ASSESSED'
+    assert gate['failed_criteria']==[]
+    assert gate==json.loads((tmp_path/'diagnostic-manifest.json').read_text())['conclusions']
+    text=(tmp_path/'diagnostic-report.md').read_text()
+    assert 'ready_for_pr8: `null`' in text and 'does not block PR #7 completion' in text

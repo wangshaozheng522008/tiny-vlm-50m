@@ -100,7 +100,11 @@ python scripts/evaluate_chinese_foundation.py \
 
 新目录包含 `diagnostic-manifest.json`、`training-diagnostics.json`、`memorization-results.json`、`candidate-results.json`、`generation-results.json`、`diagnostic-report.md`、曲线CSV、可读性审查表与PR8条件表。单独记忆/评测入口仅生成对应结果，其他维度记NOT_RUN。Manifest记录Git commit/dirty状态、逐实现文件哈希、数据/版本/Review/Checkpoint哈希、模型配置/参数量、Tokenizer指纹、seed、硬件/PyTorch、预算和递归产物哈希。没有一个合并总分。运行中断的目录留作失败证据，不能被新运行覆盖。
 
-结论使用独立的 `ENGINEERING_PASS/FAIL`、`LEARNING_DEMONSTRATED/INCONCLUSIVE`、`EVALUATION_PROVISIONAL/REVIEWED`。PR8条件逐项记录：训练链路通过、Nano学习现象、候选人工审查、Raw人工可读性审查、v4语料/Tokenizer方案审查。本工具不能自动批准最后两项，因此CPU基线通过并不自动批准正式训练。
+结论使用独立的 `ENGINEERING_PASS/FAIL`、`LEARNING_DEMONSTRATED/INCONCLUSIVE`、`EVALUATION_PROVISIONAL/REVIEWED`。PR8准入评估与PR7诊断完成状态独立，`scope=PR8_INFORMATIONAL_ONLY`，不参与诊断命令的成功/失败退出判断。尤其是v4语料/Tokenizer方案准备属于PR8工作，不能用来阻止PR7完成。
+
+`pr8-readiness.json`（及Manifest内的同一对象）的 `schema_version=2` 使用显式三态条件：`PASS`、`FAIL`、`NOT_ASSESSED`。未执行的训练/评测为NOT_ASSESSED；尚未完成的候选人工审查是已知未满足的条件。当前工具没有采集Raw人工可读性验收及v4语料/Tokenizer方案审查证据，因此这两项明确为NOT_ASSESSED，不假定通过或宣称审查失败。记录单独的 `failed_criteria` 和 `unassessed_criteria` 便于后续阶段接收证据。
+
+整体 `status` 为：存在明确未满足条件时NOT_READY，`ready_for_pr8=false`；没有明确未满足条件但仍有未评估项时NOT_ASSESSED，`ready_for_pr8=null`；只有全部条件明确PASS才为READY/true。消费报告时必须读取显式状态，不能对非空状态字符串执行 `all()` 来判断通过。此版本未新增人工验收证据输入入口，不能通过重跑诊断自动认证外部人工决定；相关验收应由后续独立、可追溯的证据流程处理。旧版报告和证据不回写。
 
 进入正式v4训练前还需要：独立完成题库与Raw人工审查；确定新语料来源/中文比例/质量与污染排查、可靠留出集；另立Tokenizer候选与压缩率/边界对比；冻结数据与Tokenizer身份；在目标硬件显式运行有预算的87M负载/恢复检查；审查时间、Token和存储预算，再决定PR8范围。不要通过增加训练量掩盖数值/恢复问题。
 

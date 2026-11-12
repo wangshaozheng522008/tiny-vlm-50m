@@ -53,27 +53,56 @@ def evaluate_checkpoint(checkpoint, tokenizer_path, out, *, seed=42, device='cpu
         'checkpoint_mode':payload.get('mode'),'scope':'Read-only checkpoint inference. Diagnostic scratch models cannot establish pretrained 87m capability.'}
 
 
+def summarize_pr8_readiness(criteria):
+    """Unknown evidence is neither a pass nor a failed assessment.
+
+    Use explicit statuses: nonempty strings such as NOT_ASSESSED are truthy,
+    so all(criteria.values()) would incorrectly authorize an unassessed gate.
+    """
+    if not criteria or any(value not in ('PASS','FAIL','NOT_ASSESSED') for value in criteria.values()):
+        raise ValueError('PR8 criteria require explicit PASS/FAIL/NOT_ASSESSED statuses')
+    failed=[name for name,value in criteria.items() if value=='FAIL']
+    unassessed=[name for name,value in criteria.items() if value=='NOT_ASSESSED']
+    return {'status':'NOT_READY' if failed else 'NOT_ASSESSED' if unassessed else 'READY',
+            'ready_for_pr8':False if failed else None if unassessed else True,
+            'failed_criteria':failed,'unassessed_criteria':unassessed}
+
+
+def _criterion_status(actual, passed):
+    return 'NOT_ASSESSED' if actual=='NOT_RUN' else 'PASS' if actual==passed else 'FAIL'
+
+
 def report(out, manifest, *, training=None, memorization=None, candidates=None, generation=None):
     engineering=training.get('engineering','ENGINEERING_FAIL') if training else (memorization or {}).get('engineering','NOT_RUN')
     learning=(memorization or {}).get('learning','NOT_RUN')
     evaluation=(candidates or {}).get('status','NOT_RUN')
-    criteria={'training_chain_correct':engineering=='ENGINEERING_PASS',
-              'nano_learning_demonstrated':learning=='LEARNING_DEMONSTRATED' and (memorization or {}).get('model_kind')=='nano',
-              'candidate_review_complete':evaluation=='EVALUATION_REVIEWED',
-              'raw_readability_review_complete':False,
-              'v4_data_tokenizer_plan_reviewed':False}
-    gate={'engineering':engineering,'learning':learning,'evaluation':evaluation,
-          'criteria':criteria,'ready_for_pr8':all(criteria.values()),
-          'required_next':['Human review of frozen questions and raw continuations',
-                           'Versioned v4 tokenizer/corpus plan and contamination audit',
+    criteria={'training_chain_correct':_criterion_status(engineering,'ENGINEERING_PASS'),
+              'nano_learning_demonstrated':_criterion_status(learning,'LEARNING_DEMONSTRATED')
+                  if (memorization or {}).get('model_kind')=='nano' else 'NOT_ASSESSED',
+              'candidate_review_complete':_criterion_status(evaluation,'EVALUATION_REVIEWED'),
+              # This workflow does not assess these external human decisions.
+              'raw_readability_review_complete':'NOT_ASSESSED',
+              'v4_data_tokenizer_plan_reviewed':'NOT_ASSESSED'}
+    gate={'schema_version':2,'scope':'PR8_INFORMATIONAL_ONLY',
+          'engineering':engineering,'learning':learning,'evaluation':evaluation,
+          'criteria':criteria,**summarize_pr8_readiness(criteria),
+          'pr8_preparation_criteria':['v4_data_tokenizer_plan_reviewed'],
+          'required_next':['Assess missing human review evidence separately',
+                           'PR #8 preparation: versioned v4 tokenizer/corpus plan and contamination audit',
                            'Explicit bounded 87m hardware probe before any real training'],
-          'reason':'This baseline is not authorization or evidence for a formal v4 training run.'}
+          'reason':'PR #8 readiness is separate from PR #7 completion. External evidence is NOT_ASSESSED; '
+                   'v4 data/tokenizer preparation is PR #8 work, not a mandatory PR #7 completion condition. '
+                   'This report does not authorize formal training.'}
     write_json(out/'pr8-readiness.json',gate)
     lines=['# MiniLLM training and Chinese foundation diagnostics','',
            f"Engineering: **{engineering}**; learning: **{learning}**; evaluation: **{evaluation}**.",'',
            f"Seed: {manifest['seed']}; Git: `{manifest['code']['git_commit']}`; dirty: {manifest['code']['git_dirty']}.",
            f"Environment: `{json.dumps(manifest['environment'],ensure_ascii=False)}`.",'',
            'All identities, configurations, token IDs, NLLs, loss curves and per-item results are in the adjacent JSON files.']
+    lines+=['',f"PR #8 readiness: **{gate['status']}**; ready_for_pr8: `{json.dumps(gate['ready_for_pr8'])}`.",
+            'This is an informational assessment, independent of PR #7 diagnostic completion.',
+            '', '| PR #8 criterion | Assessment |', '|---|---|']
+    lines += [f'| {name} | {status} |' for name,status in criteria.items()]
     if training:
         lines+=['',f"Correctness: tokenizer {training['tokenizer']['status']}; gradients/loss {training['loss_gradient']['status']}; resume {training['recovery']['status']}.",
                 f"Resume parameter maximum difference: {training['recovery']['max_parameter_difference']}; AdamW maximum difference: {training['recovery']['optimizer_max_difference']}."]
@@ -106,7 +135,9 @@ def report(out, manifest, *, training=None, memorization=None, candidates=None, 
         for mode,r in generation['modes'].items():
             s=r['summary'];lines.append(f"| {mode} | {s['generated']} | {s['empty_output']['numerator']} | {s['early_eos']['numerator']} | {s['generated_length']['mean']} | {s['repeat_4gram']['mean']} |")
     lines+=['','Known limits: heldout templates are narrow; candidate wording, length and token frequency biases remain. Wilson intervals do not capture benchmark design bias. Raw continuation needs human readability review. Decoder statistics are separate trend indicators. Different protocol identities prohibit direct capability deltas. CPU equality does not guarantee equality on other hardware.',
-            '', 'PR #8: engineering/learning evidence may inform planning, but human review and a versioned v4 data/tokenizer plan remain required. This report does not authorize formal 87m/v4 training.']
+            '', 'PR #8: external human acceptance evidence is NOT_ASSESSED by this workflow. '
+            'V4 data/tokenizer preparation belongs to PR #8 and does not block PR #7 completion. '
+            'This report does not authorize formal 87m/v4 training.']
     (out/'diagnostic-report.md').write_text('\n'.join(lines)+'\n',encoding='utf-8')
     manifest['conclusions']=gate
     manifest['artifacts']={str(p.relative_to(out)):{'sha256':file_sha256(p),'bytes':p.stat().st_size}
