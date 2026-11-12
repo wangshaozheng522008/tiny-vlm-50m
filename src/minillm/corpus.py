@@ -20,6 +20,7 @@ from .corpus_utils import (CorpusError, Stages, connect, database_output, file_i
                            histogram_add, identity, json_bytes, sha256, verify_file, write_json)
 from .data import encode_document_tokens
 from .tokenizer import MiniLLMTokenizer
+from .text_policy import validate_policy
 
 SPLITS = ("train", "val", "test")
 DEFAULT_DEDUP = {"method": "simhash", "hamming_distance": 4, "threshold": 0.85,
@@ -45,7 +46,7 @@ def merge(base, override):
 
 def make_content(config: dict, overrides: dict | None = None):
     allowed = {"dataset_name", "sources", "quality", "deduplication", "mixing", "license_policy",
-               "runtime", "seed", "shuffle_seed", "sample", "max_records", "split", "schema_version"}
+               "runtime", "seed", "shuffle_seed", "sample", "max_records", "split", "schema_version", "text_policy"}
     if set(config) - allowed:
         raise CorpusError(f"unknown config fields: {sorted(set(config) - allowed)}")
     if config.get("schema_version", 1) != 1:
@@ -67,6 +68,8 @@ def make_content(config: dict, overrides: dict | None = None):
                 content[parent][child] = value
             else:
                 content[key] = value
+    if "text_policy" in config:
+        content["text_policy"] = validate_policy(config["text_policy"])
     q, d, m = (content[name] for name in ("quality", "deduplication", "mixing"))
     policy = content["license_policy"]
     if (not isinstance(policy["allow"], list) or len(policy["allow"]) > 128
@@ -138,7 +141,7 @@ def input_identity(inputs):
 
 
 def implementation_identity():
-    modules = ("corpus.py", "corpus_store.py", "corpus_quality.py", "corpus_utils.py", "data.py", "tokenizer.py")
+    modules = ("corpus.py", "corpus_store.py", "corpus_quality.py", "corpus_utils.py", "data.py", "tokenizer.py", "text_policy.py")
     return identity({"modules": {name: sha256(Path(__file__).with_name(name)) for name in modules},
                      "tokenizers_version": importlib.metadata.version("tokenizers"),
                      "unicode_version": unicodedata.unidata_version})

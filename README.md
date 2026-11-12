@@ -619,3 +619,13 @@ PR #5 增加完整负载探测和统一启动配置：
 [1000万Token实测验收](docs/pilot-results.md)：T1200完成611步、10,000,848个有效Token，工程检查通过。固定预算Validation Loss从6.7583降至5.1211，PPL从861.19降至167.52；Raw/Chat题目得分仍为0，能力改善暂不能确认。未自动启动更大训练。
 
 [PR #5可靠性修复](docs/pr5-reliability-fixes.md)在首个更新前持久化初始化谱系，严格验证旧任务恢复，保留首次启动与Resume历史，并加强AdamW/RNG及继续训练对照。本次回归仅使用CPU Nano；已完成87M权重、数据和历史测量不变。
+
+### 输入一致性、语义审查与分阶段评测
+
+Tokenizer训练脚本现在直接拟合输入文本，消除隐式NFKC与编码不一致。新实验可在语料配置中显式使用 `width-fold-prose-v1`；旧实验保持 `identity-v1`。策略与数据和Checkpoint绑定，不能静默切换已有权重的输入契约。
+
+`scripts/audit_text_policy.py` 只读测量Token开销；`scripts/audit_corpus_semantics.py` 生成有界审查队列，并根据有来源的审查决定产出独立子集。启发式标记不等于语义错误率，也不会自动删除原数据。
+
+`configs/evaluation.pretrain.json` 使用LM指标、自然续写与独立候选似然，Chat为NOT_RUN；`configs/evaluation.sft.json` 以Chat指令评测为主。新24题/12提示独立版本，原160题/40提示不变。[操作步骤和限制](docs/quality-and-staged-evaluation.md)。
+
+[本轮实测结果](docs/quality-stage-results.md)记录规范化样本Token减少14.36%、379篇语义待审文档、同条件87M只读对比及402项回归结果；这些结果独立于历史试训练证据，未启动新训练。

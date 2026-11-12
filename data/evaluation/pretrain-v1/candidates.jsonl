@@ -1,0 +1,24 @@
+{"candidates": {"A": "冬", "B": "春", "C": "夏", "D": "秋"}, "category": "language", "id": "pretrain-001", "prompt": "春夏秋冬中的下一个季节：春、夏、秋、", "reference": "A", "schema_version": 1}
+{"candidates": {"A": "手", "B": "口", "C": "目", "D": "足"}, "category": "language", "id": "pretrain-002", "prompt": "成语“画蛇添", "reference": "D", "schema_version": 1}
+{"candidates": {"A": "羊", "B": "牛", "C": "兔", "D": "马"}, "category": "language", "id": "pretrain-003", "prompt": "成语“守株待", "reference": "C", "schema_version": 1}
+{"candidates": {"A": "墙", "B": "牢", "C": "门", "D": "窗"}, "category": "language", "id": "pretrain-004", "prompt": "成语“亡羊补", "reference": "B", "schema_version": 1}
+{"candidates": {"A": "北京", "B": "上海", "C": "广州", "D": "深圳"}, "category": "knowledge", "id": "pretrain-005", "prompt": "中华人民共和国的首都是", "reference": "A", "schema_version": 1}
+{"candidates": {"A": "太阳", "B": "火星", "C": "金星", "D": "月球"}, "category": "knowledge", "id": "pretrain-006", "prompt": "地球的天然卫星是", "reference": "D", "schema_version": 1}
+{"candidates": {"A": "300", "B": "400", "C": "100", "D": "200"}, "category": "knowledge", "id": "pretrain-007", "prompt": "在标准大气压下，水的沸点为摄氏", "reference": "C", "schema_version": 1}
+{"candidates": {"A": "肾", "B": "肺", "C": "胃", "D": "肝"}, "category": "knowledge", "id": "pretrain-008", "prompt": "人类主要用来呼吸的器官是", "reference": "B", "schema_version": 1}
+{"candidates": {"A": "20", "B": "21", "C": "22", "D": "23"}, "category": "math", "id": "pretrain-009", "prompt": "算式 12 + 8 =", "reference": "A", "schema_version": 1}
+{"candidates": {"A": "4", "B": "6", "C": "7", "D": "5"}, "category": "math", "id": "pretrain-010", "prompt": "算式 9 - 4 =", "reference": "D", "schema_version": 1}
+{"candidates": {"A": "48", "B": "49", "C": "42", "D": "36"}, "category": "math", "id": "pretrain-011", "prompt": "算式 6 × 7 =", "reference": "C", "schema_version": 1}
+{"candidates": {"A": "9", "B": "6", "C": "3", "D": "5"}, "category": "math", "id": "pretrain-012", "prompt": "算式 18 ÷ 3 =", "reference": "B", "schema_version": 1}
+{"candidates": {"A": "4", "B": "2", "C": "1", "D": "0"}, "category": "logic", "id": "pretrain-013", "prompt": "从小到大排列的整数为：1，2，3，", "reference": "A", "schema_version": 1}
+{"candidates": {"A": "通行", "B": "奔跑", "C": "跳跃", "D": "等待"}, "category": "logic", "id": "pretrain-014", "prompt": "红灯亮时，行人应当", "reference": "D", "schema_version": 1}
+{"candidates": {"A": "石头", "B": "机器", "C": "动物", "D": "植物"}, "category": "logic", "id": "pretrain-015", "prompt": "所有猫都是动物，小花是一只猫，因此小花是", "reference": "C", "schema_version": 1}
+{"candidates": {"A": "一样", "B": "小明", "C": "小红", "D": "小李"}, "category": "logic", "id": "pretrain-016", "prompt": "小明比小红高，小红比小李高，三人中最高的是", "reference": "B", "schema_version": 1}
+{"candidates": {"A": " cats", "B": " dogs", "C": " birds", "D": " fish"}, "category": "english", "id": "pretrain-017", "prompt": "The plural of cat is", "reference": "A", "schema_version": 1}
+{"candidates": {"A": " one", "B": " six", "C": " ten", "D": " two"}, "category": "english", "id": "pretrain-018", "prompt": "One plus one equals", "reference": "D", "schema_version": 1}
+{"candidates": {"A": " soft", "B": " fast", "C": " cold", "D": " warm"}, "category": "english", "id": "pretrain-019", "prompt": "The opposite of hot is", "reference": "C", "schema_version": 1}
+{"candidates": {"A": "梨子", "B": "苹果", "C": "香蕉", "D": "西瓜"}, "category": "english", "id": "pretrain-020", "prompt": "英文单词 apple 的中文意思是", "reference": "B", "schema_version": 1}
+{"candidates": {"A": "3", "B": "1", "C": "2", "D": "4"}, "category": "code", "id": "pretrain-021", "prompt": "Python 表达式 len([1, 2, 3]) 的值是", "reference": "A", "schema_version": 1}
+{"candidates": {"A": "2", "B": "4", "C": "5", "D": "3"}, "category": "code", "id": "pretrain-022", "prompt": "Python 表达式 7 // 2 的值是", "reference": "D", "schema_version": 1}
+{"candidates": {"A": "4", "B": "9", "C": "8", "D": "6"}, "category": "code", "id": "pretrain-023", "prompt": "Python 表达式 2 ** 3 的值是", "reference": "C", "schema_version": 1}
+{"candidates": {"A": "Zero", "B": "False", "C": "True", "D": "None"}, "category": "code", "id": "pretrain-024", "prompt": "Python 表达式 bool(0) 的值是", "reference": "B", "schema_version": 1}

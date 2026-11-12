@@ -26,7 +26,7 @@ from minillm.corpus import guard_tokenizer_training
 from minillm.corpus_utils import CorpusError
 from minillm.checkpoint import atomic_write
 from minillm.data import stream_documents
-from minillm.tokenizer import MiniLLMTokenizer, normalise_text
+from minillm.tokenizer import MiniLLMTokenizer
 
 CATEGORIES = ("zh", "en", "code")
 
@@ -37,7 +37,6 @@ def build_sample(paths: list[Path], limit_chars: int = 200_000) -> list[str]:
     chars = 0
     for path in paths:
         for text in stream_documents([path]):
-            text = normalise_text(text)
             if len(text) < 20:
                 continue
             sample.append(text)
@@ -88,7 +87,6 @@ def weighted_documents(
                 continue
             if len(text) < skip_below:
                 continue
-            text = normalise_text(text)
             if not text:
                 continue
             chars += len(text)
@@ -164,13 +162,13 @@ def main() -> None:
         "vocab_size": tokenizer.vocab_size,
         "fingerprint": tokenizer.fingerprint,
         "special_token_ids": tokenizer.special_ids,
+        "text_policy": "identity-v1",
+        "input_contract": "fits supplied corpus verbatim; use the corpus pipeline for explicit normalization",
         "corpus": {"weights": weights, "paths": {k: [str(p) for p in v] for k, v in pools.items()}},
         "training": {**stats, "seed": args.seed, "max_chars": args.max_chars, "seconds": round(elapsed, 1)},
     }
     samples = {
-        "zh": build_sample([Path(p) for p in args.eval_zh]) if args.eval_zh else [],
-        "en": build_sample([Path(p) for p in args.eval_en]) if args.eval_en else [],
-        "code": build_sample([Path(p) for p in args.eval_code]) if args.eval_code else [],
+        name: build_sample([Path(p) for p in getattr(args, "eval_" + name)]) for name in CATEGORIES
     }
     samples = {k: v for k, v in samples.items() if v}
     if samples:

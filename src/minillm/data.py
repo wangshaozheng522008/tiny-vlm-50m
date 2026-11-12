@@ -127,6 +127,7 @@ class SFTDataset(Dataset):
     ):
         self.path = Path(path)
         self.tokenizer = tokenizer
+        self.text_policy = tokenizer.text_policy
         self.max_seq_len = max_seq_len
         self.system = system
         self.supervise_all = supervise_all_assistant_turns

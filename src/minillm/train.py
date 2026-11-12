@@ -134,6 +134,8 @@ def save_model_checkpoint(
         "val_loss": val_loss,
         "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
     }
+    if tokenizer.text_policy != "identity-v1":
+        payload["text_policy"] = tokenizer.text_policy
     if extra:
         payload.update(extra)
     atomic_torch_save(payload, path)
@@ -378,9 +380,23 @@ def fit(
         opts, model, tokenizer, train_dataset, val_dataset, mode=mode,
         sampler=sampler, precision=precision, device=device,
     )
+    # Metadata only; old manifests and the optimizer/cursor math stay unchanged.
+    policy = manifest["dataset"]["train"].get("text_policy", "identity-v1")
+    if tokenizer.text_policy not in ("identity-v1", policy):
+        raise CheckpointError("runtime tokenizer text policy differs from dataset")
+    if "text_policy" in opts.extra_meta and opts.extra_meta["text_policy"] != policy:
+        raise CheckpointError("checkpoint metadata text policy differs from dataset")
+    if policy != "identity-v1":
+        opts.extra_meta = {**opts.extra_meta, "text_policy": policy}
     out = Path(opts.out)
     if not opts.resume:
         manifest = _prepare_run_manifest(out, manifest)
+        if opts.init_from:
+            from .text_policy import checkpoint_text_policy
+            source = torch.load(opts.init_from, map_location="cpu", weights_only=False, mmap=True)
+            if checkpoint_text_policy(source) != policy:
+                raise CheckpointError("init-from text policy differs; use a new model experiment, not existing weights")
+            del source
         if on_run_prepared is not None:
             on_run_prepared(copy.deepcopy(manifest))
     plan = manifest["training"]

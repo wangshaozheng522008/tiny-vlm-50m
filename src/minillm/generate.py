@@ -23,6 +23,7 @@ from .model import MiniLLM
 from .quantize import dequantize_model
 from .tokenizer import DEFAULT_SYSTEM, END_OF_TURN_ID, EOS_ID, MiniLLMTokenizer
 from .utils import get_device, set_seed
+from .text_policy import checkpoint_text_policy
 
 
 def stop_ids_for(raw: bool) -> tuple[int, ...]:
@@ -112,6 +113,7 @@ def main() -> None:
     set_seed(args.seed)
     model, payload = load_any_checkpoint(args.ckpt, device)
     tokenizer = MiniLLMTokenizer.load(args.tokenizer)
+    tokenizer.text_policy = checkpoint_text_policy(payload)
     tokenizer.assert_vocab_size(model.cfg.vocab_size)
     if payload.get("tokenizer_fingerprint") not in (None, tokenizer.fingerprint):
         raise SystemExit("checkpoint and tokenizer do not come from the same tokenizer")

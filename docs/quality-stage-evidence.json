@@ -1,0 +1,520 @@
+{
+  "schema_version": 1,
+  "scope": "New code regression and read-only evaluation; not replacement historical pilot measurements",
+  "base_commit": "8fd842f23afa4255a10ee6996ca1fc718ce01ecb",
+  "formal_training_run": false,
+  "existing_weights_or_data_modified": false,
+  "source_files": {
+    "scripts/audit_corpus_semantics.py": {
+      "bytes": 177,
+      "sha256": "1939440fedcf266baf52fa3843d55ae3701cb0ab1d17bda89f5fb99db1313944"
+    },
+    "scripts/audit_text_policy.py": {
+      "bytes": 4041,
+      "sha256": "302d8c2705d0ad15eb4ea5377d0c7049724eb21941e2633964d98682f46b81a8"
+    },
+    "src/minillm/corpus_semantics.py": {
+      "bytes": 13977,
+      "sha256": "027066814ac498ccf0d32faeb293a0f89682b8bcac40ac9e41c3e178becd788e"
+    },
+    "src/minillm/evaluation_candidates.py": {
+      "bytes": 4591,
+      "sha256": "982960050a72510d6bfde93bb6baff60f735574a302ad881565bfe8c9eabfbca"
+    },
+    "src/minillm/text_policy.py": {
+      "bytes": 1871,
+      "sha256": "44973733b56c5f4940af106960827a3aabecb4cfa9295ffe753b2079a1ad7a1a"
+    },
+    "tests/test_corpus_semantics.py": {
+      "bytes": 3825,
+      "sha256": "3121c4dd5ab40ffc23d982b1185b796e904727111afd02622a49d884ef8248d3"
+    },
+    "tests/test_staged_evaluation.py": {
+      "bytes": 4989,
+      "sha256": "ec2d407968d0bb4fa13135a4390ffff6e6cce7c0d124aad84a452382f3937eee"
+    },
+    "tests/test_text_policy.py": {
+      "bytes": 7159,
+      "sha256": "b6c6c646f917828214dfdd1c9425169af38a7f3a37ae9f61be0e1730c2147a6d"
+    },
+    "scripts/train_tokenizer.py": {
+      "bytes": 7604,
+      "sha256": "1e8c74d58388d8d254bb317a067f20ab93452b1daf23f52b4e27a604405fef79"
+    },
+    "src/minillm/corpus.py": {
+      "bytes": 27287,
+      "sha256": "00b1b8e6843b2bc36c3f1da55066283385e2de5e9e209929e21d8fec321b6820"
+    },
+    "src/minillm/corpus_store.py": {
+      "bytes": 16466,
+      "sha256": "ca846ea5ca728377b561fa0cdc967feb00ec311db313bb6dc23e36d72711575e"
+    },
+    "src/minillm/data.py": {
+      "bytes": 13805,
+      "sha256": "7c4c00487f560fb1476c3627f37776da86f0b20a16b2c5dc4537c3fa99b3aca6"
+    },
+    "src/minillm/evaluation.py": {
+      "bytes": 27752,
+      "sha256": "40830bc604d74c3bafd8fccffe6a7e8ba0d1996724600107cdbefcac56221476"
+    },
+    "src/minillm/evaluation_compare.py": {
+      "bytes": 7492,
+      "sha256": "b1e2a6f59333a0181e5de9e7f8db5ae1635076b983fe8b0836929114de6698bc"
+    },
+    "src/minillm/generate.py": {
+      "bytes": 6087,
+      "sha256": "c74d22c29c7c1705828d60e512a2fd94278d51f25e68eed7f465cd2cfe2d47f6"
+    },
+    "src/minillm/quantize.py": {
+      "bytes": 9951,
+      "sha256": "c80cd8c1ba3cc02371f0f2f28351562d103623fc3be7c5e209005c5b1925ecd1"
+    },
+    "src/minillm/sft.py": {
+      "bytes": 7601,
+      "sha256": "2333e94d1c31bad8fcdd7d9614caea3771274cc17f33d1f0ab770aff88e65d5e"
+    },
+    "src/minillm/tokenizer.py": {
+      "bytes": 13576,
+      "sha256": "315a10e55140aacbff72f99c49ef332ec9f8aeec352e415ea2210fa18ef826ed"
+    },
+    "src/minillm/train.py": {
+      "bytes": 38345,
+      "sha256": "e1d5d45610203840457166356b71b3bef94486358b5b8b0cc3df297fe68fbf4a"
+    },
+    "src/minillm/training_manifest.py": {
+      "bytes": 8072,
+      "sha256": "4053f1d77545396e540a7b0d18042e1b342dcfbc56925f4460bd6ebaa12bf234"
+    },
+    "src/minillm/training_readiness.py": {
+      "bytes": 19810,
+      "sha256": "31b199cd8655ab24434f2aa12870e06e3554605011c7316f6e8cc976173953c1"
+    },
+    "src/minillm/web.py": {
+      "bytes": 12372,
+      "sha256": "058a0ad60affa37b16c19bf408444e0d17e9a746fff8ffddcbe0230ac081e0d5"
+    },
+    "src/minillm/workload.py": {
+      "bytes": 13597,
+      "sha256": "f6abda853850fd454f60450ba8081994822e732c756a056d61cbd053b9cd4639"
+    }
+  },
+  "normalization": {
+    "schema_version": 1,
+    "status": "DIAGNOSTIC_ONLY",
+    "policy": "width-fold-prose-v1",
+    "tokenizer_fingerprint": "42155349a7a25cfd7a394f6db70fd2443d5f0a1ac98a75738e2abbeee663c33d",
+    "tokenizer_has_internal_normalizer": false,
+    "inputs": {
+      "/home/voyah/work_space/git_ws/min_llm/data/processed/minillm-pilot-research-v3/train.text.jsonl": {
+        "bytes": 136378185,
+        "sha256": "bac1639dddc5f130d4c1548c2a5461b28312ae86b31d1a8870a5cd0f8476b010"
+      },
+      "/home/voyah/work_space/git_ws/min_llm/runs/pilot-10m-t1200-v3/tokenizer.json": {
+        "bytes": 2090092,
+        "sha256": "355d857235dc1806e194239efdcaa4ae3d7a00d3bcad31b658ef5871770b42e0"
+      }
+    },
+    "documents_scanned": 122910,
+    "documents_changed": 116005,
+    "malformed_records": 0,
+    "sample": {
+      "seed": 42,
+      "documents": 512,
+      "changed_documents": 488,
+      "raw_tokens_including_eos": 63757,
+      "policy_tokens_including_eos": 54601,
+      "relative_token_reduction": 0.1436077607164703,
+      "rule": "lowest seeded full-text SHA256 ranks; duplicate occurrences retained; documents <=8192 chars",
+      "long_documents_excluded_from_token_sample": 1
+    },
+    "interpretation": "Token efficiency only; does not demonstrate quality improvement. Existing checkpoints keep identity-v1. Applying the new policy requires a new model/data experiment."
+  },
+  "semantics": {
+    "schema_version": 1,
+    "status": "REVIEW_PENDING",
+    "rules": "semantic-review-v1",
+    "implementation_sha256": "027066814ac498ccf0d32faeb293a0f89682b8bcac40ac9e41c3e178becd788e",
+    "seed": 42,
+    "inputs": {
+      "/home/voyah/work_space/git_ws/min_llm/data/processed/minillm-pilot-research-v3/train.text.jsonl": {
+        "bytes": 136378185,
+        "sha256": "bac1639dddc5f130d4c1548c2a5461b28312ae86b31d1a8870a5cd0f8476b010"
+      }
+    },
+    "records_seen": 122910,
+    "unique_documents": 122910,
+    "malformed_records": 0,
+    "duplicates": 0,
+    "flagged_documents": 379,
+    "flags_by_reason": {
+      "flattened_instruction_record": 361,
+      "literal_arithmetic_mismatch": 18
+    },
+    "review_documents": 200,
+    "review_sampling": "half flag-prioritized, remainder hash-seeded sample; not unbiased error-rate estimator",
+    "coverage": {
+      "literal_and_format_scan": "all valid records",
+      "factual_correctness": "NOT_CHECKED",
+      "human_review": "NOT_RUN",
+      "semantic_error_rate": null
+    },
+    "limitations": "No general factual/logical verifier. Flags must be reviewed; absence of flags is not semantic approval.",
+    "report_path": "reports/quality-stage-final/semantic-review",
+    "review_file": {
+      "bytes": 149099,
+      "sha256": "380e73fbc830ad65411324710f253fe9e59fdcf72e65184e8355f4807fd6f4cd"
+    },
+    "manifest": {
+      "bytes": 1237,
+      "sha256": "f9b99957307dad08605b1957c5170d3892ccc7f35347ff3609a897c8d6ba46bc"
+    }
+  },
+  "evaluations": {
+    "baseline": {
+      "evaluation_id": "a441ab8517a379bbd51837cf42935b8900ff59f8717b2cadea47ec8bfc76e158",
+      "language_model": {
+        "loss": 6.758310668170452,
+        "loss_sum": 442912.64794921875,
+        "tokens": 65536,
+        "perplexity": 861.1861370998043,
+        "perplexity_status": "finite",
+        "display_clipped": false,
+        "batches": 129
+      },
+      "stage": {
+        "requested": "pretrain",
+        "checkpoint_mode": "pretrain",
+        "primary": "language_model + natural-prefix likelihood",
+        "raw": "COMPLETED",
+        "chat": "NOT_RUN"
+      },
+      "candidate_likelihood": {
+        "status": "COMPLETED",
+        "tasks": 24,
+        "categories": {
+          "code": {
+            "correct": 0,
+            "tasks": 4,
+            "accuracy": 0.0,
+            "ties": 0
+          },
+          "english": {
+            "correct": 0,
+            "tasks": 4,
+            "accuracy": 0.0,
+            "ties": 0
+          },
+          "knowledge": {
+            "correct": 2,
+            "tasks": 4,
+            "accuracy": 0.5,
+            "ties": 0
+          },
+          "language": {
+            "correct": 0,
+            "tasks": 4,
+            "accuracy": 0.0,
+            "ties": 0
+          },
+          "logic": {
+            "correct": 1,
+            "tasks": 4,
+            "accuracy": 0.25,
+            "ties": 0
+          },
+          "math": {
+            "correct": 1,
+            "tasks": 4,
+            "accuracy": 0.25,
+            "ties": 0
+          }
+        },
+        "interpretation": "small original natural-prefix probes; candidate likelihood has token-length and wording bias, not open-ended reasoning or chat ability"
+      },
+      "diagnostics": {
+        "scope": "degeneration indicators, not quality scores",
+        "generations": 12,
+        "empty_outputs": 0,
+        "early_endings": 0,
+        "empty_output_rate": 0.0,
+        "early_end_rate": 0.0,
+        "mean_generated_tokens": 16.0,
+        "mean_token_4gram_repeat_ratio": 0.1923076923076923,
+        "special_token_anomalies": 0
+      },
+      "checkpoint": {
+        "sha256": "dab85a443d77fc8d54adcd517fe687f4cd3381282c0cc314cde4a18fbb37688a",
+        "path": "/home/voyah/work_space/git_ws/min_llm/runs/minillm-87m/run/model.pt",
+        "global_step": 160,
+        "tokens_seen": 2618880,
+        "mode": "pretrain",
+        "quantized_bits": null,
+        "parameters": 86528640,
+        "execution": "FP32"
+      },
+      "environment": {
+        "python_version": "3.11.17",
+        "torch_version": "2.14.1+cu126",
+        "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.35",
+        "device": "cpu",
+        "device_name": "x86_64",
+        "cuda_version": "12.6",
+        "threads": 1,
+        "numerical_scope": "same software/device; cross-GPU/version bitwise equality is not guaranteed"
+      },
+      "text_policy": "identity-v1",
+      "report_path": "reports/quality-stage-v1/baseline-pretrain",
+      "report_sha256": "cbc71d5fd148474485754084f29895eaf4bddc4e1d8175c3ab3d2326d7756242",
+      "comparison_implementation": "e6f552e677140222ad5e61ce7dd72f786a773ee07aacea7b2a07efed538748dc"
+    },
+    "final": {
+      "evaluation_id": "07c89ead6f97ab3c4098ad8cdd2a38fa53228986c46e6368066d892ad40e69c8",
+      "language_model": {
+        "loss": 5.121103231795132,
+        "loss_sum": 335616.6213989258,
+        "tokens": 65536,
+        "perplexity": 167.52008119242478,
+        "perplexity_status": "finite",
+        "display_clipped": false,
+        "batches": 129
+      },
+      "stage": {
+        "requested": "pretrain",
+        "checkpoint_mode": "pretrain",
+        "primary": "language_model + natural-prefix likelihood",
+        "raw": "COMPLETED",
+        "chat": "NOT_RUN"
+      },
+      "candidate_likelihood": {
+        "status": "COMPLETED",
+        "tasks": 24,
+        "categories": {
+          "code": {
+            "correct": 0,
+            "tasks": 4,
+            "accuracy": 0.0,
+            "ties": 0
+          },
+          "english": {
+            "correct": 2,
+            "tasks": 4,
+            "accuracy": 0.5,
+            "ties": 0
+          },
+          "knowledge": {
+            "correct": 3,
+            "tasks": 4,
+            "accuracy": 0.75,
+            "ties": 0
+          },
+          "language": {
+            "correct": 0,
+            "tasks": 4,
+            "accuracy": 0.0,
+            "ties": 0
+          },
+          "logic": {
+            "correct": 4,
+            "tasks": 4,
+            "accuracy": 1.0,
+            "ties": 0
+          },
+          "math": {
+            "correct": 2,
+            "tasks": 4,
+            "accuracy": 0.5,
+            "ties": 0
+          }
+        },
+        "interpretation": "small original natural-prefix probes; candidate likelihood has token-length and wording bias, not open-ended reasoning or chat ability"
+      },
+      "diagnostics": {
+        "scope": "degeneration indicators, not quality scores",
+        "generations": 12,
+        "empty_outputs": 1,
+        "early_endings": 5,
+        "empty_output_rate": 0.08333333333333333,
+        "early_end_rate": 0.4166666666666667,
+        "mean_generated_tokens": 12.25,
+        "mean_token_4gram_repeat_ratio": 0.1923076923076923,
+        "special_token_anomalies": 0
+      },
+      "checkpoint": {
+        "sha256": "6046ebc61b9196c554758b5982f44da00b4a7e4e6daebfa6100af6a1dea9fec9",
+        "path": "/home/voyah/work_space/git_ws/min_llm/runs/pilot-10m-t1200-v3/model.pt",
+        "global_step": 611,
+        "tokens_seen": 10000848,
+        "mode": "pretrain",
+        "quantized_bits": null,
+        "parameters": 86528640,
+        "execution": "FP32"
+      },
+      "environment": {
+        "python_version": "3.11.17",
+        "torch_version": "2.14.1+cu126",
+        "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.35",
+        "device": "cpu",
+        "device_name": "x86_64",
+        "cuda_version": "12.6",
+        "threads": 1,
+        "numerical_scope": "same software/device; cross-GPU/version bitwise equality is not guaranteed"
+      },
+      "text_policy": "identity-v1",
+      "report_path": "reports/quality-stage-v1/final-pretrain",
+      "report_sha256": "0c55ac99b8cf718146dff16933e51c136698e846c7a137ba6e24cface5fb7c0f",
+      "comparison_implementation": "e6f552e677140222ad5e61ce7dd72f786a773ee07aacea7b2a07efed538748dc"
+    },
+    "nano": {
+      "evaluation_id": "990b0ec9f35b8e47a6432ca8da3128e469ce3fb50425ab9c573364c14687d281",
+      "language_model": {
+        "loss": 5.076254919171333,
+        "loss_sum": 1299.5212593078613,
+        "tokens": 256,
+        "perplexity": 160.17307016656346,
+        "perplexity_status": "finite",
+        "display_clipped": false,
+        "batches": 9
+      },
+      "stage": {
+        "requested": "pretrain",
+        "checkpoint_mode": "pretrain",
+        "primary": "language_model + natural-prefix likelihood",
+        "raw": "COMPLETED",
+        "chat": "NOT_RUN"
+      },
+      "candidate_likelihood": {
+        "status": "COMPLETED",
+        "tasks": 24,
+        "categories": {
+          "code": {
+            "correct": 0,
+            "tasks": 4,
+            "accuracy": 0.0,
+            "ties": 0
+          },
+          "english": {
+            "correct": 1,
+            "tasks": 4,
+            "accuracy": 0.25,
+            "ties": 0
+          },
+          "knowledge": {
+            "correct": 0,
+            "tasks": 4,
+            "accuracy": 0.0,
+            "ties": 0
+          },
+          "language": {
+            "correct": 1,
+            "tasks": 4,
+            "accuracy": 0.25,
+            "ties": 0
+          },
+          "logic": {
+            "correct": 1,
+            "tasks": 4,
+            "accuracy": 0.25,
+            "ties": 0
+          },
+          "math": {
+            "correct": 1,
+            "tasks": 4,
+            "accuracy": 0.25,
+            "ties": 0
+          }
+        },
+        "interpretation": "small original natural-prefix probes; candidate likelihood has token-length and wording bias, not open-ended reasoning or chat ability"
+      },
+      "diagnostics": {
+        "scope": "degeneration indicators, not quality scores",
+        "generations": 12,
+        "empty_outputs": 0,
+        "early_endings": 0,
+        "empty_output_rate": 0.0,
+        "early_end_rate": 0.0,
+        "mean_generated_tokens": 8.0,
+        "mean_token_4gram_repeat_ratio": 0.7999999999999999,
+        "special_token_anomalies": 0
+      },
+      "checkpoint": {
+        "sha256": "2db9abba6845a9b57a9ed2948179a89810b2decaa02bf91037dbdb6d2df46185",
+        "path": "/home/voyah/work_space/git_ws/min_llm/reports/quality-stage-v1/nano-workflow-delivery/run/model.pt",
+        "global_step": 8,
+        "tokens_seen": 992,
+        "mode": "pretrain",
+        "quantized_bits": null,
+        "parameters": 337536,
+        "execution": "FP32"
+      },
+      "environment": {
+        "python_version": "3.11.17",
+        "torch_version": "2.14.1+cu126",
+        "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.35",
+        "device": "cpu",
+        "device_name": "x86_64",
+        "cuda_version": "12.6",
+        "threads": 1,
+        "numerical_scope": "same software/device; cross-GPU/version bitwise equality is not guaranteed"
+      },
+      "text_policy": "identity-v1",
+      "report_path": "reports/quality-stage-final/nano-pretrain",
+      "report_sha256": "8b40965b235b11bb8512b2a1349cfcb4fe2f5d2482157d57b348578b50955358",
+      "comparison_implementation": "e6f552e677140222ad5e61ce7dd72f786a773ee07aacea7b2a07efed538748dc"
+    }
+  },
+  "comparison": {
+    "comparable": true,
+    "path": "reports/quality-stage-v1/comparison"
+  },
+  "protected_artifacts": {
+    "runs/pilot-10m-t1200-v3/state.pt": "2bfeecab6c0dd093c5c05d27b34b7b76c1e8aa501d2746c8d3c17cb3f47989fc",
+    "runs/pilot-10m-t1200-v3/model.pt": "6046ebc61b9196c554758b5982f44da00b4a7e4e6daebfa6100af6a1dea9fec9",
+    "runs/pilot-10m-t1200-v3/best.pt": "fc7fe59e774bf92fc42a7b1e56c1484cf78caf1be8973ac17e43766a490f5b0a",
+    "runs/pilot-10m-t1200-v3/state.prev.pt": "40062b45c671a2b1445174c3686e19f3704ff50e85df1615362e0a1ab52c8a1c",
+    "runs/pilot-10m-t1200-v3/training-manifest.json": "1f47b69297aa5641885a0246e0b9ab97ae80fe4883554cd07ccee6138422831a",
+    "runs/pilot-10m-t1200-v3/pilot-lineage.json": "0a2c18d5eca55c564409d20a07e530ec99eb906873610491297be3d7d8401524",
+    "data/processed/minillm-pilot-research-v3/train.bin": "909e3a319bb226c77c4d26e88bf1263d85a3bd3ea137d1710b22cda766e9088c",
+    "data/processed/minillm-pilot-research-v3/val.bin": "c433fa003e780b29f576c7658beedf356b234a27db42422985e041801c8a506c",
+    "data/processed/minillm-pilot-research-v3/test.bin": "9470b650c19776878a5e668200d3dadae7b8f594964431e8450eb5b318a64ad3",
+    "data/processed/minillm-pilot-research-v3/tokenizer.json": "355d857235dc1806e194239efdcaa4ae3d7a00d3bcad31b658ef5871770b42e0",
+    "data/processed/minillm-pilot-research-v3/dataset-manifest.json": "c992309196436d8c31d843f8bfaaec3bb76139cac201cf059d918fab506226cd",
+    "docs/pilot-evidence.json": "1efa24c0d2bffcfe17dade2d720cc5604cdb9958bf319f90dcb35f842153022e",
+    "data/evaluation/minillm-zh-benchmark.jsonl": "07a84b6b311c3c35b20e92537f33d756edd5d1ad05ac954e7a0e1b2c67941f4a",
+    "data/evaluation/fixed-prompts.jsonl": "39ada73b830e9b8f362637143a8a2f2b8ba37eefdf8c389658555bb8614cc2a0",
+    "data/evaluation/benchmark-version.json": "7bb7d33292376ccd239007d29b46ef6a633551cd0b0bcae783edd1640cda7d8b"
+  },
+  "tests": {
+    "pytest": {
+      "command": "python -m pytest -q -o addopts=''",
+      "interpreter": ".venv/bin/python",
+      "status": "PASS",
+      "log_sha256": "cc02d254f43d075e5a91c1b37835b2c44e76710c4bb1ae7c9e2b0891cbd12a83",
+      "result": "402 passed in 137.36s"
+    },
+    "smoke": {
+      "command": "./scripts/smoke_test.sh",
+      "interpreter": ".venv/bin/python",
+      "status": "PASS",
+      "log_sha256": "690e492fec0c0c19dbecf2fce65ef5c51bbb0354aba8664ec94a7b1180da0a0d"
+    },
+    "synthetic_smoke": {
+      "command": "SYNTHETIC=1 ./scripts/smoke_test.sh",
+      "interpreter": ".venv/bin/python",
+      "status": "PASS",
+      "log_sha256": "c96922b0ec840f949d7cd72b2e02fa49ac87819b13fad4404bab98e58f5bfc5d"
+    },
+    "reliability": {
+      "command": "python scripts/check_training_reliability.py",
+      "interpreter": ".venv/bin/python",
+      "status": "PASS",
+      "log_sha256": "c0d0683f4aec1fba9d0cadf92054c6dda8178809bbda2a01fd9416988b8306c3"
+    },
+    "evaluation_workflow": {
+      "command": "python scripts/check_evaluation_workflow.py --out reports/quality-stage-v1/nano-workflow-delivery",
+      "interpreter": ".venv/bin/python",
+      "status": "PASS",
+      "log_sha256": "f62040e660b1c738b74e840e1f355ed61ec561899a5b891238b985fb6fef57ab"
+    }
+  },
+  "protected_artifacts_verified_equal": true
+}

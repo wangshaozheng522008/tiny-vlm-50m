@@ -31,9 +31,13 @@ def compare_evaluations(directories, out, *, allow_incomparable=False):
                 value=result["accuracy"]
                 changes[mode][category]={"accuracy":value,"delta":value-old if comparable and value is not None and old is not None else None}
         performance=report["performance"]
+        candidate_changes = {}
+        for category, value in report.get("candidate_likelihood", {}).get("categories", {}).items():
+            old = baseline.get("candidate_likelihood", {}).get("categories", {}).get(category, {}).get("accuracy")
+            candidate_changes[category] = {**value, "delta": value["accuracy"]-old if comparable and old is not None else None}
         comparisons.append({"evaluation_id":report["evaluation_id"],"checkpoint":report["checkpoint"],
             "language_model":lm,"loss_delta":lm["loss"]-base_lm["loss"] if comparable and lm and base_lm else None,
-            "scores":changes,"environment":report["environment"],
+            "scores":changes,"candidate_likelihood":candidate_changes,"stage":report.get("stage"),"environment":report["environment"],
             "performance_reference":{**performance,"generation_tokens_per_second":
                 performance["generation_tokens"]/max(performance["generation_seconds"],1e-9),
                 "ranking":"not ranked; hardware/environment and warm-up differ"},
@@ -54,6 +58,9 @@ def compare_evaluations(directories, out, *, allow_incomparable=False):
             categories=sorted({c for row in comparisons for c in row["scores"][mode]})
             for category in categories:
                 lines.append("| "+category+" | "+" | ".join(str(row["scores"][mode].get(category)) for row in comparisons)+" |")
+        lines.extend(["", "## Natural-prefix likelihood (separate metric)", ""])
+        for row in comparisons:
+            lines.append(json.dumps(row["candidate_likelihood"], ensure_ascii=False))
         lines.extend(["","## Fixed prompt generations","","Inference times and memory are references; no hardware ranking.",""])
         keyed=[{(p["kind"],p["id"]):p for p in row["predictions"]} for row in comparisons]
         for key,prediction in keyed[0].items():

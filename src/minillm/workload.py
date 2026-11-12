@@ -71,7 +71,7 @@ def hardware(device):
 def implementation():
     return identity({name: file_info(Path(__file__).with_name(name)) for name in (
         "workload.py", "train.py", "model.py", "data.py", "tokenizer.py", "checkpoint.py",
-        "training_manifest.py", "config.py", "utils.py", "evaluation.py")})
+        "training_manifest.py", "config.py", "utils.py", "evaluation.py", "text_policy.py")})
 
 
 def resolve_plan(dataset, tokenizer_path, model_config, config):
@@ -101,6 +101,11 @@ def resolve_plan(dataset, tokenizer_path, model_config, config):
         lineage = load_for_resume(opts, state, manifest, train, sampler, report=extra.get("lineage_report"))
         init = lineage["initialization"]
     elif opts.init_from:
+        from .text_policy import checkpoint_text_policy
+        payload = torch.load(opts.init_from, map_location="cpu", weights_only=False, mmap=True)
+        if checkpoint_text_policy(payload) != manifest["dataset"]["train"].get("text_policy", "identity-v1"):
+            raise ValueError("initialization text policy differs from dataset")
+        del payload
         init = {"sha256": file_info(Path(opts.init_from))["sha256"], "kind": "weights_only"}
     else:
         init = {"seed": opts.seed, "kind": "fresh"}

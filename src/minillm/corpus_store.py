@@ -78,7 +78,9 @@ def normalize_sources(path: Path, inputs: list[dict], content: dict, runtime: di
                         continue
                     hint = record.get("category", item["category"])
                     category = classify(record["text"], hint)
-                    text = normalise(record["text"], category, strip_html=quality["strip_html"])
+                    from .text_policy import IDENTITY, apply_text_policy
+                    text = apply_text_policy(record["text"], content.get("text_policy", IDENTITY), category=category)
+                    text = normalise(text, category, strip_html=quality["strip_html"])
                     category = classify(text, hint)
                     issue = quality_issue(text, category, quality)
                     if issue:

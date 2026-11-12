@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "dataset_name": "minillm-quality-v1-new-model-experiment",
+  "seed": 42,
+  "shuffle_seed": 13,
+  "sample": 0,
+  "max_records": 0,
+  "split": [
+    0.96,
+    0.02,
+    0.02
+  ],
+  "sources": [
+    {
+      "name": "reviewed-source",
+      "paths": [
+        "../data/reviewed-source-v1/accepted.jsonl"
+      ],
+      "category": "auto",
+      "license": "unknown",
+      "enabled": true
+    }
+  ],
+  "license_policy": {
+    "allow": [],
+    "exclude_unknown": true
+  },
+  "quality": {
+    "min_chars": 80,
+    "max_chars": 20000,
+    "max_parent_chars": 200000,
+    "max_record_bytes": 1048576,
+    "long_document": "split",
+    "strip_html": true,
+    "unicode_checks": true,
+    "repetition_checks": true,
+    "advertising_checks": true,
+    "category_min_chars": {
+      "code": 20,
+      "unknown": 20
+    },
+    "min_information_ratio": {
+      "zh": 0.15,
+      "en": 0.35,
+      "code": 0.1,
+      "mixed": 0.15,
+      "unknown": 0.15
+    }
+  },
+  "deduplication": {
+    "method": "simhash",
+    "hamming_distance": 4,
+    "threshold": 0.85,
+    "ngram": 4,
+    "max_candidates": 2000,
+    "near_code": false
+  },
+  "mixing": {
+    "by": "source",
+    "weights": {
+      "reviewed-source": 1.0
+    },
+    "token_budget": 0,
+    "basis": "estimated",
+    "chars_per_token": {
+      "zh": 1.8,
+      "en": 4.0,
+      "code": 3.0,
+      "mixed": 2.0,
+      "unknown": 3.0
+    }
+  },
+  "runtime": {
+    "sqlite_cache_mib": 16,
+    "buffer_bytes": 1048576,
+    "commit_every": 1000
+  },
+  "text_policy": "width-fold-prose-v1"
+}

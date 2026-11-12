@@ -89,6 +89,8 @@ class MiniLLMTokenizer:
     def __init__(self, tokenizer: Tokenizer, ignore_index: int = -100):
         self._tok = tokenizer
         self.ignore_index = ignore_index
+        # Runtime experiment metadata, deliberately excluded from vocab JSON.
+        self.text_policy = "identity-v1"
 
     # ------------------------------------------------------------------ training
 
@@ -177,7 +179,8 @@ class MiniLLMTokenizer:
     # ------------------------------------------------------------------ text
 
     def encode(self, text: str, *, add_bos: bool = False, add_eos: bool = False) -> list[int]:
-        ids = self._tok.encode(text).ids
+        from .text_policy import apply_text_policy
+        ids = self._tok.encode(apply_text_policy(text, self.text_policy)).ids
         if add_bos:
             ids = [BOS_ID, *ids]
         if add_eos:
@@ -204,7 +207,7 @@ class MiniLLMTokenizer:
         merged into a neighbouring word by BPE — the same split is used at
         training and inference time, which is what keeps the two formats equal.
         """
-        return self._tok.encode(text).ids
+        return self.encode(text)
 
     def chat_encoding(
         self,

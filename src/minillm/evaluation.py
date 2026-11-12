@@ -28,6 +28,8 @@ from .utils import get_device, peak_rss_mb, set_seed
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BENCHMARK = ROOT / "data/evaluation/minillm-zh-benchmark.jsonl"
 DEFAULT_PROMPTS = ROOT / "data/evaluation/fixed-prompts.jsonl"
+PRETRAIN_CANDIDATES = ROOT / "data/evaluation/pretrain-v1/candidates.jsonl"
+PRETRAIN_PROMPTS = ROOT / "data/evaluation/pretrain-v1/prompts.jsonl"
 
 
 @dataclass(frozen=True)
@@ -41,8 +43,12 @@ class EvaluationConfig:
     top_k: int = 0
     system: str | None = DEFAULT_SYSTEM
     threads: int = 1
+    stage: str = "legacy"
+    candidate_normalization: str = "sum"
 
     def validate(self):
+        if self.stage not in ("legacy", "pretrain", "sft") or self.candidate_normalization not in ("sum", "mean"):
+            raise ValueError("invalid evaluation stage/candidate normalization")
         for key in ("seq_len", "batch_size", "max_new_tokens", "threads"):
             if type(getattr(self, key)) is not int or getattr(self, key) <= 0:
                 raise ValueError(f"{key} must be a positive integer")
@@ -286,15 +292,24 @@ def load_tasks(path, *, scored):
 
 def evaluate_model(ckpt, tokenizer_path, out, *, dataset=None, bin_path=None, split="val",
                    benchmark=DEFAULT_BENCHMARK, prompts=DEFAULT_PROMPTS, config=None, device="cpu",
-                   sft_data=()):
+                   sft_data=(), candidate_benchmark=None):
     config = config or EvaluationConfig()
     config.validate()
+    if config.stage == "pretrain":
+        if benchmark == DEFAULT_BENCHMARK or str(benchmark) == str(DEFAULT_BENCHMARK):
+            benchmark = None
+        if prompts == DEFAULT_PROMPTS or str(prompts) == str(DEFAULT_PROMPTS):
+            prompts = PRETRAIN_PROMPTS
+        if candidate_benchmark is None:
+            candidate_benchmark = PRETRAIN_CANDIDATES
+    from .evaluation_candidates import load_candidates, candidate_prediction, aggregate_candidates
+    from .text_policy import checkpoint_text_policy, IDENTITY
     torch.set_num_threads(config.threads)
     set_seed(config.seed)
     device = get_device(device)
     with report_directory(out) as directory:
-        paths = [Path(p) for p in (ckpt, tokenizer_path, benchmark, prompts, *sft_data) if p]
-        for asset in (benchmark,prompts):
+        paths = [Path(p) for p in (ckpt, tokenizer_path, benchmark, prompts, candidate_benchmark, *sft_data) if p]
+        for asset in (benchmark,prompts,candidate_benchmark):
             if asset and (Path(asset).parent/"benchmark-version.json").exists():
                 paths.append(Path(asset).parent/"benchmark-version.json")
         before = {str(p.resolve()): file_info(p) for p in paths}
@@ -303,8 +318,17 @@ def evaluate_model(ckpt, tokenizer_path, out, *, dataset=None, bin_path=None, sp
         except Exception as exc:
             raise ValueError(f"invalid tokenizer: {exc}") from exc
         model, payload = load_evaluation_model(ckpt, tokenizer, device)
+        tokenizer.text_policy = checkpoint_text_policy(payload)
         data, data_info = prepare_eval_data(dataset, bin_path, split, tokenizer, config.seq_len, model.cfg)
+        if data_info and data_info.get("text_policy", IDENTITY) != tokenizer.text_policy:
+            raise ValueError("checkpoint/evaluation dataset text policy mismatch")
         tasks, fixed = load_tasks(benchmark, scored=True), load_tasks(prompts, scored=False)
+        if config.stage == "pretrain":
+            tasks = [t for t in tasks if t["generation_mode"] == "raw"]
+            fixed = [t for t in fixed if t["generation_mode"] == "raw"]
+        elif config.stage == "sft":
+            tasks = [t for t in tasks if t["generation_mode"] == "chat"]
+        candidates = load_candidates(candidate_benchmark)
         for task in tasks + fixed:
             validate_generation(model, tokenizer, task, config)
         policy = {"config": asdict(config), "model_config": model.cfg.to_dict(),
@@ -312,11 +336,13 @@ def evaluate_model(ckpt, tokenizer_path, out, *, dataset=None, bin_path=None, sp
                   "benchmark_sha256": file_info(Path(benchmark))["sha256"] if benchmark else None,
                   "fixed_prompts_sha256": file_info(Path(prompts))["sha256"] if prompts else None,
                   "tokenizer_fingerprint": tokenizer.fingerprint,
-                  "benchmark_provenance": task_asset_provenance(benchmark,len(tasks)),
-                  "fixed_prompts_provenance": task_asset_provenance(prompts,len(fixed)),
+                  "text_policy": tokenizer.text_policy,
+                  "candidate_provenance": task_asset_provenance(candidate_benchmark,len(candidates)),
+                  "benchmark_provenance": task_asset_provenance(benchmark,len(load_tasks(benchmark,scored=True))),
+                  "fixed_prompts_provenance": task_asset_provenance(prompts,len(load_tasks(prompts,scored=False))),
                   "implementation": identity({name: file_info(Path(__file__).with_name(name)) for name in
                       ("evaluation.py", "evaluation_scoring.py", "evaluation_contamination.py", "assessment_io.py",
-                       "generate.py", "model.py", "tokenizer.py", "data.py", "config.py")})}
+                       "generate.py", "model.py", "tokenizer.py", "data.py", "config.py", "text_policy.py", "evaluation_candidates.py")})}
         evaluation_identity = {"checkpoint_sha256": file_info(Path(ckpt))["sha256"], "policy": policy}
         evaluation_id = identity(evaluation_identity)
         if device.type == "cuda":
@@ -338,16 +364,28 @@ def evaluate_model(ckpt, tokenizer_path, out, *, dataset=None, bin_path=None, sp
                             row["score"]={"correct":False,"status":"invalid_special_tokens"}
                     predictions.append(row)
                     handle.write(json.dumps(row, ensure_ascii=False, allow_nan=False) + "\n")
+            for task in candidates:
+                row = candidate_prediction(model, tokenizer, task, normalization=config.candidate_normalization)
+                predictions.append(row)
+                handle.write(json.dumps(row, ensure_ascii=False, allow_nan=False) + "\n")
         from .evaluation_contamination import contamination_audit
-        contamination = contamination_audit(tasks, dataset=dataset, sft_data=sft_data)
+        contamination = contamination_audit(tasks + [{**t, "reference": t["candidates"][t["reference"]]} for t in candidates], dataset=dataset, sft_data=sft_data)
         for path, expected in before.items():
             if file_info(Path(path)) != expected:
                 raise ValueError(f"input changed during evaluation: {path}")
         if data is not None and dataset_identity(data, model.cfg.ignore_index)[0]["sha256"] != data_info["sha256"]:
             raise ValueError("evaluation BIN changed during evaluation")
         seconds = time.perf_counter() - started
+        all_predictions = predictions
+        predictions = [r for r in all_predictions if r["kind"] != "candidate_likelihood"]
         report = {"schema_version": 1, "evaluation_id": evaluation_id, "language_model": lm,
                   "scores": aggregate_scores(predictions), "dataset": data_info,
+                  "candidate_likelihood": aggregate_candidates(all_predictions),
+                  "stage": {"requested": config.stage, "checkpoint_mode": payload.get("mode", "unknown"),
+                      "primary": "language_model + natural-prefix likelihood" if config.stage == "pretrain" else "chat instruction" if config.stage == "sft" else "legacy separated raw/chat",
+                      "raw": "COMPLETED" if any(p["generation_mode"] == "raw" for p in predictions) else "NOT_RUN",
+                      "chat": "COMPLETED" if any(p["generation_mode"] == "chat" for p in predictions) else "NOT_RUN"},
+                  "text_policy": tokenizer.text_policy,
                   "checkpoint": {"sha256": evaluation_identity["checkpoint_sha256"], "path": str(Path(ckpt).resolve()),
                     "global_step": payload.get("global_step", payload.get("step")),
                     "tokens_seen": payload.get("tokens_seen"), "mode": payload.get("mode", "unknown"),
@@ -370,7 +408,10 @@ def evaluate_model(ckpt, tokenizer_path, out, *, dataset=None, bin_path=None, sp
                   "interpretation": "original probes; untrained scores do not demonstrate ability; no test-driven training decisions"}
         write_json(directory / "evaluation.json", report)
         lines = ["# MiniLLM evaluation", "", f"Checkpoint: {ckpt}", f"Stage: {report['checkpoint']['mode']}", "",
+                 f"Evaluation stage: {json.dumps(report['stage'], ensure_ascii=False)}", "",
+                 f"Text policy: {tokenizer.text_policy}", "",
                  f"Language model ({split if dataset else 'custom/none'}): {json.dumps(lm, ensure_ascii=False)}", "",
+                 f"Natural-prefix likelihood (separate metric): {json.dumps(report['candidate_likelihood'], ensure_ascii=False)}", "",
                  "Raw and Chat are reported separately; no combined total.", ""]
         for mode, score in report["scores"].items():
             lines.extend([f"## {mode}", "", "| Category | Correct / scored | Accuracy |", "|---|---:|---:|"])
@@ -398,6 +439,9 @@ def main(argv=None):
     parser.add_argument("--prompts", default=str(DEFAULT_PROMPTS))
     parser.add_argument("--sft-data", nargs="*", default=[])
     parser.add_argument("--device", default="cpu")
+    parser.add_argument("--stage", choices=["legacy", "pretrain", "sft"])
+    parser.add_argument("--candidate-normalization", choices=["sum", "mean"])
+    parser.add_argument("--candidate-benchmark")
     for name in ("seq-len", "batch-size", "token-budget", "max-new-tokens", "seed", "top-k", "threads"):
         parser.add_argument("--"+name, type=int)
     parser.add_argument("--temperature", type=float)

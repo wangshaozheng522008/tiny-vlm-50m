@@ -1,0 +1,12 @@
+{"category": "中文连续段落", "generation_mode": "raw", "id": "natural-001", "max_new_tokens": 64, "prompt": "人工智能是一门"}
+{"category": "自我介绍", "generation_mode": "raw", "id": "natural-002", "max_new_tokens": 64, "prompt": "我是一名正在学习的"}
+{"category": "生活场景", "generation_mode": "raw", "id": "natural-003", "max_new_tokens": 64, "prompt": "清晨，公园里"}
+{"category": "科学常识", "generation_mode": "raw", "id": "natural-004", "max_new_tokens": 64, "prompt": "植物生长需要"}
+{"category": "故事续写", "generation_mode": "raw", "id": "natural-005", "max_new_tokens": 64, "prompt": "小雨打开旧木盒，发现"}
+{"category": "数值续写", "generation_mode": "raw", "id": "natural-006", "max_new_tokens": 64, "prompt": "一加一等于"}
+{"category": "英文续写", "generation_mode": "raw", "id": "natural-007", "max_new_tokens": 64, "prompt": "The sky is"}
+{"category": "代码续写", "generation_mode": "raw", "id": "natural-008", "max_new_tokens": 64, "prompt": "def add(a, b):\n    return"}
+{"category": "中文说明", "generation_mode": "raw", "id": "natural-009", "max_new_tokens": 64, "prompt": "保护环境可以从"}
+{"category": "观察场景", "generation_mode": "raw", "id": "natural-010", "max_new_tokens": 64, "prompt": "窗外的雨渐渐停了，"}
+{"category": "知识续写", "generation_mode": "raw", "id": "natural-011", "max_new_tokens": 64, "prompt": "一年有十二个月，"}
+{"category": "科技段落", "generation_mode": "raw", "id": "natural-012", "max_new_tokens": 64, "prompt": "计算机通过"}

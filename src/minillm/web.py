@@ -25,6 +25,7 @@ from .model import MiniLLM
 from .quantize import dequantize_model
 from .tokenizer import DEFAULT_SYSTEM, END_OF_TURN_ID, MiniLLMTokenizer
 from .utils import describe_device, get_device, human_bytes, set_seed
+from .text_policy import checkpoint_text_policy
 
 ASSETS = Path(__file__).with_name("web_assets")
 CONTENT_TYPES = {
@@ -245,6 +246,7 @@ def serve(ckpt: str, tokenizer: str, host: str = "127.0.0.1", port: int = 8765,
     torch_device = get_device(device)
     model, payload = load_checkpoint(ckpt, torch_device)
     tok = MiniLLMTokenizer.load(tokenizer)
+    tok.text_policy = checkpoint_text_policy(payload)
     tok.assert_vocab_size(model.cfg.vocab_size)
     if payload.get("tokenizer_fingerprint") not in (None, tok.fingerprint):
         raise SystemExit("checkpoint and tokenizer fingerprints do not match")
