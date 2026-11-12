@@ -629,3 +629,5 @@ Tokenizer训练脚本现在直接拟合输入文本，消除隐式NFKC与编码�
 `configs/evaluation.pretrain.json` 使用LM指标、自然续写与独立候选似然，Chat为NOT_RUN；`configs/evaluation.sft.json` 以Chat指令评测为主。新24题/12提示独立版本，原160题/40提示不变。[操作步骤和限制](docs/quality-and-staged-evaluation.md)。
 
 [本轮实测结果](docs/quality-stage-results.md)记录规范化样本Token减少14.36%、379篇语义待审文档、同条件87M只读对比及402项回归结果；这些结果独立于历史试训练证据，未启动新训练。
+
+[PR #6审查修复](docs/pr6-category-boundary-fixes.md)贯通显式代码类别，审计候选BPE边界并提供独立联合分词对照；24题中1题受影响，原默认NLL与已发布诊断完全一致。新增回归后413项测试通过，旧诊断保持冻结。

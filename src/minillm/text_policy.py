@@ -10,6 +10,7 @@ import re
 IDENTITY = "identity-v1"
 WIDTH_FOLD = "width-fold-prose-v1"
 POLICIES = (IDENTITY, WIDTH_FOLD)
+TEXT_CATEGORIES = ("auto", "zh", "en", "code", "mixed", "unknown")
 _CODE = re.compile(r"(?m)^\s*(?:def |class |import |from \w+ import |return |print\(|[A-Za-z_]\w*\s*=)|```|~~~|#include")
 _LITERAL = re.compile(r"(`+).*?\1|\$[^$\n]+\$", re.S)
 _WIDTH = str.maketrans({**{chr(i): chr(i - 0xFEE0) for i in range(0xFF01, 0xFF5F)}, "\u3000": " "})
@@ -21,8 +22,15 @@ def validate_policy(policy: str) -> str:
     return policy
 
 
+def validate_text_category(category: str) -> str:
+    if category not in TEXT_CATEGORIES:
+        raise ValueError(f"unknown text category: {category!r}; supported: {TEXT_CATEGORIES}")
+    return category
+
+
 def apply_text_policy(text: str, policy: str = IDENTITY, *, category: str = "auto") -> str:
     validate_policy(policy)
+    validate_text_category(category)
     if policy == IDENTITY or category == "code" or _CODE.search(text):
         return text
     # Keep explicitly delimited literals. No strip, whitespace collapse, NFC or

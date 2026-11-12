@@ -178,36 +178,49 @@ class MiniLLMTokenizer:
 
     # ------------------------------------------------------------------ text
 
-    def encode(self, text: str, *, add_bos: bool = False, add_eos: bool = False) -> list[int]:
+    def prepare_text(self, text: str, *, category: str = "auto") -> str:
+        """Apply the experiment policy with the caller's declared content type.
+
+        Category is input metadata, not a property inferable from the vocabulary.
+        Unlabelled text uses the existing auto heuristic; callers must pass code
+        for source text that the heuristic cannot recognize.
+        """
         from .text_policy import apply_text_policy
-        ids = self._tok.encode(apply_text_policy(text, self.text_policy)).ids
+        return apply_text_policy(text, self.text_policy, category=category)
+
+    def encode(self, text: str, *, add_bos: bool = False, add_eos: bool = False,
+               category: str = "auto") -> list[int]:
+        ids = self._tok.encode(self.prepare_text(text, category=category)).ids
         if add_bos:
             ids = [BOS_ID, *ids]
         if add_eos:
             ids = [*ids, EOS_ID]
         return ids
 
-    def encode_document(self, text: str) -> list[int]:
+    def encode_document(self, text: str, *, category: str = "auto") -> list[int]:
         """One pretraining document: content followed by EOS (no BOS)."""
-        return self.encode(text, add_bos=False, add_eos=True)
+        return self.encode(text, add_bos=False, add_eos=True, category=category)
 
     def encode_batch(self, texts: Sequence[str], *, add_bos: bool = False,
-                     add_eos: bool = False) -> list[list[int]]:
-        return [self.encode(t, add_bos=add_bos, add_eos=add_eos) for t in texts]
+                     add_eos: bool = False, categories: Sequence[str] | None = None) -> list[list[int]]:
+        if categories is not None and len(categories) != len(texts):
+            raise ValueError("encode_batch categories must align with texts")
+        return [self.encode(t, add_bos=add_bos, add_eos=add_eos,
+                            category=categories[i] if categories is not None else "auto") for i,t in enumerate(texts)]
 
     def decode(self, ids: Sequence[int], skip_special_tokens: bool = True) -> str:
         return self._tok.decode(list(ids), skip_special_tokens=skip_special_tokens)
 
     # ------------------------------------------------------------------ chat
 
-    def _segment(self, text: str) -> list[int]:
+    def _segment(self, text: str, *, category: str = "auto") -> list[int]:
         """Encode a chat segment on its own.
 
         Segments are tokenised separately so that marker boundaries can never be
         merged into a neighbouring word by BPE — the same split is used at
         training and inference time, which is what keeps the two formats equal.
         """
-        return self.encode(text)
+        return self.encode(text, category=category)
 
     def chat_encoding(
         self,
@@ -216,6 +229,8 @@ class MiniLLMTokenizer:
         system: str | None = DEFAULT_SYSTEM,
         add_generation_prompt: bool = False,
         supervise_all_assistant_turns: bool = True,
+        category: str = "auto",
+        system_category: str = "auto",
     ) -> ChatEncoding:
         """Tokenise a conversation and mark the tokens that carry loss.
 
@@ -234,6 +249,7 @@ class MiniLLMTokenizer:
 
         if messages[0]["role"] == "system":
             system = messages[0]["content"]
+            system_category = messages[0].get("category", system_category)
             messages = messages[1:]
         if not messages:
             raise ValueError("conversation has no user/assistant turns")
@@ -243,7 +259,7 @@ class MiniLLMTokenizer:
         ignore = self.ignore_index
 
         if system is not None and system != "":
-            ids += [SYSTEM_ID, *self._segment("\n" + system), END_OF_TURN_ID, *self._segment("\n")]
+            ids += [SYSTEM_ID, *self._segment("\n" + system, category=system_category), END_OF_TURN_ID, *self._segment("\n")]
             labels += [ignore] * (len(ids) - len(labels))
 
         assistant_indices = [i for i, m in enumerate(messages) if m["role"] == "assistant"]
@@ -251,7 +267,7 @@ class MiniLLMTokenizer:
 
         for index, message in enumerate(messages):
             role_id = USER_ID if message["role"] == "user" else ASSISTANT_ID
-            content = self._segment("\n" + message["content"])
+            content = self._segment("\n" + message["content"], category=message.get("category", category))
             supervised = message["role"] == "assistant" and (
                 supervise_all_assistant_turns or index == last_assistant
             )
@@ -280,10 +296,13 @@ class MiniLLMTokenizer:
         *,
         system: str | None = DEFAULT_SYSTEM,
         add_generation_prompt: bool = False,
+        category: str = "auto",
+        system_category: str = "auto",
     ) -> list[int]:
         """Inference-side ids; always exercised by the same code path as SFT."""
         return self.chat_encoding(
-            messages, system=system, add_generation_prompt=add_generation_prompt
+            messages, system=system, add_generation_prompt=add_generation_prompt,
+            category=category, system_category=system_category,
         ).ids
 
     # ------------------------------------------------------------------ metrics

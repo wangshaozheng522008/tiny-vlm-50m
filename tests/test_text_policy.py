@@ -7,7 +7,8 @@ import numpy as np
 import pytest
 import torch
 
-from minillm.corpus import Pipeline, inventory, make_content, read_records
+from minillm.corpus import Pipeline, inventory, make_content, read_records, tokenize_split
+from minillm.corpus_utils import CorpusError
 from minillm.data import PackedPretrainDataset, SFTDataset
 from minillm.model import MiniLLM
 from minillm.quantize import save_quantized
@@ -18,6 +19,9 @@ from minillm.training_manifest import dataset_identity
 from minillm.checkpoint import CheckpointError
 from minillm.evaluation import EvaluationConfig, evaluate_model
 from minillm.workload import resolve_plan
+from minillm.generate import build_reply
+from minillm.web import ChatEngine
+from unittest.mock import patch
 
 
 def test_conservative_width_fold():
@@ -121,3 +125,77 @@ def test_runtime_policy_cannot_mislabel_legacy_training(tmp_path,tiny_tokenizer,
         fit(TrainingOptions(out=str(tmp_path/'bad'),max_steps=1,device='cpu',precision='fp32'),
             MiniLLM(nano_cfg),tokenizer,PackedPretrainDataset(packed_data[0],16),None)
     assert not (tmp_path/'bad').exists()
+
+
+@pytest.mark.parametrize('text',['Ａ＝１','［１，２］','变量＝＂全角值＂','Ａ'])
+def test_declared_unusual_code_reaches_all_tokenizer_paths(tmp_path,tiny_tokenizer,text):
+    tokenizer=MiniLLMTokenizer.load(tiny_tokenizer_path(tmp_path,tiny_tokenizer))
+    fingerprint=tokenizer.fingerprint
+    tokenizer.text_policy=WIDTH_FOLD
+    expected=tokenizer._tok.encode(text).ids
+    assert tokenizer.prepare_text(text,category='code')==text
+    assert tokenizer.encode(text,category='code')==expected
+    assert tokenizer.encode_document(text,category='code')==expected+[2]
+    assert tokenizer.encode_batch([text,'中文，１２３'],categories=['code','zh'])==[
+        expected,tokenizer._tok.encode('中文,123').ids]
+    with pytest.raises(ValueError,match='align'):
+        tokenizer.encode_batch([text],categories=[])
+    with pytest.raises(ValueError,match='unknown text category'):
+        tokenizer.encode(text,category='math')
+    messages=[{'role':role,'content':text,'category':'code'} for role in ('system','user','assistant')]
+    protected=tokenizer.chat_encoding(messages)
+    tokenizer.text_policy=IDENTITY
+    reference=tokenizer.chat_encoding(messages)
+    assert protected.ids==reference.ids and protected.labels==reference.labels
+    assert tokenizer.fingerprint==fingerprint
+
+
+def test_pipeline_fitted_text_equals_declared_code_runtime_and_bin(tmp_path):
+    rows=[{'text':text,'category':'code'} for text in ('Ａ＝１','［１，２］','变量＝＂全角值＂')]
+    rows.append({'text':'<p>中文&#xff0c;１２３</p>','category':'zh'})
+    raw=tmp_path/'code.jsonl';raw.write_text(''.join(json.dumps(r,ensure_ascii=False)+'\n' for r in rows))
+    content=make_content({'text_policy':WIDTH_FOLD,'split':[1,0,0],
+        'deduplication':{'method':'exact'},'quality':{'min_chars':1,'category_min_chars':{'code':1}}})
+    pipeline=Pipeline(tmp_path/'data',content,inventory([str(raw)]),log=lambda *_:None)
+    observed=[];original=MiniLLMTokenizer.train
+    def capture(texts,**kwargs):
+        observed.extend(texts)
+        return original(iter(observed),**kwargs)
+    with patch.object(MiniLLMTokenizer,'train',side_effect=capture):
+        pipeline.tokenize(vocab_size=264)
+    split=list(read_records(pipeline.out/'train.text.jsonl'))
+    assert observed==[r['text'] for r in split]
+    assert {r['text'] for r in split if r['category']=='code'}=={r['text'] for r in rows if r['category']=='code'}
+    assert next(r['text'] for r in split if r['category']=='zh')=='中文,123'
+    tokenizer=MiniLLMTokenizer.load(pipeline.out/'tokenizer.json');tokenizer.text_policy=WIDTH_FOLD
+    expected=[]
+    for row in split:
+        ids=tokenizer.encode_document(row['text'],category=row['category'])
+        assert ids==tokenizer._tok.encode(row['text']).ids+[2]
+        expected.extend(ids)
+    assert np.fromfile(pipeline.out/'train.bin',dtype='<u2').tolist()==expected
+    with pytest.raises(CorpusError,match='not canonical'):
+        tokenize_split(iter([{'text':'中文，１２３','category':'zh'}]),tokenizer,tmp_path/'bad.bin')
+    assert not (tmp_path/'bad.bin').exists()
+
+
+def test_unusual_code_sft_inference_and_web_category(tmp_path,tiny_tokenizer,nano_cfg):
+    tokenizer=MiniLLMTokenizer.load(tiny_tokenizer_path(tmp_path,tiny_tokenizer));tokenizer.text_policy=WIDTH_FOLD
+    text='Ａ＝１';messages=[{'role':'user','content':text},{'role':'assistant','content':text}]
+    ds=SFTDataset(tmp_path/'sft.jsonl',tokenizer,128,system=None,records=[{'messages':messages,'category':'code'}])
+    expected=tokenizer.chat_encoding(messages,category='code',system=None)
+    assert ds[0]['input_ids'].tolist()==expected.ids and ds[0]['labels'].tolist()==expected.labels
+    model=MiniLLM(nano_cfg).eval()
+    def end(inputs,**kwargs):
+        assert inputs[0].tolist()==tokenizer.encode(text,category='code')
+        return torch.cat([inputs,torch.tensor([[2]],device=inputs.device)],dim=1)
+    with patch.object(model,'generate',side_effect=end):
+        assert build_reply(model,tokenizer,text,raw=True,category='code')['text_category']=='code'
+    engine=ChatEngine(model,tokenizer,torch.device('cpu'),'nano',1)
+    with patch.object(model,'_sample',return_value=torch.tensor([[2]])):
+        result=engine.chat(text,text_category='code',max_new_tokens=1,temperature=0)
+    assert result['text_category']=='code'
+    assert [m['category'] for m in engine.history]==['code','code']
+    actual,_=engine._prompt_ids(text,'中文，１２３',128,category='code')
+    assert actual==tokenizer.apply_chat_template([*engine.history,{'role':'user','content':text,'category':'code'}],
+        system='中文，１２３',add_generation_prompt=True)

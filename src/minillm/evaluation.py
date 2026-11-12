@@ -45,10 +45,13 @@ class EvaluationConfig:
     threads: int = 1
     stage: str = "legacy"
     candidate_normalization: str = "sum"
+    candidate_boundary_policy: str = "separate"
 
     def validate(self):
         if self.stage not in ("legacy", "pretrain", "sft") or self.candidate_normalization not in ("sum", "mean"):
             raise ValueError("invalid evaluation stage/candidate normalization")
+        if self.candidate_boundary_policy not in ("separate", "joint_shared_prefix"):
+            raise ValueError("invalid candidate boundary policy")
         for key in ("seq_len", "batch_size", "max_new_tokens", "threads"):
             if type(getattr(self, key)) is not int or getattr(self, key) <= 0:
                 raise ValueError(f"{key} must be a positive integer")
@@ -190,10 +193,11 @@ def repetition(text, ids):
 
 
 def prompt_ids(tokenizer, task, config):
+    category = task.get("text_category", "auto")
     if task["generation_mode"] == "raw":
-        return tokenizer.encode(task["prompt"])
+        return tokenizer.encode(task["prompt"], category=category)
     return tokenizer.apply_chat_template([{"role": "user", "content": task["prompt"]}],
-                                         system=config.system, add_generation_prompt=True)
+                                         system=config.system, add_generation_prompt=True, category=category)
 
 
 def validate_generation(model, tokenizer, task, config):
@@ -227,6 +231,7 @@ def generate_prediction(model, tokenizer, task, config):
     anomalies = [t for t in kept if t in SPECIAL_TOKEN_IDS.values()]
     return {"id": task["id"], "category": task.get("category", "observation"),
             "generation_mode": task["generation_mode"], "prompt": task["prompt"],
+            "text_category": task.get("text_category", "auto"),
             "prompt_token_ids": ids, "generated_token_ids": generated, "decoded_text": text,
             "generated_tokens": len(generated), "content_tokens": len(kept), "generation_budget": budget,
             "stop_reason": {2: "eos", 7: "end_of_turn"}.get(stop_token, "max_new_tokens"),
@@ -274,6 +279,8 @@ def task_asset_provenance(path, count):
 def load_tasks(path, *, scored):
     tasks, seen = [], set()
     for task in records(path) if path else ():
+        from .text_policy import validate_text_category
+        validate_text_category(task.get("text_category", "auto"))
         if scored:
             validate_task(task)
         elif (not isinstance(task.get("prompt"), str) or not task["prompt"].strip()
@@ -365,7 +372,8 @@ def evaluate_model(ckpt, tokenizer_path, out, *, dataset=None, bin_path=None, sp
                     predictions.append(row)
                     handle.write(json.dumps(row, ensure_ascii=False, allow_nan=False) + "\n")
             for task in candidates:
-                row = candidate_prediction(model, tokenizer, task, normalization=config.candidate_normalization)
+                row = candidate_prediction(model, tokenizer, task, normalization=config.candidate_normalization,
+                                           boundary_policy=config.candidate_boundary_policy)
                 predictions.append(row)
                 handle.write(json.dumps(row, ensure_ascii=False, allow_nan=False) + "\n")
         from .evaluation_contamination import contamination_audit
@@ -441,6 +449,7 @@ def main(argv=None):
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--stage", choices=["legacy", "pretrain", "sft"])
     parser.add_argument("--candidate-normalization", choices=["sum", "mean"])
+    parser.add_argument("--candidate-boundary-policy", choices=["separate", "joint_shared_prefix"])
     parser.add_argument("--candidate-benchmark")
     for name in ("seq-len", "batch-size", "token-budget", "max-new-tokens", "seed", "top-k", "threads"):
         parser.add_argument("--"+name, type=int)

@@ -15,6 +15,19 @@
 
 代码识别是保守启发式。技术文档应声明 `category=code` 或使用代码围栏；本策略不能证明任意未标注文本的语义等价。它也不承诺提升模型能力，Token减少只表示编码效率变化。旧版清洗的NFC/HTML/空白规则仍独立执行。
 
+类别是输入契约的一部分，不能从词表还原。例如 `Ａ＝１` 不符合常见代码正则，但声明为代码时必须保持原文：
+
+```python
+tokenizer.text_policy = "width-fold-prose-v1"  # 从对应Checkpoint继承
+ids = tokenizer.encode("Ａ＝１", category="code")
+document_ids = tokenizer.encode_document("Ａ＝１", category="code")
+batch_ids = tokenizer.encode_batch(["Ａ＝１", "中文，１２３"], categories=["code", "zh"])
+```
+
+语料文本划分保留解析后的 `category`，打包传递同一标签，并检查编码前文本在该策略/类别下已规范化；不一致直接拒绝发布。Tokenizer拟合看到的文本与打包、运行时编码由此可对照验证。未知标签会报错；未声明时仍按 `auto`，不承诺能推断任意源码的类别。不能丢掉已知 `code` 标签后再调用默认编码。
+
+生成CLI支持 `--text-category code`。SFT会话可在记录上声明默认 `category`，也可在各消息上声明 `category`（含system消息，消息声明优先）；`chat_encoding`/`apply_chat_template` 接受 `category` 和独立的 `system_category`。Web API可传 `text_category`，历史消息保留该标签，无需改动页面。评测资产使用可选的 `text_category`，与题目的能力维度 `category=math/logic/...` 分开。
+
 在**新的**语料配置中设置 `"text_policy": "width-fold-prose-v1"`，使用新的输出目录。策略参与数据计划和内容身份，写入训练数据身份和新Checkpoint元数据；SFT、评测、生成与Web入口继承Checkpoint策略。INT4/INT8仅传递可选元数据，张量格式不变。未知策略、Train/Val策略不一致、已有权重与新策略不一致均拒绝。旧Checkpoint缺少该字段时明确按 `identity-v1` 处理，旧训练Manifest不添加默认字段。
 
 `configs/pretrain-corpus.quality-v1.example.json` 提供新实验模板。来源许可留为 `unknown`，且默认排除未知许可；应填写实际来源记录，不能为了让示例运行而编造许可。完成来源和审查后，在新的输出目录执行 `prepare_text.py --config … --train-tokenizer --out …`，仅用Train拟合词表。已有Checkpoint不得换用这个新Tokenizer。
@@ -91,6 +104,14 @@ Tokenizer JSON和词表指纹保持独立；同一个词表配不同输入策略
 新资产 `data/evaluation/pretrain-v1/` 独立于旧固定题库，包含24条原创自然前缀候选题和12个Raw提示；SHA256、题量和版本固定。尚未经过独立人工复核，仅作为初步诊断，不能据其少量题目推断通用能力。
 
 候选似然将前缀和每个候选分别编码后拼接；只在候选Token上计算一次因果Shift的NLL。参考选项不参与构造输入。默认使用总对数似然，也可显式选择 `candidate_normalization=mean`；两者存在不同长度偏差，不能混着比较。每个候选保存Token ID、长度和NLL；同分不判正确，策略导致候选编码重合则报错。
+
+默认 `candidate_boundary_policy=separate` 保留上述原口径，同时检测实际 `encode(prompt)+encode(candidate)` 与 `encode(prompt+candidate)` 的Token ID差异；报告受影响题数、候选数及题目ID，逐项保存联合Token ID和偏移，区分规范化上下文变化。分段编码不能被描述为与全文编码天然等价。
+
+另报 `joint_shared_prefix` 对照：对完整字符串联合分词，在独立Prompt和**全部候选**联合Token序列的最长共同前缀之后计算尾段NLL。这个尾段可能包含重新分词的Prompt字符，因此记录相关字符数；它不是严格的“只给答案计分”，共同上下文也取决于整组选项。`mean` 在该模式下除以整个尾段Token数。它与 `separate` 是不同指标，不能混成总分或选择较高者代表能力。
+
+没有共同上下文、联合分词超出上下文预算、选项坍缩或规范化随拼接上下文改变时，对照标记 `NOT_SCORABLE_*`，准确率分母不包含这些条目，不补BOS或伪造零分。可显式用 `--candidate-boundary-policy joint_shared_prefix` 选择主展示口径，策略进入评测Manifest；不同主口径拒绝直接计算跨Checkpoint变化量。
+
+本次修复只写新的评测目录，原 `quality-stage-evidence.json` 和旧诊断报告保持原样。[类别与边界修复实测](pr6-category-boundary-fixes.md)列出实际受影响题目及两种口径的结果。
 
 候选结果与Raw/Chat生成评分分开，未执行显示 `NOT_RUN`，不会合成总分。报告保存请求阶段和Checkpoint实际模式；对预训练模型运行SFT评测不代表模型已接受SFT。自定义Raw指令题在预训练配置下仍只能作为指令式诊断。比较要求阶段、输入策略、资产、配置和数据身份一致。旧报告与新代码报告的实现哈希不同，不能直接作为同条件比较；应重新只读评测基线。
 
