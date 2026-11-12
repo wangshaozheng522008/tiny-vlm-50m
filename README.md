@@ -21,7 +21,7 @@
 | 词表 | 24,576 | 24,576（ByteLevel BPE，中文优先） |
 | 上下文 | 2,048 | 2,048（RoPE θ=10000） |
 | INT4 权重文件 | **< 50,000,000 字节** | 见 [INT4 体积](#int4-体积) |
-| 依赖 | 纯 PyTorch，无 HF Transformers | torch + tokenizers + numpy |
+| 依赖 | 纯 PyTorch，无 HF Transformers | torch + tokenizers + numpy + pyyaml |
 | 视觉能力 | 无 | 无（旧 VLM 代码/依赖已删除） |
 
 ### 参数预算
@@ -247,6 +247,26 @@ SQLite 缓存、提交批次、写缓冲等运行参数与内容身份分开记�
 PR #2 的游标、RNG 和严格 Resume 规则保持不变。
 
 完整的去重方法、阶段恢复、估算限制、审计范围和 CPU 基准见 [数据流水线说明](docs/data-pipeline.md)。
+
+### 语料 v4 与 Tokenizer 候选（PR #8）
+
+[`configs/corpus_v4.yaml`](configs/corpus_v4.yaml) 定义中文优先的 100M 监督 Token 目标
+（中文 80%、英文 10%、数学/逻辑/代码 10%）、13 条可解释质量规则、精确与近似去重、
+按 family/cluster 的划分、冻结评测污染审计，以及 24,576 / 32,768 Tokenizer 候选。
+设计见 [语料 v4 设计](docs/corpus-v4-design.md)，实际数量、缺口和未完成的人类审核见
+[语料 v4 结果](docs/corpus-v4-results.md)。
+
+```bash
+# 正式状态：当前没有 APPROVED 来源，预期 NOT_READY，不会伪造语料
+python scripts/plan_corpus_v4.py --config configs/corpus_v4.yaml --status-only
+
+# 全合成 fixture 的端到端演示，产物固定标记 DEMO_ONLY
+python scripts/plan_corpus_v4.py --config configs/corpus_v4.yaml \
+    --demo --out reports/corpus-v4-demo
+```
+
+演示只验证流水线、规则和门禁，不是可训练语料；正式语料在许可、污染审计和预算通过前
+保持 `NOT_READY`，不会写入 `FROZEN`。
 
 ## 6. 训练
 

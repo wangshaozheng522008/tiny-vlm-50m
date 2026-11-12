@@ -1,0 +1,151 @@
+{
+  "schema_version": 4,
+  "demo_only": true,
+  "note": "Synthetic fixtures only; source/licence statuses exercise admission, not real permission.",
+  "sources": [
+    {
+      "source_id": "fixture-zh-general",
+      "source_name": "Synthetic Chinese general prose",
+      "source_uri": "fixture://corpus-v4/zh-general",
+      "license": "CC0-1.0",
+      "license_status": "APPROVED",
+      "license_evidence": "Synthetic fixture authored for this repository; CC0 dedication.",
+      "license_reviewer": "fixture-reviewer",
+      "license_reviewed_at": "2025-05-17",
+      "category": "zh_general",
+      "language": "zh",
+      "provenance_status": "DEMO_ONLY",
+      "paths": [
+        "zh_general.jsonl"
+      ],
+      "priority": 10,
+      "family_policy": "document"
+    },
+    {
+      "source_id": "fixture-zh-family",
+      "source_name": "Synthetic Chinese family-grouped prose",
+      "source_uri": "fixture://corpus-v4/zh-family",
+      "license": "CC0-1.0",
+      "license_status": "APPROVED",
+      "license_evidence": "Synthetic fixture authored for this repository; CC0 dedication.",
+      "license_reviewer": "fixture-reviewer",
+      "license_reviewed_at": "2025-05-17",
+      "category": "zh_general",
+      "language": "zh",
+      "provenance_status": "DEMO_ONLY",
+      "paths": [
+        "zh_family.jsonl"
+      ],
+      "priority": 9,
+      "family_policy": "document"
+    },
+    {
+      "source_id": "fixture-zh-encyclopedic",
+      "source_name": "Synthetic Chinese encyclopedic prose",
+      "source_uri": "fixture://corpus-v4/zh-encyclopedic",
+      "license": "CC0-1.0",
+      "license_status": "APPROVED",
+      "license_evidence": "Synthetic fixture authored for this repository; CC0 dedication.",
+      "license_reviewer": "fixture-reviewer",
+      "license_reviewed_at": "2025-05-17",
+      "category": "zh_encyclopedic",
+      "language": "zh",
+      "provenance_status": "DEMO_ONLY",
+      "paths": [
+        "zh_encyclopedic.jsonl"
+      ],
+      "priority": 8,
+      "family_policy": "document"
+    },
+    {
+      "source_id": "fixture-zh-education",
+      "source_name": "Synthetic Chinese education prose (review required)",
+      "source_uri": "fixture://corpus-v4/zh-education",
+      "license": "CC0-1.0",
+      "license_status": "REVIEW_REQUIRED",
+      "license_evidence": "Synthetic fixture; reviewer decision intentionally pending.",
+      "license_reviewer": "",
+      "license_reviewed_at": "",
+      "category": "zh_education",
+      "language": "zh",
+      "provenance_status": "DEMO_ONLY",
+      "paths": [
+        "zh_education.jsonl"
+      ],
+      "priority": 7,
+      "family_policy": "document"
+    },
+    {
+      "source_id": "fixture-en-general",
+      "source_name": "Synthetic English general prose",
+      "source_uri": "fixture://corpus-v4/en-general",
+      "license": "CC0-1.0",
+      "license_status": "APPROVED",
+      "license_evidence": "Synthetic fixture authored for this repository; CC0 dedication.",
+      "license_reviewer": "fixture-reviewer",
+      "license_reviewed_at": "2025-05-17",
+      "category": "en_general",
+      "language": "en",
+      "provenance_status": "DEMO_ONLY",
+      "paths": [
+        "en_general.jsonl"
+      ],
+      "priority": 6,
+      "family_policy": "document"
+    },
+    {
+      "source_id": "fixture-math-code",
+      "source_name": "Synthetic math and code prose",
+      "source_uri": "fixture://corpus-v4/math-code",
+      "license": "CC0-1.0",
+      "license_status": "APPROVED",
+      "license_evidence": "Synthetic fixture authored for this repository; CC0 dedication.",
+      "license_reviewer": "fixture-reviewer",
+      "license_reviewed_at": "2025-05-17",
+      "category": "math_logic_code",
+      "language": "mixed",
+      "provenance_status": "DEMO_ONLY",
+      "paths": [
+        "math_code.jsonl"
+      ],
+      "priority": 9,
+      "family_policy": "document"
+    },
+    {
+      "source_id": "fixture-unverified",
+      "source_name": "Synthetic text with unverified licence",
+      "source_uri": "fixture://corpus-v4/unverified",
+      "license": "LICENSE_UNVERIFIED",
+      "license_status": "REVIEW_REQUIRED",
+      "license_evidence": "No permission evidence; must stay out of formal builds.",
+      "license_reviewer": "",
+      "license_reviewed_at": "",
+      "category": "zh_general",
+      "language": "zh",
+      "provenance_status": "DEMO_ONLY",
+      "paths": [
+        "unverified_source.jsonl"
+      ],
+      "priority": 1,
+      "family_policy": "document"
+    },
+    {
+      "source_id": "fixture-rejected",
+      "source_name": "Synthetic text with rejected licence",
+      "source_uri": "fixture://corpus-v4/rejected",
+      "license": "CC-BY-NC-ND-4.0",
+      "license_status": "REJECTED",
+      "license_evidence": "No-derivatives licence is incompatible with training.",
+      "license_reviewer": "fixture-reviewer",
+      "license_reviewed_at": "2025-05-17",
+      "category": "zh_general",
+      "language": "zh",
+      "provenance_status": "DEMO_ONLY",
+      "paths": [
+        "rejected_source.jsonl"
+      ],
+      "priority": 0,
+      "family_policy": "document"
+    }
+  ]
+}
