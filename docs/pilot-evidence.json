@@ -1,0 +1,761 @@
+{
+  "status": "PILOT_COMPLETED",
+  "source_usage": "User-confirmed noncommercial research; combined upstream license declaration, no per-record mapping",
+  "rejected_v1": {
+    "reason": "Known historical split exposure; within-version audit alone was insufficient for a warm start",
+    "stopped_global_step": 65,
+    "stopped_tokens": 1063920,
+    "historical_overlap": {
+      "old_train/new_val": 360,
+      "old_train/new_test": 369,
+      "old_val/new_train": 378,
+      "old_test/new_train": 364
+    },
+    "preserved_local_run": "runs/pilot-10m-t1200-v1",
+    "not_part_of_pilot_acceptance": true
+  },
+  "historical_exclusion": {
+    "schema_version": 1,
+    "inputs": [
+      {
+        "path": "data/minimind/pretrain_t2t_mini.jsonl",
+        "bytes": 1241043656,
+        "sha256": "6dd6716c84ab36897bdbfc7f88e04f4441c48c1ab7ecee88ce0b0e7d4685560c"
+      },
+      {
+        "path": "runs/minillm-87m/corpus/test.text.jsonl",
+        "bytes": 374760,
+        "sha256": "3602b7adb75f54b2d26e88332f627783f2246d63a3cf09e566008817549d686b"
+      },
+      {
+        "path": "runs/minillm-87m/corpus/train.text.jsonl",
+        "bytes": 17662512,
+        "sha256": "9f66c79286f3c2d0a7c253cfd2755546038997c61f1c136225a86f5f166a9d63"
+      },
+      {
+        "path": "runs/minillm-87m/corpus/val.text.jsonl",
+        "bytes": 353483,
+        "sha256": "885a39ef23a5580489ab2a2f5dc95b1c180bd35d63709f6af67360d8b3d32c6e"
+      }
+    ],
+    "selection": {
+      "skip_records": 40000,
+      "take_records": 200000
+    },
+    "algorithm": {
+      "exact": "category-neutral whitespace-normalized SHA256 before/after cleaning",
+      "near": "64-bit full-document character 4-gram SimHash and Jaccard confirmation, including code",
+      "hamming_distance": 4,
+      "jaccard_threshold": 0.85,
+      "max_candidates": 20000
+    },
+    "counts": {
+      "historical_records": 24000,
+      "candidates": 200000,
+      "excluded_exact": 0,
+      "excluded_near": 2,
+      "emitted": 199998
+    },
+    "source": {
+      "bytes": 101654697,
+      "sha256": "dc210d35fb7fcfa8fa2c0cb0318179d7adb5b499bfd99866ff5a173f266da89b"
+    },
+    "implementation_sha256": "2525414a3ec8565cad543d6714e612422c946a307e6714e3f65b00b3cfb11911",
+    "scope": "known supplied historical records only; no exhaustive semantic, substring or unknown-source contamination guarantee",
+    "content_id": "3780ae609fb1f89d2dc024dd279cf2eaa6ec70d80c0d94dadc2602a3ea624619"
+  },
+  "tests": {
+    "pytest": "352 passed in 99.08s",
+    "smoke": "PASS",
+    "synthetic_smoke": "PASS",
+    "training_reliability": "11 PASS",
+    "evaluation_workflow": "PASS"
+  },
+  "scope": "Actual 87M/T1200 10M effective-token pilot and all post-run checks completed",
+  "not_promoted_v2": {
+    "reason": "Effective Train tokens below planned minimum",
+    "effective_train_tokens": 14967513,
+    "required_minimum": 15000000,
+    "training_started": false
+  },
+  "dataset": {
+    "content_id": "6e4d04c74bf35f07c43f752ebb9deee894fe3414fb38ebee2b1c7816cb8d4a00",
+    "tokenizer_fingerprint": "42155349a7a25cfd7a394f6db70fd2443d5f0a1ac98a75738e2abbeee663c33d",
+    "splits": {
+      "test": {
+        "documents": 2566,
+        "tokens": 329343,
+        "sha256": "9470b650c19776878a5e668200d3dadae7b8f594964431e8450eb5b318a64ad3"
+      },
+      "train": {
+        "documents": 122910,
+        "tokens": 15982298,
+        "sha256": "909e3a319bb226c77c4d26e88bf1263d85a3bd3ea137d1710b22cda766e9088c"
+      },
+      "val": {
+        "documents": 2524,
+        "tokens": 331671,
+        "sha256": "c433fa003e780b29f576c7658beedf356b234a27db42422985e041801c8a506c"
+      }
+    },
+    "effective_train_tokens_seq1024": 15965961,
+    "audit_ok": true,
+    "exact_overlap": {
+      "train/test": 0,
+      "train/val": 0,
+      "val/test": 0
+    },
+    "category_independent_overlap": {
+      "train/test": 0,
+      "train/val": 0,
+      "val/test": 0
+    },
+    "historical_overlap": {
+      "train": {
+        "train": 0,
+        "val": 0,
+        "test": 0
+      },
+      "val": {
+        "train": 0,
+        "val": 0,
+        "test": 0
+      },
+      "test": {
+        "train": 0,
+        "val": 0,
+        "test": 0
+      }
+    }
+  },
+  "workload": {
+    "content_id": "d9723f5f4bba58f7c539557cc09214df96cf7bc9a382df5a71555617f78c0d05",
+    "environment": {
+      "python_version": "3.11.17",
+      "torch_version": "2.14.1+cu126",
+      "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.35",
+      "device": "cuda",
+      "device_name": "NVIDIA T1200 Laptop GPU",
+      "cuda_version": "12.6",
+      "threads": 1,
+      "numerical_scope": "same software/device; cross-GPU/version bitwise equality is not guaranteed",
+      "total_memory_bytes": 3895132160,
+      "capability": [
+        7,
+        5
+      ],
+      "uuid": "5e773842-5d12-25ad-eb67-f4788fb7f718",
+      "driver": "GPU-5e773842-5d12-25ad-eb67-f4788fb7f718, 580.178.04"
+    },
+    "initialization": {
+      "sha256": "dab85a443d77fc8d54adcd517fe687f4cd3381282c0cc314cde4a18fbb37688a",
+      "kind": "weights_only"
+    },
+    "measurements": {
+      "updates": [
+        {
+          "global_step": 1,
+          "loss": 6.729826269960823,
+          "tokens": 16368,
+          "seconds": 10.300146010999015,
+          "tokens_per_second": 1589.1036867362293
+        },
+        {
+          "global_step": 2,
+          "loss": 6.907790675307766,
+          "tokens": 16368,
+          "seconds": 10.133388590998948,
+          "tokens_per_second": 1615.254349817295
+        },
+        {
+          "global_step": 3,
+          "loss": 6.749957907817464,
+          "tokens": 16368,
+          "seconds": 10.212035696000385,
+          "tokens_per_second": 1602.8146088845579
+        }
+      ],
+      "optimizer_steps": 3,
+      "validation": {
+        "loss": 6.796632569834878,
+        "perplexity": 894.8289384958107,
+        "tokens": 330429,
+        "batches": 323
+      },
+      "checkpoint_roundtrip": true,
+      "checkpoint_seconds": 1.6510633059988322,
+      "peak_allocated_bytes": 1902630912,
+      "peak_reserved_bytes": 2239758336,
+      "device_total_bytes": 3895132160,
+      "free_before_bytes": 3827236864,
+      "limit_bytes": 3116105728,
+      "effective_tokens": 49104,
+      "training_tokens_per_second": 1602.3196671659684,
+      "scope": "full configured micro-batches/sequence/accumulation, AdamW updates, validation and state roundtrip; not a guarantee against future OOM"
+    }
+  },
+  "recovery": {
+    "status": "PASS",
+    "steps": 20,
+    "interruptions": [
+      5,
+      12
+    ],
+    "maximum_parameter_difference": 0.0,
+    "atol": 1e-06,
+    "rtol": 1e-05,
+    "sample_order_equal": true,
+    "lr_equal": true,
+    "progress": {
+      "global_step": 20,
+      "epoch": 0,
+      "micro_batches_consumed_in_epoch": 320,
+      "samples_seen": 320,
+      "tokens_seen": 327360
+    },
+    "initial_checkpoint": {
+      "bytes": 409066663,
+      "sha256": "dab85a443d77fc8d54adcd517fe687f4cd3381282c0cc314cde4a18fbb37688a"
+    },
+    "scope": "isolated recovery experiment; not part of pilot token count"
+  },
+  "readiness": "READY",
+  "baseline": {
+    "evaluation_id": "a5f765b76a08ede4b225e7093bae823aa3f320e86b5167d1182df6943dcf7898",
+    "language_model": {
+      "loss": 6.758310617879033,
+      "loss_sum": 442912.6446533203,
+      "tokens": 65536,
+      "perplexity": 861.1860937895325,
+      "perplexity_status": "finite",
+      "display_clipped": false,
+      "batches": 129
+    },
+    "scores": {
+      "raw": {
+        "categories": {
+          "code": {
+            "correct": 0,
+            "scored": 7,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "english": {
+            "correct": 0,
+            "scored": 7,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "knowledge": {
+            "correct": 0,
+            "scored": 10,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "language": {
+            "correct": 0,
+            "scored": 15,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "logic": {
+            "correct": 0,
+            "scored": 13,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "math": {
+            "correct": 0,
+            "scored": 12,
+            "manual_review": 0,
+            "accuracy": 0.0
+          }
+        },
+        "tasks": 64,
+        "interpretation": "completion ability"
+      },
+      "chat": {
+        "categories": {
+          "code": {
+            "correct": 0,
+            "scored": 8,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "english": {
+            "correct": 0,
+            "scored": 8,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "instruction": {
+            "correct": 0,
+            "scored": 25,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "knowledge": {
+            "correct": 0,
+            "scored": 15,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "language": {
+            "correct": 0,
+            "scored": 15,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "logic": {
+            "correct": 0,
+            "scored": 12,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "math": {
+            "correct": 0,
+            "scored": 13,
+            "manual_review": 0,
+            "accuracy": 0.0
+          }
+        },
+        "tasks": 96,
+        "interpretation": "instruction following; pretrain-only low scores require stage context"
+      }
+    }
+  },
+  "contamination": {
+    "pretrain": {
+      "status": "CHECKED_KNOWN_SOURCES",
+      "sources": [
+        {
+          "kind": "pretrain/train",
+          "file": "data/processed/minillm-pilot-research-v3/train.text.jsonl",
+          "bytes": 136378185,
+          "sha256": "bac1639dddc5f130d4c1548c2a5461b28312ae86b31d1a8870a5cd0f8476b010",
+          "records_scanned": 122910,
+          "exact_task_ids": [],
+          "near_task_ids": [],
+          "unsupported_records": 0,
+          "near_skipped_long_texts": 0
+        },
+        {
+          "kind": "pretrain/val",
+          "file": "data/processed/minillm-pilot-research-v3/val.text.jsonl",
+          "bytes": 2824029,
+          "sha256": "45a6723c97834787d99648921ac8b1492824fd0dffad9ba678a200e2c4c361ca",
+          "records_scanned": 2524,
+          "exact_task_ids": [],
+          "near_task_ids": [],
+          "unsupported_records": 0,
+          "near_skipped_long_texts": 0
+        },
+        {
+          "kind": "pretrain/test",
+          "file": "data/processed/minillm-pilot-research-v3/test.text.jsonl",
+          "bytes": 2827849,
+          "sha256": "15114def6f4dd299f5260af6b7f9b0d753a0fc30d2e8d36fbe97c6ef50767eb3",
+          "records_scanned": 2566,
+          "exact_task_ids": [],
+          "near_task_ids": [],
+          "unsupported_records": 0,
+          "near_skipped_long_texts": 0
+        }
+      ],
+      "exact_rule": "category-neutral whitespace-folded full prompt / prompt+reference / individual SFT messages and joined conversation",
+      "near_rule": "full character 4-grams, SimHash64 Hamming<=4 + Jaccard>=.85, texts<=20000 chars",
+      "limitations": "no substring, semantic or unknown training-corpus exclusion; short-answer coincidences are not proof of memorization; no exhaustive contamination guarantee"
+    },
+    "sft": {
+      "status": "CHECKED_KNOWN_SOURCES",
+      "sources": [
+        {
+          "kind": "sft",
+          "file": "runs/minillm-87m/sft/train.jsonl",
+          "bytes": 2665590,
+          "sha256": "f21c09ffb90faf810973a2bc66de499e56b704da83ece3964092837f777c1c50",
+          "records_scanned": 2850,
+          "exact_task_ids": [],
+          "near_task_ids": [],
+          "unsupported_records": 0,
+          "near_skipped_long_texts": 0
+        },
+        {
+          "kind": "sft",
+          "file": "runs/minillm-87m/sft/val.jsonl",
+          "bytes": 138904,
+          "sha256": "d44649f12ba010d2ba6ae7ad2d0a33ed163b4cb4929c672d137f9b24ad32637c",
+          "records_scanned": 150,
+          "exact_task_ids": [],
+          "near_task_ids": [],
+          "unsupported_records": 0,
+          "near_skipped_long_texts": 0
+        }
+      ],
+      "exact_rule": "category-neutral whitespace-folded full prompt / prompt+reference / individual SFT messages and joined conversation",
+      "near_rule": "full character 4-grams, SimHash64 Hamming<=4 + Jaccard>=.85, texts<=20000 chars",
+      "limitations": "no substring, semantic or unknown training-corpus exclusion; short-answer coincidences are not proof of memorization; no exhaustive contamination guarantee"
+    }
+  },
+  "planned_pilot": {
+    "global_steps": 611,
+    "effective_tokens": 10000848,
+    "run": "runs/pilot-10m-t1200-v3",
+    "initialization": "original pretrained weights only; fresh optimizer and counters"
+  },
+  "limitations": [
+    "User-confirmed noncommercial research; no per-record license mapping",
+    "Contiguous MiniMind sample; not a balanced zh/en/code mixture",
+    "Known-source full-document exact/approximate checks do not exclude arbitrary substring/semantic/unknown-source exposure",
+    "Full-load short probe does not guarantee future OOM-free operation",
+    "Recovery and excluded v1 experiment tokens are not part of pilot counters"
+  ],
+  "pilot_summary": {
+    "mode": "pretrain",
+    "steps": 611,
+    "global_step": 611,
+    "epoch": 0,
+    "micro_batches_consumed_in_epoch": 9776,
+    "samples_seen": 9776,
+    "tokens_seen": 10000848,
+    "target_optimizer_updates": 611,
+    "optimizer_updates_per_epoch": 976,
+    "seconds": 6854.633,
+    "stop_reason": "target_reached",
+    "best_val_loss": 5.1000006550728845,
+    "final_val": {
+      "loss": 5.1000006550728845,
+      "perplexity": 164.02201474624087,
+      "tokens": 330429,
+      "batches": 323
+    },
+    "last_checkpoint_seconds": 1.6475591560010798,
+    "peak_rss_mb": 2145.1,
+    "peak_gpu_mb": 1813.2,
+    "precision": "fp32",
+    "batch_size": 1,
+    "grad_accum": 16,
+    "grad_checkpointing": true,
+    "seed": 42,
+    "params": 86528640,
+    "pilot_request_id": "a45fd75cd6f99006a3150ae56cd02bdc99afaf85ed597a7cdefcd04d1f09cf32",
+    "pilot_initialization": {
+      "sha256": "dab85a443d77fc8d54adcd517fe687f4cd3381282c0cc314cde4a18fbb37688a",
+      "kind": "weights_only"
+    },
+    "seq_len": 1024
+  },
+  "pilot_acceptance": {
+    "schema_version": 1,
+    "engineering": "ENGINEERING_PASS",
+    "convergence": "CONVERGENCE_IMPROVING",
+    "capability": "CAPABILITY_INCONCLUSIVE",
+    "errors": [],
+    "tokens_seen": 10000848,
+    "global_step": 611,
+    "last_process_seconds": 6854.633,
+    "estimated_logged_wall_seconds": 6801.315517767001,
+    "average_logged_tokens_per_second": 1470.4284742966115,
+    "timing_scope": "sum of logged interval durations; includes validation/checkpoint overhead; exact total lifetime not recorded by PR2",
+    "final_training_loss": 4.97001870193556,
+    "training_loss_scope": "last token-weighted logged interval",
+    "initial_language_model": {
+      "loss": 6.758310617879033,
+      "loss_sum": 442912.6446533203,
+      "tokens": 65536,
+      "perplexity": 861.1860937895325,
+      "perplexity_status": "finite",
+      "display_clipped": false,
+      "batches": 129
+    },
+    "final_language_model": {
+      "loss": 5.121105590835214,
+      "loss_sum": 335616.77600097656,
+      "tokens": 65536,
+      "perplexity": 167.52047637947692,
+      "perplexity_status": "finite",
+      "display_clipped": false,
+      "batches": 129
+    },
+    "baseline_lineage": "caller-supplied comparison checkpoint; PR2 does not cryptographically record initial-weight lineage",
+    "numerical_or_resume_anomalies": [],
+    "recommendation": "Review convergence, per-category changes and compute budget; consider a bounded next pilot. This report does not authorize or automatically recommend one billion tokens."
+  },
+  "final_evaluation": {
+    "evaluation_id": "a5612b3196777ef4a2a6315d5e5a56748a2101623075b9394fe5d78f4ce91453",
+    "language_model": {
+      "loss": 5.121105590835214,
+      "loss_sum": 335616.77600097656,
+      "tokens": 65536,
+      "perplexity": 167.52047637947692,
+      "perplexity_status": "finite",
+      "display_clipped": false,
+      "batches": 129
+    },
+    "scores": {
+      "raw": {
+        "categories": {
+          "code": {
+            "correct": 0,
+            "scored": 7,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "english": {
+            "correct": 0,
+            "scored": 7,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "knowledge": {
+            "correct": 0,
+            "scored": 10,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "language": {
+            "correct": 0,
+            "scored": 15,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "logic": {
+            "correct": 0,
+            "scored": 13,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "math": {
+            "correct": 0,
+            "scored": 12,
+            "manual_review": 0,
+            "accuracy": 0.0
+          }
+        },
+        "tasks": 64,
+        "interpretation": "completion ability"
+      },
+      "chat": {
+        "categories": {
+          "code": {
+            "correct": 0,
+            "scored": 8,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "english": {
+            "correct": 0,
+            "scored": 8,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "instruction": {
+            "correct": 0,
+            "scored": 25,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "knowledge": {
+            "correct": 0,
+            "scored": 15,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "language": {
+            "correct": 0,
+            "scored": 15,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "logic": {
+            "correct": 0,
+            "scored": 12,
+            "manual_review": 0,
+            "accuracy": 0.0
+          },
+          "math": {
+            "correct": 0,
+            "scored": 13,
+            "manual_review": 0,
+            "accuracy": 0.0
+          }
+        },
+        "tasks": 96,
+        "interpretation": "instruction following; pretrain-only low scores require stage context"
+      }
+    },
+    "diagnostics": {
+      "scope": "degeneration indicators, not quality scores",
+      "generations": 200,
+      "empty_outputs": 6,
+      "early_endings": 23,
+      "empty_output_rate": 0.03,
+      "early_end_rate": 0.115,
+      "mean_generated_tokens": 34.51,
+      "mean_token_4gram_repeat_ratio": 0.4460572261438287,
+      "special_token_anomalies": 0
+    }
+  },
+  "test_evaluation": {
+    "evaluation_id": "e626d3b4b23df316d72e220d0020fd863a83ca527ff36a59fb6338923a9e0c31",
+    "language_model": {
+      "loss": 5.0846627075225115,
+      "loss_sum": 333228.4552001953,
+      "tokens": 65536,
+      "perplexity": 161.52544872971785,
+      "perplexity_status": "finite",
+      "display_clipped": false,
+      "batches": 129
+    },
+    "dataset": {
+      "path": "data/processed/minillm-pilot-research-v3/test.bin",
+      "sha256": "9470b650c19776878a5e668200d3dadae7b8f594964431e8450eb5b318a64ad3",
+      "type": "PackedPretrainDataset",
+      "samples": 643,
+      "seq_len": 512,
+      "dataset_content_id": "6e4d04c74bf35f07c43f752ebb9deee894fe3414fb38ebee2b1c7816cb8d4a00",
+      "dataset_tokenizer_fingerprint": "42155349a7a25cfd7a394f6db70fd2443d5f0a1ac98a75738e2abbeee663c33d",
+      "effective_loss_tokens": 328573,
+      "split": "test",
+      "window_policy": "PR2 fixed L inputs, internal shift, L-1 targets/window; boundary targets and tail omitted",
+      "complete_windows": 643,
+      "input_tokens_per_window": 512,
+      "effective_targets_per_window": 511,
+      "unused_tail_tokens": 127,
+      "custom_tokenizer_provenance": "published manifest verified"
+    },
+    "scope": "separate final Test observation, not a training optimization decision input"
+  },
+  "training_analysis": {
+    "status": "OK",
+    "errors": [],
+    "warnings": [],
+    "trends": [
+      "VALIDATION_DECREASING"
+    ],
+    "validation": {
+      "configured": true,
+      "status": "COMPLETED",
+      "reason": "validation_completed",
+      "observations": 7,
+      "metrics_file": "PRESENT",
+      "final_status": "COMPLETED"
+    },
+    "validation_rows": [
+      {
+        "global_step": 100,
+        "tokens_seen": 1636800,
+        "loss": 6.100586584740973,
+        "perplexity": 446.1193801678323,
+        "axis_source": "training log"
+      },
+      {
+        "global_step": 200,
+        "tokens_seen": 3273600,
+        "loss": 5.714374950998834,
+        "perplexity": 303.19463256783246,
+        "axis_source": "training log"
+      },
+      {
+        "global_step": 300,
+        "tokens_seen": 4910400,
+        "loss": 5.4598698080397945,
+        "perplexity": 235.0668185630791,
+        "axis_source": "training log"
+      },
+      {
+        "global_step": 400,
+        "tokens_seen": 6547200,
+        "loss": 5.276395667580536,
+        "perplexity": 195.66336705410913,
+        "axis_source": "training log"
+      },
+      {
+        "global_step": 500,
+        "tokens_seen": 8184000,
+        "loss": 5.163978257449737,
+        "perplexity": 174.85870668723896,
+        "axis_source": "training log"
+      },
+      {
+        "global_step": 600,
+        "tokens_seen": 9820800,
+        "loss": 5.105035828541268,
+        "perplexity": 164.84997676003016,
+        "axis_source": "training log"
+      },
+      {
+        "global_step": 611,
+        "tokens_seen": 10000848,
+        "loss": 5.1000006550728845,
+        "perplexity": 164.02201474624087,
+        "axis_source": "training log"
+      }
+    ]
+  },
+  "checkpoint_integrity": {
+    "status": "PASS",
+    "primary_step": 611,
+    "backup_step": 600,
+    "optimizer_update_counts_match": true,
+    "optimizer_moments_finite": true,
+    "model_best_state_weights_equal": true,
+    "best_model_step": 611,
+    "lineage_matches": true,
+    "baseline_source_sha_matches": true,
+    "final_and_test_checkpoint_sha_matches": true,
+    "implementation_matches_probe": true,
+    "initial_checkpoint_sha256": "dab85a443d77fc8d54adcd517fe687f4cd3381282c0cc314cde4a18fbb37688a",
+    "final_checkpoint_sha256": "6046ebc61b9196c554758b5982f44da00b4a7e4e6daebfa6100af6a1dea9fec9"
+  },
+  "measured_pilot_tokens_per_second_including_fit_overheads": 1458.9910211093722,
+  "local_artifacts": {
+    "run": "runs/pilot-10m-t1200-v3",
+    "baseline": "reports/pr5-pilot-v3/baseline",
+    "final": "reports/pr5-pilot-v3/final-evaluation",
+    "test": "reports/pr5-pilot-v3/test-evaluation",
+    "analysis": "reports/pr5-pilot-v3/analysis",
+    "comparison": "reports/pr5-pilot-v3/comparison",
+    "acceptance": "reports/pr5-pilot-v3/acceptance"
+  },
+  "fixed_prompt_diagnostics": {
+    "baseline": {
+      "generations": 40,
+      "empty_outputs": 17,
+      "early_endings": 18,
+      "special_token_anomalies": 0,
+      "mean_token_4gram_repeat_ratio": 0.3815573770491803
+    },
+    "final": {
+      "generations": 40,
+      "empty_outputs": 3,
+      "early_endings": 9,
+      "special_token_anomalies": 0,
+      "mean_token_4gram_repeat_ratio": 0.584803372098454
+    },
+    "scope": "40 frozen fixed prompts only; diagnostics are not quality scores"
+  },
+  "postrun_data_integrity": {
+    "status": "PASS",
+    "content_id": "6e4d04c74bf35f07c43f752ebb9deee894fe3414fb38ebee2b1c7816cb8d4a00",
+    "retokenization": "full",
+    "raw_input_hashes": "full",
+    "exact_overlap": {
+      "train/test": 0,
+      "train/val": 0,
+      "val/test": 0
+    },
+    "category_independent_overlap": {
+      "train/test": 0,
+      "train/val": 0,
+      "val/test": 0
+    },
+    "source_provenance": {
+      "status": "PASS",
+      "source_content_id": "3780ae609fb1f89d2dc024dd279cf2eaa6ec70d80c0d94dadc2602a3ea624619",
+      "original_and_historical_inputs_verified": 4,
+      "emitted_source_verified": true,
+      "implementation_sha256_verified": true
+    }
+  }
+}

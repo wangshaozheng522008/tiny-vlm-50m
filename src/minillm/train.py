@@ -12,6 +12,7 @@ is rejected with an explanation instead of being half-loaded.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import math
 import random
@@ -347,6 +348,7 @@ def fit(
     mode: str = "pretrain",
     batch_sampler_seed: int = 0,
     batch_factory=None,
+    on_run_prepared=None,
 ) -> dict:
     """Train a fixed plan, saving only complete optimizer updates.
 
@@ -379,6 +381,8 @@ def fit(
     out = Path(opts.out)
     if not opts.resume:
         manifest = _prepare_run_manifest(out, manifest)
+        if on_run_prepared is not None:
+            on_run_prepared(copy.deepcopy(manifest))
     plan = manifest["training"]
     total_steps = plan["target_optimizer_updates"]
     warmup = plan["warmup_steps"]

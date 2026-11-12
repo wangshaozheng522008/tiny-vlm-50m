@@ -605,3 +605,17 @@ python scripts/check_training_readiness.py --dataset data/processed/minillm-pret
 Raw/Chat 分开计分，Loss 按真实有效 Token 加权；Dataset、Tokenizer、Checkpoint 与固定评测配置绑定哈希。报告拒绝覆盖已有目录，READY/BLOCKED/INCOMPLETE 分别返回 0/1/2。验收不会启动正式训练。
 
 [完整说明与命令](docs/evaluation-and-readiness.md)包括多 Checkpoint 对比、已完成试训练验收、160条原创固定题/40个生成提示的版本与污染审计限制，以及 CPU Nano 可复现示例。已有模型仍必须使用原 Tokenizer；示例的微小合成词表和能力分数不代表87M实际模型。
+
+### 87M 实机探测与试训练
+
+PR #5 增加完整负载探测和统一启动配置：
+
+- `scripts/probe_training_workload.py`：真实Micro-batch/Seq Len/梯度累积、至少3次AdamW更新、验证和Checkpoint往返；记录实际显存与吞吐。
+- `scripts/run_pretraining_pilot.py`：默认只验收，显式 `--execute` 且READY才启动；CUDA任务必须有匹配的完整负载证据。
+- `scripts/check_pilot_recovery.py`：真实模型20步连续训练与两次恢复对照，结果独立于试训练计数。
+
+[操作步骤与边界](docs/pilot-runbook.md)说明原Tokenizer固定、旧权重热启动、新任务计数、显存证据绑定、非商业研究语料和恢复方法。短CUDA探测仍不能单独获得显存预算PASS。
+
+[1000万Token实测验收](docs/pilot-results.md)：T1200完成611步、10,000,848个有效Token，工程检查通过。固定预算Validation Loss从6.7583降至5.1211，PPL从861.19降至167.52；Raw/Chat题目得分仍为0，能力改善暂不能确认。未自动启动更大训练。
+
+[PR #5可靠性修复](docs/pr5-reliability-fixes.md)在首个更新前持久化初始化谱系，严格验证旧任务恢复，保留首次启动与Resume历史，并加强AdamW/RNG及继续训练对照。本次回归仅使用CPU Nano；已完成87M权重、数据和历史测量不变。

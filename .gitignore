@@ -11,6 +11,7 @@ venv/
 # Training artefacts
 runs/
 checkpoints/
+reports/
 *.pt
 *.pth
 *.bin
