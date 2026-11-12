@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "version": "chinese-foundation-v1",
+  "source": "Original repository-authored diagnostic assets, CC0-1.0. No external dataset.",
+  "human_review": "REVIEW_PENDING; no automated acceptance",
+  "files": {
+    "candidates.jsonl": {
+      "sha256": "3a62a4ecb670cfbf7c73f1a4c731c49a1dc936ba3a963e8a89bfefe58a01178e",
+      "records": 120
+    },
+    "prompts.jsonl": {
+      "sha256": "d4db2f198a8f71267db52b82bf7fdcc1536ef7417b7cf57e8b270ea3f19dd91e",
+      "records": 30
+    },
+    "review-template.jsonl": {
+      "sha256": "3d77dd8b284c41f8c735974eb877d51c8e5a9776e10650d1da76879bff823db7",
+      "records": 150
+    }
+  }
+}

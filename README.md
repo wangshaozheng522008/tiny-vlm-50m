@@ -631,3 +631,5 @@ Tokenizer训练脚本现在直接拟合输入文本，消除隐式NFKC与编码�
 [本轮实测结果](docs/quality-stage-results.md)记录规范化样本Token减少14.36%、379篇语义待审文档、同条件87M只读对比及402项回归结果；这些结果独立于历史试训练证据，未启动新训练。
 
 [PR #6审查修复](docs/pr6-category-boundary-fixes.md)贯通显式代码类别，审计候选BPE边界并提供独立联合分词对照；24题中1题受影响，原默认NLL与已发布诊断完全一致。新增回归后413项测试通过，旧诊断保持冻结。
+
+训练正确性、受控记忆实验与中文基础能力诊断：见 [PR #7 诊断工作流](docs/training-and-chinese-diagnostics.md)。`make diagnose-nano` 默认使用有预算的 CPU Nano；中文题库在人工审查前仅提供探索性结果。
