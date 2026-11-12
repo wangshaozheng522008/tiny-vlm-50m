@@ -24,9 +24,9 @@ python scripts/audit_dataset.py --dataset data/processed/minillm-pilot-research-
 
 The source guard uses disk-indexed category-neutral hashes before/after cleaning and full-text SimHash64 Hamming<=4 plus 4-gram Jaccard>=.85 (including code). Candidate overflow fails instead of truncating coverage. It atomically publishes source.jsonl and historical-exclusion.json with input/output hashes, counts and scope. It cannot exclude arbitrary substrings, semantic rewrites or unknown historical exposure. Independently recompute exact overlap between the final emitted splits and all historical splits; the required count is zero.
 
-The first v1 attempt was stopped at65 updates /1,063,920 tokens after historical overlap was found: old Train/new Val360, old Train/new Test369, old Val/new Train378, old Test/new Train364. Its within-version audit passed, which was insufficient for a warm start. Preserve that version and its checkpoints, exclude it from acceptance, and restart v2 from the original weights with fresh optimizer/counters. Do not resume v1 into v2.
+The first v1 attempt was stopped at 65 updates / 1,063,920 tokens after historical overlap was found: old Train/new Val360, old Train/new Test369, old Val/new Train378, old Test/new Train364. Its within-version audit passed, which was insufficient for a warm start. Preserve that version and its checkpoints, exclude it from acceptance, and restart the final v3 experiment from the original weights with fresh optimizer/counters. Do not resume v1 into v3.
 
-The historical-exclusion source is named v2 and is reused byte-for-byte. The first corpus from that source (dataset v2, sample120,000) had14,967,513 effective Train tokens and was not promoted because it missed the15M minimum. Dataset v3 uses128,000 parents and is checked against that minimum before any training. No v2 weights are reused.
+The historical-exclusion source is named v2 and is reused byte-for-byte. The first corpus from that source (dataset v2, sample 120,000) had 14,967,513 effective Train tokens and was not promoted because it missed the 15M minimum. Dataset v3 uses 128,000 parents and is checked against that minimum before any training. No v2 weights are reused.
 
 Published versions are immutable. Reuse a verified version or choose a new directory; do not edit it. Freeze the existing tokenizer. Train/Val/Test exact and recognized-group isolation is audited by PR3. PR4 contamination scanning of known text records is also required before training; it does not exhaustively exclude substrings, semantic rewrites or unknown historical sources.
 
@@ -59,9 +59,9 @@ python scripts/check_pilot_recovery.py \
   --training-config configs/pilot-t1200-10m.json --out reports/pr5-pilot-v3/recovery-20
 ```
 
-The first command only inspects. The recovery command uses separate output directories for 20 continuous updates and 20 updates with interruptions after5 and12 (SIGTERM/SIGINT). It compares complete sample order, LR sequence, counters and parameters with atol1e-6/rtol1e-5. Recovery-experiment tokens are not added to pilot training totals.
+The first command only inspects. The recovery command uses separate output directories for 20 continuous updates and 20 updates with interruptions after 5 and 12 (SIGTERM/SIGINT). It compares complete sample order, LR sequence, counters and parameters with atol1e-6/rtol1e-5. Recovery-experiment tokens are not added to pilot training totals.
 
-Evaluate the original pretrain model on the published Validation split, the frozen160 tasks and40 prompts before starting. Use the same evaluation config after training; do not use Test to tune decisions. The source checkpoint's historical counters are not the new pilot counters.
+Evaluate the original pretrain model on the published Validation split, the frozen 160 tasks and 40 prompts before starting. Use the same evaluation config after training; do not use Test to tune decisions. The source checkpoint's historical counters are not the new pilot counters.
 
 ```bash
 python scripts/run_pretraining_pilot.py \
@@ -71,8 +71,12 @@ python scripts/run_pretraining_pilot.py \
   --out reports/pr5-pilot-v3/launch --execute
 ```
 
-The launcher uses one config for readiness and fit, and requires matching full-load evidence for CUDA execution. It preserves READY/BLOCKED/INCOMPLETE exit codes0/1/2; unavailable required CUDA never falls back to CPU training. A launch-manifest is atomically published before training and records initialization SHA, configuration and data identities. Inputs are rehashed after readiness. It appends an execution result after fit and records pilot-lineage.json inside the owned run, linked to its exact training manifest.
+The launcher uses one config for readiness and fit, and requires matching full-load evidence for CUDA execution. It preserves READY/BLOCKED/INCOMPLETE exit codes 0/1/2; unavailable required CUDA never falls back to CPU training. A launch-manifest is atomically published before training and records initialization SHA, configuration and data identities. Inputs are rehashed after readiness. It appends an execution result after fit and records pilot-lineage.json inside the owned run, linked to its exact training manifest.
 
 Resume uses the same fixed plan, removes init_from, and sets resume to the new run's state.pt. Keep the original probe and use a new launch-report directory. Lineage is required; SIGKILL before the launcher can write lineage needs explicit provenance recovery from its durable launch record, not guessed initialization. Changing steps/schedule is still not resume; extend is not implemented.
 
 After completion, run the existing training analysis, checkpoint comparison and pilot acceptance tools. Final Test evaluation is separate. Stop and diagnose engineering failures; capability improvement is not an absolute-loss threshold or permission to launch one billion tokens. Keep generated reports/data/checkpoints local; only compact evidence and configurations belong in Git.
+
+## Completed pilot
+
+See [pilot-results.md](pilot-results.md) for the actual 611-update / 10,000,848-token run, independent post-run verification, fixed-budget baseline/final/Test results and limitations. Compact machine-readable evidence is in [pilot-evidence.json](pilot-evidence.json). Engineering passed and validation improved; Raw/Chat exact scores stayed zero, so capability improvement is inconclusive. No further training was started.

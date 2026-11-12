@@ -615,3 +615,5 @@ PR #5 增加完整负载探测和统一启动配置：
 - `scripts/check_pilot_recovery.py`：真实模型20步连续训练与两次恢复对照，结果独立于试训练计数。
 
 [操作步骤与边界](docs/pilot-runbook.md)说明原Tokenizer固定、旧权重热启动、新任务计数、显存证据绑定、非商业研究语料和恢复方法。短CUDA探测仍不能单独获得显存预算PASS。
+
+[1000万Token实测验收](docs/pilot-results.md)：T1200完成611步、10,000,848个有效Token，工程检查通过。固定预算Validation Loss从6.7583降至5.1211，PPL从861.19降至167.52；Raw/Chat题目得分仍为0，能力改善暂不能确认。未自动启动更大训练。
