@@ -80,6 +80,10 @@ def normalize_sources(path: Path, inputs: list[dict], content: dict, runtime: di
                     category = classify(record["text"], hint)
                     text = normalise(record["text"], category, strip_html=quality["strip_html"])
                     category = classify(text, hint)
+                    from .text_policy import IDENTITY, apply_text_policy
+                    # Persist this same category in split records; packing and
+                    # runtime tokenization must use it, including unusual code.
+                    text = apply_text_policy(text, content.get("text_policy", IDENTITY), category=category)
                     issue = quality_issue(text, category, quality)
                     if issue:
                         count(db, source, issue)

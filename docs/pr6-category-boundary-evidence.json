@@ -1,0 +1,1048 @@
+{
+  "schema_version": 1,
+  "scope": "PR6 review fixes; new candidate-only CPU read-only assessments, no training or corpus regeneration",
+  "base_commit": "0de2d110e1fa32f819c2b9c4d8abe9c475e6b067",
+  "protected_artifacts": {
+    "runs/pilot-10m-t1200-v3/state.pt": "2bfeecab6c0dd093c5c05d27b34b7b76c1e8aa501d2746c8d3c17cb3f47989fc",
+    "runs/pilot-10m-t1200-v3/model.pt": "6046ebc61b9196c554758b5982f44da00b4a7e4e6daebfa6100af6a1dea9fec9",
+    "runs/pilot-10m-t1200-v3/best.pt": "fc7fe59e774bf92fc42a7b1e56c1484cf78caf1be8973ac17e43766a490f5b0a",
+    "runs/pilot-10m-t1200-v3/state.prev.pt": "40062b45c671a2b1445174c3686e19f3704ff50e85df1615362e0a1ab52c8a1c",
+    "runs/pilot-10m-t1200-v3/training-manifest.json": "1f47b69297aa5641885a0246e0b9ab97ae80fe4883554cd07ccee6138422831a",
+    "runs/pilot-10m-t1200-v3/pilot-lineage.json": "0a2c18d5eca55c564409d20a07e530ec99eb906873610491297be3d7d8401524",
+    "data/processed/minillm-pilot-research-v3/train.bin": "909e3a319bb226c77c4d26e88bf1263d85a3bd3ea137d1710b22cda766e9088c",
+    "data/processed/minillm-pilot-research-v3/val.bin": "c433fa003e780b29f576c7658beedf356b234a27db42422985e041801c8a506c",
+    "data/processed/minillm-pilot-research-v3/test.bin": "9470b650c19776878a5e668200d3dadae7b8f594964431e8450eb5b318a64ad3",
+    "data/processed/minillm-pilot-research-v3/tokenizer.json": "355d857235dc1806e194239efdcaa4ae3d7a00d3bcad31b658ef5871770b42e0",
+    "data/processed/minillm-pilot-research-v3/dataset-manifest.json": "c992309196436d8c31d843f8bfaaec3bb76139cac201cf059d918fab506226cd",
+    "docs/pilot-evidence.json": "1efa24c0d2bffcfe17dade2d720cc5604cdb9958bf319f90dcb35f842153022e",
+    "data/evaluation/minillm-zh-benchmark.jsonl": "07a84b6b311c3c35b20e92537f33d756edd5d1ad05ac954e7a0e1b2c67941f4a",
+    "data/evaluation/fixed-prompts.jsonl": "39ada73b830e9b8f362637143a8a2f2b8ba37eefdf8c389658555bb8614cc2a0",
+    "data/evaluation/benchmark-version.json": "7bb7d33292376ccd239007d29b46ef6a633551cd0b0bcae783edd1640cda7d8b",
+    "docs/quality-stage-evidence.json": "0cfa63099a23455bedaed099c978712032e2d51e7799db32eea0c3fb49e1225b",
+    "docs/quality-stage-results.md": "accb1e305b4ca88d5bace933aabe292df4719b5568152c6f9fab4df5d92e42bf",
+    "data/evaluation/pretrain-v1/candidates.jsonl": "c54cd9297908953cd3189649f2e5e83a7729264bdd61e21f5000833448830b71",
+    "data/evaluation/pretrain-v1/prompts.jsonl": "be8b35f8e940d28d9b77a81218aaa4b53b65b0ff430bcd41f0474512009b149c",
+    "data/evaluation/pretrain-v1/benchmark-version.json": "812481fb3476fd854d400848d16782d9cdab7e147215fefb9fc043551a25cd95"
+  },
+  "protected_artifacts_unchanged": true,
+  "evaluations": {
+    "baseline": {
+      "evaluation_id": "a6a003f2583a3b91f692c8696b1ce8d77ad61373d7be79fc80c5e4f7847dbfa9",
+      "checkpoint": {
+        "sha256": "dab85a443d77fc8d54adcd517fe687f4cd3381282c0cc314cde4a18fbb37688a",
+        "path": "/home/voyah/work_space/git_ws/min_llm/runs/minillm-87m/run/model.pt",
+        "global_step": 160,
+        "tokens_seen": 2618880,
+        "mode": "pretrain",
+        "quantized_bits": null,
+        "parameters": 86528640,
+        "execution": "FP32"
+      },
+      "environment": {
+        "python_version": "3.11.17",
+        "torch_version": "2.14.1+cu126",
+        "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.35",
+        "device": "cpu",
+        "device_name": "x86_64",
+        "cuda_version": "12.6",
+        "threads": 1,
+        "numerical_scope": "same software/device; cross-GPU/version bitwise equality is not guaranteed"
+      },
+      "candidate_likelihood": {
+        "status": "COMPLETED",
+        "tasks": 24,
+        "categories": {
+          "code": {
+            "correct": 0,
+            "tasks": 4,
+            "scored": 4,
+            "unscorable": 0,
+            "accuracy": 0.0,
+            "ties": 0
+          },
+          "english": {
+            "correct": 0,
+            "tasks": 4,
+            "scored": 4,
+            "unscorable": 0,
+            "accuracy": 0.0,
+            "ties": 0
+          },
+          "knowledge": {
+            "correct": 2,
+            "tasks": 4,
+            "scored": 4,
+            "unscorable": 0,
+            "accuracy": 0.5,
+            "ties": 0
+          },
+          "language": {
+            "correct": 0,
+            "tasks": 4,
+            "scored": 4,
+            "unscorable": 0,
+            "accuracy": 0.0,
+            "ties": 0
+          },
+          "logic": {
+            "correct": 1,
+            "tasks": 4,
+            "scored": 4,
+            "unscorable": 0,
+            "accuracy": 0.25,
+            "ties": 0
+          },
+          "math": {
+            "correct": 1,
+            "tasks": 4,
+            "scored": 4,
+            "unscorable": 0,
+            "accuracy": 0.25,
+            "ties": 0
+          }
+        },
+        "primary_boundary_policy": "separate",
+        "normalization": "sum",
+        "boundary_audit": {
+          "inconsistent_tasks": 1,
+          "inconsistent_candidates": 1,
+          "total_candidates": 96,
+          "affected_task_ids": [
+            "pretrain-016"
+          ],
+          "bpe_inconsistent_tasks": 1,
+          "normalization_context_mismatches": 0
+        },
+        "protocols": {
+          "separate": {
+            "status": "COMPLETED",
+            "tasks": 24,
+            "categories": {
+              "code": {
+                "correct": 0,
+                "tasks": 4,
+                "scored": 4,
+                "unscorable": 0,
+                "accuracy": 0.0,
+                "ties": 0
+              },
+              "english": {
+                "correct": 0,
+                "tasks": 4,
+                "scored": 4,
+                "unscorable": 0,
+                "accuracy": 0.0,
+                "ties": 0
+              },
+              "knowledge": {
+                "correct": 2,
+                "tasks": 4,
+                "scored": 4,
+                "unscorable": 0,
+                "accuracy": 0.5,
+                "ties": 0
+              },
+              "language": {
+                "correct": 0,
+                "tasks": 4,
+                "scored": 4,
+                "unscorable": 0,
+                "accuracy": 0.0,
+                "ties": 0
+              },
+              "logic": {
+                "correct": 1,
+                "tasks": 4,
+                "scored": 4,
+                "unscorable": 0,
+                "accuracy": 0.25,
+                "ties": 0
+              },
+              "math": {
+                "correct": 1,
+                "tasks": 4,
+                "scored": 4,
+                "unscorable": 0,
+                "accuracy": 0.25,
+                "ties": 0
+              }
+            }
+          },
+          "joint_shared_prefix": {
+            "status": "COMPLETED",
+            "tasks": 24,
+            "categories": {
+              "code": {
+                "correct": 0,
+                "tasks": 4,
+                "scored": 4,
+                "unscorable": 0,
+                "accuracy": 0.0,
+                "ties": 0
+              },
+              "english": {
+                "correct": 0,
+                "tasks": 4,
+                "scored": 4,
+                "unscorable": 0,
+                "accuracy": 0.0,
+                "ties": 0
+              },
+              "knowledge": {
+                "correct": 2,
+                "tasks": 4,
+                "scored": 4,
+                "unscorable": 0,
+                "accuracy": 0.5,
+                "ties": 0
+              },
+              "language": {
+                "correct": 0,
+                "tasks": 4,
+                "scored": 4,
+                "unscorable": 0,
+                "accuracy": 0.0,
+                "ties": 0
+              },
+              "logic": {
+                "correct": 2,
+                "tasks": 4,
+                "scored": 4,
+                "unscorable": 0,
+                "accuracy": 0.5,
+                "ties": 0
+              },
+              "math": {
+                "correct": 1,
+                "tasks": 4,
+                "scored": 4,
+                "unscorable": 0,
+                "accuracy": 0.25,
+                "ties": 0
+              }
+            }
+          }
+        },
+        "interpretation": "Original small probes; separate and joint_shared_prefix are different metrics. Joint scoring may include prompt text. Length/wording biases remain; not open-ended reasoning or chat ability."
+      },
+      "affected_predictions": [
+        {
+          "id": "pretrain-016",
+          "prompt": "小明比小红高，小红比小李高，三人中最高的是",
+          "reference": "B",
+          "prefix_tokens": 18,
+          "joint_shared_prefix_tokens": 16,
+          "normalization_context_consistent": true,
+          "affected_candidates": {
+            "A": {
+              "separate_token_ids": [
+                2199,
+                551,
+                4736,
+                501,
+                179,
+                128,
+                242,
+                4736,
+                551,
+                15967,
+                501,
+                179,
+                128,
+                242,
+                16981,
+                2368,
+                501,
+                1296,
+                2765
+              ],
+              "continuation_token_ids": [
+                2765
+              ],
+              "joint_token_ids": [
+                2199,
+                551,
+                4736,
+                501,
+                179,
+                128,
+                242,
+                4736,
+                551,
+                15967,
+                501,
+                179,
+                128,
+                242,
+                16981,
+                2368,
+                2082,
+                636,
+                758
+              ],
+              "joint_offsets": [
+                [
+                  0,
+                  2
+                ],
+                [
+                  2,
+                  3
+                ],
+                [
+                  3,
+                  5
+                ],
+                [
+                  5,
+                  6
+                ],
+                [
+                  6,
+                  7
+                ],
+                [
+                  6,
+                  7
+                ],
+                [
+                  6,
+                  7
+                ],
+                [
+                  7,
+                  9
+                ],
+                [
+                  9,
+                  10
+                ],
+                [
+                  10,
+                  12
+                ],
+                [
+                  12,
+                  13
+                ],
+                [
+                  13,
+                  14
+                ],
+                [
+                  13,
+                  14
+                ],
+                [
+                  13,
+                  14
+                ],
+                [
+                  14,
+                  16
+                ],
+                [
+                  16,
+                  18
+                ],
+                [
+                  18,
+                  20
+                ],
+                [
+                  20,
+                  22
+                ],
+                [
+                  22,
+                  23
+                ]
+              ],
+              "matches_joint": false,
+              "normalization_consistent": true
+            }
+          },
+          "protocols": {
+            "separate": {
+              "selected": "A",
+              "score": {
+                "correct": false,
+                "status": "scored"
+              },
+              "candidates": {
+                "A": {
+                  "text": "一样",
+                  "token_ids": [
+                    2765
+                  ],
+                  "tokens": 1,
+                  "negative_log_likelihood": 8.721355438232422,
+                  "score": -8.721355438232422
+                },
+                "B": {
+                  "text": "小明",
+                  "token_ids": [
+                    2199
+                  ],
+                  "tokens": 1,
+                  "negative_log_likelihood": 10.108369827270508,
+                  "score": -10.108369827270508
+                },
+                "C": {
+                  "text": "小红",
+                  "token_ids": [
+                    4736
+                  ],
+                  "tokens": 1,
+                  "negative_log_likelihood": 10.530478477478027,
+                  "score": -10.530478477478027
+                },
+                "D": {
+                  "text": "小李",
+                  "token_ids": [
+                    15967
+                  ],
+                  "tokens": 1,
+                  "negative_log_likelihood": 12.440892219543457,
+                  "score": -12.440892219543457
+                }
+              }
+            },
+            "joint_shared_prefix": {
+              "selected": "B",
+              "score": {
+                "correct": true,
+                "status": "scored"
+              },
+              "candidates": {
+                "A": {
+                  "text": "一样",
+                  "token_ids": [
+                    2082,
+                    636,
+                    758
+                  ],
+                  "tokens": 3,
+                  "negative_log_likelihood": 27.939697265625,
+                  "score": -27.939697265625,
+                  "contains_retokenized_prompt": true,
+                  "prompt_characters_in_scored_tail": 3
+                },
+                "B": {
+                  "text": "小明",
+                  "token_ids": [
+                    501,
+                    1296,
+                    2199
+                  ],
+                  "tokens": 3,
+                  "negative_log_likelihood": 25.566665649414062,
+                  "score": -25.566665649414062,
+                  "contains_retokenized_prompt": true,
+                  "prompt_characters_in_scored_tail": 3
+                },
+                "C": {
+                  "text": "小红",
+                  "token_ids": [
+                    501,
+                    1296,
+                    4736
+                  ],
+                  "tokens": 3,
+                  "negative_log_likelihood": 25.9887752532959,
+                  "score": -25.9887752532959,
+                  "contains_retokenized_prompt": true,
+                  "prompt_characters_in_scored_tail": 3
+                },
+                "D": {
+                  "text": "小李",
+                  "token_ids": [
+                    501,
+                    1296,
+                    15967
+                  ],
+                  "tokens": 3,
+                  "negative_log_likelihood": 27.899188995361328,
+                  "score": -27.899188995361328,
+                  "contains_retokenized_prompt": true,
+                  "prompt_characters_in_scored_tail": 3
+                }
+              }
+            }
+          }
+        }
+      ],
+      "legacy_primary": {
+        "selected_equal": true,
+        "token_ids_equal": true,
+        "max_nll_difference": 0
+      },
+      "report_path": "reports/pr6-category-boundary/baseline-candidates",
+      "manifest": {
+        "bytes": 7306,
+        "sha256": "6ea500df1744996468d94de9936444d61afc9790f4c729b6b0f3f22bbfccc4f2"
+      }
+    },
+    "final": {
+      "evaluation_id": "ef78b5aaa638d7fa0dfd36723d100040014aa79b9d5abfa7aa419b0934fd5bb7",
+      "checkpoint": {
+        "sha256": "6046ebc61b9196c554758b5982f44da00b4a7e4e6daebfa6100af6a1dea9fec9",
+        "path": "/home/voyah/work_space/git_ws/min_llm/runs/pilot-10m-t1200-v3/model.pt",
+        "global_step": 611,
+        "tokens_seen": 10000848,
+        "mode": "pretrain",
+        "quantized_bits": null,
+        "parameters": 86528640,
+        "execution": "FP32"
+      },
+      "environment": {
+        "python_version": "3.11.17",
+        "torch_version": "2.14.1+cu126",
+        "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.35",
+        "device": "cpu",
+        "device_name": "x86_64",
+        "cuda_version": "12.6",
+        "threads": 1,
+        "numerical_scope": "same software/device; cross-GPU/version bitwise equality is not guaranteed"
+      },
+      "candidate_likelihood": {
+        "status": "COMPLETED",
+        "tasks": 24,
+        "categories": {
+          "code": {
+            "correct": 0,
+            "tasks": 4,
+            "scored": 4,
+            "unscorable": 0,
+            "accuracy": 0.0,
+            "ties": 0
+          },
+          "english": {
+            "correct": 2,
+            "tasks": 4,
+            "scored": 4,
+            "unscorable": 0,
+            "accuracy": 0.5,
+            "ties": 0
+          },
+          "knowledge": {
+            "correct": 3,
+            "tasks": 4,
+            "scored": 4,
+            "unscorable": 0,
+            "accuracy": 0.75,
+            "ties": 0
+          },
+          "language": {
+            "correct": 0,
+            "tasks": 4,
+            "scored": 4,
+            "unscorable": 0,
+            "accuracy": 0.0,
+            "ties": 0
+          },
+          "logic": {
+            "correct": 4,
+            "tasks": 4,
+            "scored": 4,
+            "unscorable": 0,
+            "accuracy": 1.0,
+            "ties": 0
+          },
+          "math": {
+            "correct": 2,
+            "tasks": 4,
+            "scored": 4,
+            "unscorable": 0,
+            "accuracy": 0.5,
+            "ties": 0
+          }
+        },
+        "primary_boundary_policy": "separate",
+        "normalization": "sum",
+        "boundary_audit": {
+          "inconsistent_tasks": 1,
+          "inconsistent_candidates": 1,
+          "total_candidates": 96,
+          "affected_task_ids": [
+            "pretrain-016"
+          ],
+          "bpe_inconsistent_tasks": 1,
+          "normalization_context_mismatches": 0
+        },
+        "protocols": {
+          "separate": {
+            "status": "COMPLETED",
+            "tasks": 24,
+            "categories": {
+              "code": {
+                "correct": 0,
+                "tasks": 4,
+                "scored": 4,
+                "unscorable": 0,
+                "accuracy": 0.0,
+                "ties": 0
+              },
+              "english": {
+                "correct": 2,
+                "tasks": 4,
+                "scored": 4,
+                "unscorable": 0,
+                "accuracy": 0.5,
+                "ties": 0
+              },
+              "knowledge": {
+                "correct": 3,
+                "tasks": 4,
+                "scored": 4,
+                "unscorable": 0,
+                "accuracy": 0.75,
+                "ties": 0
+              },
+              "language": {
+                "correct": 0,
+                "tasks": 4,
+                "scored": 4,
+                "unscorable": 0,
+                "accuracy": 0.0,
+                "ties": 0
+              },
+              "logic": {
+                "correct": 4,
+                "tasks": 4,
+                "scored": 4,
+                "unscorable": 0,
+                "accuracy": 1.0,
+                "ties": 0
+              },
+              "math": {
+                "correct": 2,
+                "tasks": 4,
+                "scored": 4,
+                "unscorable": 0,
+                "accuracy": 0.5,
+                "ties": 0
+              }
+            }
+          },
+          "joint_shared_prefix": {
+            "status": "COMPLETED",
+            "tasks": 24,
+            "categories": {
+              "code": {
+                "correct": 0,
+                "tasks": 4,
+                "scored": 4,
+                "unscorable": 0,
+                "accuracy": 0.0,
+                "ties": 0
+              },
+              "english": {
+                "correct": 2,
+                "tasks": 4,
+                "scored": 4,
+                "unscorable": 0,
+                "accuracy": 0.5,
+                "ties": 0
+              },
+              "knowledge": {
+                "correct": 3,
+                "tasks": 4,
+                "scored": 4,
+                "unscorable": 0,
+                "accuracy": 0.75,
+                "ties": 0
+              },
+              "language": {
+                "correct": 0,
+                "tasks": 4,
+                "scored": 4,
+                "unscorable": 0,
+                "accuracy": 0.0,
+                "ties": 0
+              },
+              "logic": {
+                "correct": 4,
+                "tasks": 4,
+                "scored": 4,
+                "unscorable": 0,
+                "accuracy": 1.0,
+                "ties": 0
+              },
+              "math": {
+                "correct": 2,
+                "tasks": 4,
+                "scored": 4,
+                "unscorable": 0,
+                "accuracy": 0.5,
+                "ties": 0
+              }
+            }
+          }
+        },
+        "interpretation": "Original small probes; separate and joint_shared_prefix are different metrics. Joint scoring may include prompt text. Length/wording biases remain; not open-ended reasoning or chat ability."
+      },
+      "affected_predictions": [
+        {
+          "id": "pretrain-016",
+          "prompt": "小明比小红高，小红比小李高，三人中最高的是",
+          "reference": "B",
+          "prefix_tokens": 18,
+          "joint_shared_prefix_tokens": 16,
+          "normalization_context_consistent": true,
+          "affected_candidates": {
+            "A": {
+              "separate_token_ids": [
+                2199,
+                551,
+                4736,
+                501,
+                179,
+                128,
+                242,
+                4736,
+                551,
+                15967,
+                501,
+                179,
+                128,
+                242,
+                16981,
+                2368,
+                501,
+                1296,
+                2765
+              ],
+              "continuation_token_ids": [
+                2765
+              ],
+              "joint_token_ids": [
+                2199,
+                551,
+                4736,
+                501,
+                179,
+                128,
+                242,
+                4736,
+                551,
+                15967,
+                501,
+                179,
+                128,
+                242,
+                16981,
+                2368,
+                2082,
+                636,
+                758
+              ],
+              "joint_offsets": [
+                [
+                  0,
+                  2
+                ],
+                [
+                  2,
+                  3
+                ],
+                [
+                  3,
+                  5
+                ],
+                [
+                  5,
+                  6
+                ],
+                [
+                  6,
+                  7
+                ],
+                [
+                  6,
+                  7
+                ],
+                [
+                  6,
+                  7
+                ],
+                [
+                  7,
+                  9
+                ],
+                [
+                  9,
+                  10
+                ],
+                [
+                  10,
+                  12
+                ],
+                [
+                  12,
+                  13
+                ],
+                [
+                  13,
+                  14
+                ],
+                [
+                  13,
+                  14
+                ],
+                [
+                  13,
+                  14
+                ],
+                [
+                  14,
+                  16
+                ],
+                [
+                  16,
+                  18
+                ],
+                [
+                  18,
+                  20
+                ],
+                [
+                  20,
+                  22
+                ],
+                [
+                  22,
+                  23
+                ]
+              ],
+              "matches_joint": false,
+              "normalization_consistent": true
+            }
+          },
+          "protocols": {
+            "separate": {
+              "selected": "B",
+              "score": {
+                "correct": true,
+                "status": "scored"
+              },
+              "candidates": {
+                "A": {
+                  "text": "一样",
+                  "token_ids": [
+                    2765
+                  ],
+                  "tokens": 1,
+                  "negative_log_likelihood": 10.787538528442383,
+                  "score": -10.787538528442383
+                },
+                "B": {
+                  "text": "小明",
+                  "token_ids": [
+                    2199
+                  ],
+                  "tokens": 1,
+                  "negative_log_likelihood": 2.7297096252441406,
+                  "score": -2.7297096252441406
+                },
+                "C": {
+                  "text": "小红",
+                  "token_ids": [
+                    4736
+                  ],
+                  "tokens": 1,
+                  "negative_log_likelihood": 3.172182083129883,
+                  "score": -3.172182083129883
+                },
+                "D": {
+                  "text": "小李",
+                  "token_ids": [
+                    15967
+                  ],
+                  "tokens": 1,
+                  "negative_log_likelihood": 6.363988876342773,
+                  "score": -6.363988876342773
+                }
+              }
+            },
+            "joint_shared_prefix": {
+              "selected": "B",
+              "score": {
+                "correct": true,
+                "status": "scored"
+              },
+              "candidates": {
+                "A": {
+                  "text": "一样",
+                  "token_ids": [
+                    2082,
+                    636,
+                    758
+                  ],
+                  "tokens": 3,
+                  "negative_log_likelihood": 26.76260757446289,
+                  "score": -26.76260757446289,
+                  "contains_retokenized_prompt": true,
+                  "prompt_characters_in_scored_tail": 3
+                },
+                "B": {
+                  "text": "小明",
+                  "token_ids": [
+                    501,
+                    1296,
+                    2199
+                  ],
+                  "tokens": 3,
+                  "negative_log_likelihood": 16.73518943786621,
+                  "score": -16.73518943786621,
+                  "contains_retokenized_prompt": true,
+                  "prompt_characters_in_scored_tail": 3
+                },
+                "C": {
+                  "text": "小红",
+                  "token_ids": [
+                    501,
+                    1296,
+                    4736
+                  ],
+                  "tokens": 3,
+                  "negative_log_likelihood": 17.177661895751953,
+                  "score": -17.177661895751953,
+                  "contains_retokenized_prompt": true,
+                  "prompt_characters_in_scored_tail": 3
+                },
+                "D": {
+                  "text": "小李",
+                  "token_ids": [
+                    501,
+                    1296,
+                    15967
+                  ],
+                  "tokens": 3,
+                  "negative_log_likelihood": 20.369468688964844,
+                  "score": -20.369468688964844,
+                  "contains_retokenized_prompt": true,
+                  "prompt_characters_in_scored_tail": 3
+                }
+              }
+            }
+          }
+        }
+      ],
+      "legacy_primary": {
+        "selected_equal": true,
+        "token_ids_equal": true,
+        "max_nll_difference": 0
+      },
+      "report_path": "reports/pr6-category-boundary/final-candidates",
+      "manifest": {
+        "bytes": 7309,
+        "sha256": "4f9bad900982a35949e0ff496bd0720e80e38e0dffa507740086cd7541814951"
+      }
+    }
+  },
+  "code_example": {
+    "text": "Ａ＝１",
+    "text_policy": "width-fold-prose-v1",
+    "declared_category": "code",
+    "prepared_text": "Ａ＝１",
+    "token_ids": [
+      179,
+      128,
+      102,
+      179,
+      128,
+      259,
+      179,
+      128,
+      247
+    ],
+    "roundtrip": "Ａ＝１",
+    "auto_prepared_text": "A=1",
+    "tokenizer_fingerprint": "42155349a7a25cfd7a394f6db70fd2443d5f0a1ac98a75738e2abbeee663c33d",
+    "note": "Explicit code and missing metadata (auto) are distinct inputs; carry the declared category."
+  },
+  "tests": {
+    "pytest": {
+      "command": "python -m pytest -q -o addopts=''",
+      "status": "PASS",
+      "interpreter": ".venv/bin/python",
+      "log_sha256": "8fdd59fe93c03d869c37ee97dd1351ce7318e246dea9812ffc3372bf3703f319",
+      "result": "413 passed in 132.43s"
+    },
+    "smoke": {
+      "command": "./scripts/smoke_test.sh",
+      "status": "PASS",
+      "interpreter": ".venv/bin/python",
+      "log_sha256": "b5b6d80c0ac5ea910fd1bc943a9108102127746f660bfd3d4afabbf8b7c3cc20"
+    },
+    "synthetic_smoke": {
+      "command": "SYNTHETIC=1 ./scripts/smoke_test.sh",
+      "status": "PASS",
+      "interpreter": ".venv/bin/python",
+      "log_sha256": "993de5c22844fe848fac9be801d9c9660fd97782d85fea8db566844746ec0662"
+    },
+    "reliability": {
+      "command": "python scripts/check_training_reliability.py",
+      "status": "PASS",
+      "interpreter": ".venv/bin/python",
+      "log_sha256": "c0d0683f4aec1fba9d0cadf92054c6dda8178809bbda2a01fd9416988b8306c3"
+    },
+    "evaluation_workflow": {
+      "command": "python scripts/check_evaluation_workflow.py --out reports/pr6-category-boundary/nano-workflow",
+      "status": "PASS",
+      "interpreter": ".venv/bin/python",
+      "log_sha256": "d4b1fe4c481e378c10a6f741855c43b7f9b12192d895e4b23d74042f202bf4f7"
+    }
+  },
+  "source_files": {
+    "src/minillm/corpus.py": {
+      "bytes": 27599,
+      "sha256": "dae502090685c38563a87b411bc6f825c639f08ac39b6753b78fe4d4647e0796"
+    },
+    "src/minillm/corpus_store.py": {
+      "bytes": 16625,
+      "sha256": "5eacb58877f5d3c718e2aa5f7e4864fd66da064bafb64f5964d38ef80d800c49"
+    },
+    "src/minillm/data.py": {
+      "bytes": 14018,
+      "sha256": "0c673b39866bb6b4ea6dbcc4b2dd8c66f6f2ea176f65489ef9afd3d872895591"
+    },
+    "src/minillm/evaluation.py": {
+      "bytes": 28418,
+      "sha256": "cab88832bda19e5117879e8392ea7e38b393363f537a1cd070f160d017e29970"
+    },
+    "src/minillm/evaluation_candidates.py": {
+      "bytes": 10259,
+      "sha256": "5b49d956d37f6166468861b63a716b7b04d89b0812cf126ba0c8cc141313edd1"
+    },
+    "src/minillm/evaluation_compare.py": {
+      "bytes": 7915,
+      "sha256": "671657050f3f2fd2dccc10c047d8383e6f81b89bc76a5ecfaf4d0e0c635c6c8e"
+    },
+    "src/minillm/generate.py": {
+      "bytes": 6448,
+      "sha256": "557682bcf414dec57bab4c4df7be6df1dd731d63a628494386676402285b16cf"
+    },
+    "src/minillm/text_policy.py": {
+      "bytes": 2182,
+      "sha256": "25d3cc3440f2889f6e13bc70646acccfadf3e99f4bc3e28defa6d8c22d1c64aa"
+    },
+    "src/minillm/tokenizer.py": {
+      "bytes": 14818,
+      "sha256": "549403ed38471e168730be5697237151f4244408f8ce8c69b5018311d5444e3e"
+    },
+    "src/minillm/web.py": {
+      "bytes": 12633,
+      "sha256": "cecf76a11b4b45b1b9362890d9fcb7cd442b9b7f620cf5c10cf36c0510733372"
+    },
+    "tests/test_text_policy.py": {
+      "bytes": 12016,
+      "sha256": "554a9505890823bff56ded3ad02fc2ec0a3f1082d0af243f0efd5e3219bd5b62"
+    },
+    "tests/test_candidate_boundaries.py": {
+      "bytes": 6857,
+      "sha256": "2c40fa1576be1c21cead8a0cc64edd73a867dc3017fbf4123dc002a4618420a0"
+    }
+  }
+}

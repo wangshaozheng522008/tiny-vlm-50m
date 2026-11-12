@@ -20,6 +20,7 @@ from .corpus_utils import (CorpusError, Stages, connect, database_output, file_i
                            histogram_add, identity, json_bytes, sha256, verify_file, write_json)
 from .data import encode_document_tokens
 from .tokenizer import MiniLLMTokenizer
+from .text_policy import IDENTITY, validate_policy
 
 SPLITS = ("train", "val", "test")
 DEFAULT_DEDUP = {"method": "simhash", "hamming_distance": 4, "threshold": 0.85,
@@ -45,7 +46,7 @@ def merge(base, override):
 
 def make_content(config: dict, overrides: dict | None = None):
     allowed = {"dataset_name", "sources", "quality", "deduplication", "mixing", "license_policy",
-               "runtime", "seed", "shuffle_seed", "sample", "max_records", "split", "schema_version"}
+               "runtime", "seed", "shuffle_seed", "sample", "max_records", "split", "schema_version", "text_policy"}
     if set(config) - allowed:
         raise CorpusError(f"unknown config fields: {sorted(set(config) - allowed)}")
     if config.get("schema_version", 1) != 1:
@@ -67,6 +68,8 @@ def make_content(config: dict, overrides: dict | None = None):
                 content[parent][child] = value
             else:
                 content[key] = value
+    if "text_policy" in config:
+        content["text_policy"] = validate_policy(config["text_policy"])
     q, d, m = (content[name] for name in ("quality", "deduplication", "mixing"))
     policy = content["license_policy"]
     if (not isinstance(policy["allow"], list) or len(policy["allow"]) > 128
@@ -138,7 +141,7 @@ def input_identity(inputs):
 
 
 def implementation_identity():
-    modules = ("corpus.py", "corpus_store.py", "corpus_quality.py", "corpus_utils.py", "data.py", "tokenizer.py")
+    modules = ("corpus.py", "corpus_store.py", "corpus_quality.py", "corpus_utils.py", "data.py", "tokenizer.py", "text_policy.py")
     return identity({"modules": {name: sha256(Path(__file__).with_name(name)) for name in modules},
                      "tokenizers_version": importlib.metadata.version("tokenizers"),
                      "unicode_version": unicodedata.unidata_version})
@@ -221,7 +224,9 @@ def tokenize_split(records, tokenizer: MiniLLMTokenizer, out_path: Path, *, buff
             category = record.get("category", "unknown") if isinstance(record, dict) else "unknown"
             if len(stats["by_source"]) >= 128 and source not in stats["by_source"]:
                 raise CorpusError("too many tokenization sources")
-            tokens = next(iter(encode_document_tokens((text,), tokenizer, drop_empty=False)))
+            if tokenizer.prepare_text(text, category=category) != text:
+                raise CorpusError("split text is not canonical under its category/text policy; regenerate text splits in a new dataset")
+            tokens = next(iter(encode_document_tokens((text,), tokenizer, drop_empty=False, category=category)))
             data = tokens.tobytes()
             # The staging buffer is fixed; one already-bounded document may be larger.
             for offset in range(0, len(data), buffer_bytes):
@@ -340,6 +345,7 @@ class Pipeline:
                         "training_split_sha256": sha256(self.out / "train.text.jsonl")}, [target]
         tok_record = self.stages.run("tokenizer", tokenizer_key, prepare_tokenizer)
         tokenizer = MiniLLMTokenizer.load(target)
+        tokenizer.text_policy = self.content.get("text_policy", IDENTITY)
         results = {}
         for name in SPLITS:
             text_path, bin_path = self.out / f"{name}.text.jsonl", self.out / f"{name}.bin"

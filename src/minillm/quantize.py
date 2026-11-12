@@ -170,7 +170,7 @@ def save_quantized(path: str | Path, model: MiniLLM, bits: int = 4, group_size: 
         }
     )
     if metadata:
-        for key in ("step", "tokens_seen", "mode", "val_loss"):
+        for key in ("step", "tokens_seen", "mode", "val_loss", "text_policy"):
             if key in metadata:
                 payload[key] = metadata[key]
     torch.save(payload, path)

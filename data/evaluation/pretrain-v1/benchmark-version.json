@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "version": "minillm-pretrain-probes-v1",
+  "source": "Original small natural-prefix probes authored in this repository; no external exam dataset",
+  "human_review": "pending; provisional diagnostic assets, not a standardized ability benchmark",
+  "files": {
+    "candidates.jsonl": {
+      "sha256": "c54cd9297908953cd3189649f2e5e83a7729264bdd61e21f5000833448830b71",
+      "records": 24
+    },
+    "prompts.jsonl": {
+      "sha256": "be8b35f8e940d28d9b77a81218aaa4b53b65b0ff430bcd41f0474512009b149c",
+      "records": 12
+    }
+  }
+}

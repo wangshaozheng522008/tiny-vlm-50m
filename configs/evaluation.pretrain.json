@@ -1,0 +1,11 @@
+{
+  "stage": "pretrain",
+  "seq_len": 512,
+  "batch_size": 1,
+  "token_budget": 65536,
+  "max_new_tokens": 64,
+  "seed": 42,
+  "temperature": 0,
+  "top_k": 0,
+  "threads": 1
+}

@@ -25,6 +25,7 @@ from .model import MiniLLM
 from .quantize import dequantize_model
 from .tokenizer import DEFAULT_SYSTEM, END_OF_TURN_ID, MiniLLMTokenizer
 from .utils import describe_device, get_device, human_bytes, set_seed
+from .text_policy import checkpoint_text_policy
 
 ASSETS = Path(__file__).with_name("web_assets")
 CONTENT_TYPES = {
@@ -86,9 +87,9 @@ class ChatEngine:
         with self.lock:
             self.history.clear()
 
-    def _prompt_ids(self, message: str, system: str, context_limit: int) -> tuple[list[int], int]:
+    def _prompt_ids(self, message: str, system: str, context_limit: int, category: str = "auto") -> tuple[list[int], int]:
         """Chat ids for the current history, dropping old turns to fit the limit."""
-        turns = [*self.history, {"role": "user", "content": message}]
+        turns = [*self.history, {"role": "user", "content": message, "category": category}]
         dropped = 0
         while True:
             ids = self.tokenizer.apply_chat_template(
@@ -106,7 +107,7 @@ class ChatEngine:
 
     @torch.no_grad()
     def chat(self, message: str, *, system: str = DEFAULT_SYSTEM, temperature: float = 0.7,
-             top_k: int = 40, max_new_tokens: int = 256, context_limit: int = 2048) -> dict:
+             top_k: int = 40, max_new_tokens: int = 256, context_limit: int = 2048, text_category: str = "auto") -> dict:
         message = (message or "").strip()
         if not message:
             raise ValueError("empty message")
@@ -115,7 +116,7 @@ class ChatEngine:
             context_limit = max(64, min(int(context_limit), self.model.cfg.max_position_embeddings))
             max_new_tokens = max(1, min(int(max_new_tokens),
                                        self.model.cfg.max_position_embeddings - 8))
-            ids, dropped = self._prompt_ids(message, system, context_limit - max_new_tokens)
+            ids, dropped = self._prompt_ids(message, system, context_limit - max_new_tokens, text_category)
             input_ids = torch.tensor([ids], dtype=torch.long, device=self.device)
 
             started = time.perf_counter()
@@ -145,11 +146,12 @@ class ChatEngine:
             total = time.perf_counter() - started
             reply = self.tokenizer.decode(generated, skip_special_tokens=True)
             self.history.extend([
-                {"role": "user", "content": message},
-                {"role": "assistant", "content": reply},
+                {"role": "user", "content": message, "category": text_category},
+                {"role": "assistant", "content": reply, "category": text_category},
             ])
             return {
                 "reply": reply,
+                "text_category": text_category,
                 "tokens": len(generated),
                 "prompt_tokens": prompt_len,
                 "ttft_ms": ttft * 1000,
@@ -228,6 +230,7 @@ def make_handler(engine: ChatEngine):
                     top_k=int(body.get("top_k", 40)),
                     max_new_tokens=int(body.get("max_new_tokens", 256)),
                     context_limit=int(body.get("context_limit", 2048)),
+                    text_category=body.get("text_category", "auto"),
                 )
             except ValueError as exc:
                 self._send_json({"error": str(exc)}, 400)
@@ -245,6 +248,7 @@ def serve(ckpt: str, tokenizer: str, host: str = "127.0.0.1", port: int = 8765,
     torch_device = get_device(device)
     model, payload = load_checkpoint(ckpt, torch_device)
     tok = MiniLLMTokenizer.load(tokenizer)
+    tok.text_policy = checkpoint_text_policy(payload)
     tok.assert_vocab_size(model.cfg.vocab_size)
     if payload.get("tokenizer_fingerprint") not in (None, tok.fingerprint):
         raise SystemExit("checkpoint and tokenizer fingerprints do not match")

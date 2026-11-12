@@ -127,6 +127,7 @@ class SFTDataset(Dataset):
     ):
         self.path = Path(path)
         self.tokenizer = tokenizer
+        self.text_policy = tokenizer.text_policy
         self.max_seq_len = max_seq_len
         self.system = system
         self.supervise_all = supervise_all_assistant_turns
@@ -139,7 +140,8 @@ class SFTDataset(Dataset):
             if not isinstance(messages, list) or not messages:
                 self.stats["dropped"] += 1
                 continue
-            digest = json.dumps(messages, sort_keys=True, ensure_ascii=False)
+            digest = json.dumps({"messages":messages,"category":record["category"]} if "category" in record else messages,
+                                sort_keys=True, ensure_ascii=False)
             if digest in seen:  # exact duplicate conversation
                 self.stats["dropped"] += 1
                 continue
@@ -151,6 +153,7 @@ class SFTDataset(Dataset):
                 messages,
                 system=self.system,
                 supervise_all_assistant_turns=self.supervise_all,
+                category=record.get("category", "auto"),
             )
             ids, labels = encoding.ids, encoding.labels
             if len(ids) > max_seq_len:
@@ -324,13 +327,13 @@ def stream_documents(paths: Iterable[str | Path]) -> Iterable[str]:
 
 
 def encode_document_tokens(texts: Iterable[str], tokenizer: MiniLLMTokenizer, *,
-                           drop_empty: bool = True, log_fn=None) -> Iterable[np.ndarray]:
+                           drop_empty: bool = True, log_fn=None, category: str = "auto") -> Iterable[np.ndarray]:
     """Yield one uint16 array at a time; never aggregate the corpus token stream."""
     total = 0
     for index, text in enumerate(texts):
         if drop_empty and not text.strip():
             continue
-        ids = tokenizer.encode_document(text)
+        ids = tokenizer.encode_document(text, category=category)
         if any(type(token) is not int or not 0 <= token < min(tokenizer.vocab_size, 65536) for token in ids):
             raise ValueError("token id outside vocabulary/uint16 range")
         total += len(ids)

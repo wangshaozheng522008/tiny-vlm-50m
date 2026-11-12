@@ -31,6 +31,7 @@ from .train import (
     make_pretrain_loader,
 )
 from .utils import get_device, set_seed
+from .text_policy import IDENTITY, checkpoint_text_policy
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -89,9 +90,11 @@ def main() -> None:
     device = get_device(args.device)
     if args.threads:
         torch.set_num_threads(args.threads)
+    policy = IDENTITY
 
     if args.resume:
         state = load_training_state(args.resume, mmap=True)
+        policy = checkpoint_text_policy(state)
         cfg = MiniLLMConfig.from_dict(state["config"])
         tokenizer = MiniLLMTokenizer.load(args.tokenizer)
         if args.config:
@@ -104,6 +107,7 @@ def main() -> None:
         # fit validates and loads the full state once setup is complete.
     elif args.init_from:
         model, cfg, payload = load_model_checkpoint(args.init_from, torch.device("cpu"))
+        policy = checkpoint_text_policy(payload)
         tokenizer = MiniLLMTokenizer.load(args.tokenizer)
         if payload.get("tokenizer_fingerprint") not in (None, tokenizer.fingerprint):
             raise SystemExit("init-from tokenizer fingerprint does not match --tokenizer")
@@ -117,6 +121,7 @@ def main() -> None:
         model = MiniLLM(cfg)
         print("[init] fresh weights (no --init-from); SFT from scratch is only useful for tests")
     tokenizer.assert_vocab_size(model.cfg.vocab_size)
+    tokenizer.text_policy = policy
 
     seq_len = args.max_seq_len or model.cfg.max_position_embeddings
     train_set = SFTDataset(

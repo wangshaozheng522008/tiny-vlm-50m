@@ -45,6 +45,9 @@ def dataset_identity(dataset, ignore_index: int) -> tuple[dict | None, int]:
                     raise ValueError("dataset version/file hash mismatch")
                 identity["dataset_content_id"] = version["content_id"]
                 identity["dataset_tokenizer_fingerprint"] = version["tokenizer"]["fingerprint"]
+                if "text_policy" in version.get("content_config", {}):
+                    from .text_policy import validate_policy
+                    identity["text_policy"] = validate_policy(version["content_config"]["text_policy"])
             except (OSError, ValueError, KeyError, TypeError) as exc:
                 raise CheckpointError(f"invalid published dataset manifest {version_path}: {exc}") from exc
     elif isinstance(dataset, SFTDataset):
@@ -60,6 +63,8 @@ def dataset_identity(dataset, ignore_index: int) -> tuple[dict | None, int]:
                 digest.update(values.tobytes())
             tokens += int((item["labels"][1:] != ignore_index).sum())
         identity["effective_sha256"] = digest.hexdigest()
+        if getattr(dataset, "text_policy", "identity-v1") != "identity-v1":
+            identity["text_policy"] = dataset.text_policy
     else:
         raise ValueError("reliable training requires PackedPretrainDataset or SFTDataset")
     identity["effective_loss_tokens"] = tokens
@@ -85,6 +90,10 @@ def build_manifest(opts, model, tokenizer, train_dataset, val_dataset, *, mode, 
         raise ValueError("max_minutes must be finite and nonnegative")
     train, tokens = dataset_identity(train_dataset, model.cfg.ignore_index)
     val, _ = dataset_identity(val_dataset, model.cfg.ignore_index)
+    from .text_policy import IDENTITY
+    policy = train.get("text_policy", IDENTITY)
+    if val and val.get("text_policy", IDENTITY) != policy:
+        raise CheckpointError("train/validation text policies differ")
     for dataset in (train, val):
         if dataset and dataset.get("dataset_tokenizer_fingerprint", tokenizer.fingerprint) != tokenizer.fingerprint:
             raise CheckpointError("published dataset tokenizer fingerprint does not match training tokenizer")

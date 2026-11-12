@@ -202,10 +202,13 @@ def check_readiness(dataset, tokenizer_path, model_config, training_config, out,
             _prepare_run_manifest(Path(opts.out),manifest)
         if opts.init_from:
             from .evaluation import load_evaluation_model
-            initial,_=load_evaluation_model(opts.init_from,tokenizer,torch.device("cpu"))
+            initial,initial_payload=load_evaluation_model(opts.init_from,tokenizer,torch.device("cpu"))
+            from .text_policy import checkpoint_text_policy
+            if checkpoint_text_policy(initial_payload)!=manifest["dataset"]["train"].get("text_policy","identity-v1"):
+                raise ValueError("init-from text policy differs from dataset")
             if initial.cfg.to_dict()!=cfg.to_dict():
                 raise ValueError("init-from model config mismatch")
-            del initial
+            del initial,initial_payload
         if opts.resume and opts.init_from:
             raise ValueError("resume and init_from are mutually exclusive")
         add("Checkpoint compatibility","PASS","verified saved plan, ownership and cursor" if state else "fresh task with protected empty output")

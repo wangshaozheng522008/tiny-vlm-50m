@@ -23,6 +23,8 @@ from .model import MiniLLM
 from .quantize import dequantize_model
 from .tokenizer import DEFAULT_SYSTEM, END_OF_TURN_ID, EOS_ID, MiniLLMTokenizer
 from .utils import get_device, set_seed
+from .text_policy import checkpoint_text_policy
+from .text_policy import TEXT_CATEGORIES
 
 
 def stop_ids_for(raw: bool) -> tuple[int, ...]:
@@ -50,13 +52,14 @@ def build_reply(
     temperature: float = 0.0,
     top_k: int = 0,
     use_cache: bool = True,
+    category: str = "auto",
 ) -> dict:
     """Tokenise a prompt, generate, cut at the stop marker and decode."""
     if raw:
-        ids = tokenizer.encode(text)
+        ids = tokenizer.encode(text, category=category)
     else:
         ids = tokenizer.apply_chat_template(
-            [{"role": "user", "content": text}], system=system, add_generation_prompt=True
+            [{"role": "user", "content": text, "category": category}], system=system, add_generation_prompt=True
         )
     input_ids = torch.tensor([ids], dtype=torch.long, device=next(model.parameters()).device)
     stop_ids = stop_ids_for(raw)
@@ -72,6 +75,7 @@ def build_reply(
         "tokens": len(kept),
         "generated": len(new_tokens),
         "stop_ids": stop_ids,
+        "text_category": category,
     }
 
 
@@ -99,6 +103,8 @@ def main() -> None:
     p.add_argument("--prompt", default="", help="instruction; empty starts an interactive loop")
     p.add_argument("--system", default=DEFAULT_SYSTEM)
     p.add_argument("--raw", action="store_true", help="treat --prompt as raw completion text")
+    p.add_argument("--text-category", choices=TEXT_CATEGORIES, default="auto",
+                   help="declared input category; use code for source the auto heuristic cannot recognize")
     p.add_argument("--max-new-tokens", type=int, default=128)
     p.add_argument("--temperature", type=float, default=0.0)
     p.add_argument("--top-k", type=int, default=0)
@@ -112,6 +118,7 @@ def main() -> None:
     set_seed(args.seed)
     model, payload = load_any_checkpoint(args.ckpt, device)
     tokenizer = MiniLLMTokenizer.load(args.tokenizer)
+    tokenizer.text_policy = checkpoint_text_policy(payload)
     tokenizer.assert_vocab_size(model.cfg.vocab_size)
     if payload.get("tokenizer_fingerprint") not in (None, tokenizer.fingerprint):
         raise SystemExit("checkpoint and tokenizer do not come from the same tokenizer")
@@ -123,7 +130,7 @@ def main() -> None:
         result = build_reply(
             model, tokenizer, text, raw=args.raw, system=args.system,
             max_new_tokens=args.max_new_tokens, temperature=args.temperature,
-            top_k=args.top_k, use_cache=not args.no_cache,
+            top_k=args.top_k, use_cache=not args.no_cache, category=args.text_category,
         )
         elapsed = time.time() - started
         rate = result["tokens"] / max(elapsed, 1e-6)
