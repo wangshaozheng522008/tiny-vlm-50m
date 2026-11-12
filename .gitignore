@@ -27,3 +27,10 @@ reports/
 .idea/
 .vscode/
 .DS_Store
+
+# Versioned PR7 diagnostic assets
+!/data/diagnostics/
+!/data/diagnostics/memorization-v1/
+!/data/diagnostics/memorization-v1/*.jsonl
+!/data/diagnostics/memorization-v1/*.json
+!/data/evaluation/chinese-foundation-v1/*.jsonl

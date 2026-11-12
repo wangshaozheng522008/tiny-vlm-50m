@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "version": "memorization-v1",
+  "source": "Original repository-authored diagnostic assets, CC0-1.0. No external dataset.",
+  "human_review": "REVIEW_PENDING; no automated acceptance",
+  "files": {
+    "train.jsonl": {
+      "sha256": "0f22a5897c7503e52058fd59e0239b1a7540cf330fb0049c1f11090b2407f3a3",
+      "records": 160
+    },
+    "heldout.jsonl": {
+      "sha256": "f4f3727dce87059779d58bfe27221fcbe98a6bef9e11a91031de7978292783a4",
+      "records": 32
+    }
+  }
+}

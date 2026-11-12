@@ -30,9 +30,10 @@ from minillm.data import EpochBatchSampler, PackedPretrainDataset, collate_batch
 from minillm.tokenizer import MiniLLMTokenizer
 from minillm.train import CheckpointError, TrainingOptions, fit, load_training_state
 from minillm.utils import set_seed
+from minillm.recovery_state import compare_tree
 
 
-def check(directory: Path) -> dict:
+def check(directory: Path, seed: int = 17) -> dict:
     directory.mkdir(parents=True, exist_ok=True)
     rng = random.Random(1)
     texts = [" ".join(str(rng.randrange(10000)) for _ in range(20)) for _ in range(1000)]
@@ -43,7 +44,7 @@ def check(directory: Path) -> dict:
     (np.arange(11 * 12 + 1) % (tokenizer.vocab_size - 16) + 16).astype(np.uint16).tofile(path)
     data = PackedPretrainDataset(path, 12)
     base = TrainingOptions(out=str(directory / "continuous"), device="cpu", precision="fp32",
-                           threads=1, seed=17, batch_size=2, grad_accum=4, max_steps=7,
+                           threads=1, seed=seed, batch_size=2, grad_accum=4, max_steps=7,
                            warmup_ratio=0.4, log_every=1, save_every=1, val_every=0)
     def model():
         set_seed(base.seed)
@@ -81,6 +82,11 @@ def check(directory: Path) -> dict:
     assert max_diff == 0.0, f"parameter difference {max_diff}"
     assert full_order == split_order, "sample consumption differs"
     assert full_draws == split_draws, "RNG draws differ"
+    continuous_state = load_training_state(Path(base.out) / "state.pt")
+    resumed_state = load_training_state(Path(split.out) / "state.pt")
+    optimizer_max = compare_tree(continuous_state["optimizer"], resumed_state["optimizer"], path="optimizer")
+    compare_tree(continuous_state["rng"], resumed_state["rng"], exact=True, path="rng")
+    del continuous_state, resumed_state
     keys = ("steps", "epoch", "micro_batches_consumed_in_epoch", "samples_seen", "tokens_seen")
     assert all(continuous[k] == resumed[k] for k in keys), "progress counters differ"
     def lrs(out):
@@ -142,6 +148,8 @@ def check(directory: Path) -> dict:
         "continuous": {k: continuous[k] for k in keys}, "two_resumes": {k: resumed[k] for k in keys},
         "interruptions_and_final": checkpoints, "max_parameter_difference": max_diff,
         "sample_order_equal": True, "rng_equal": True, "lr_equal": True,
+        "optimizer_state_equal": True, "rng_state_equal": True,
+        "optimizer_max_difference": optimizer_max, "seed": seed,
         "updates_per_epoch": 2, "target_updates": 7, "backup_recovery_step": backup_step,
         "checks": ["continuous_vs_two_resumes", "SIGINT_and_SIGTERM", "incomplete_group_and_epoch_boundary",
                    "max_steps_beyond_one_epoch", "completed_resume_no_extra_step", "configuration_rejected",
@@ -153,13 +161,14 @@ def check(directory: Path) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, help="keep test artifacts and JSON report here")
+    parser.add_argument("--seed", type=int, default=17)
     args = parser.parse_args()
     with contextlib.ExitStack() as stack:
         directory = args.out or Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="minillm-reliability-")))
         captured = io.StringIO()
         try:
             with contextlib.redirect_stdout(captured):
-                report = check(directory)
+                report = check(directory, seed=args.seed)
         except Exception as exc:
             print(captured.getvalue())
             print(f"FAIL training reliability: {exc}", file=sys.stderr)
