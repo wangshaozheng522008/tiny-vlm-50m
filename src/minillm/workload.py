@@ -28,7 +28,7 @@ from .training_manifest import build_manifest, write_json
 from .utils import get_device, set_seed
 
 EXTRAS = {"seq_len", "target_tokens", "planned_effective_tokens", "allow_data_repetition",
-          "gpu_memory_limit_mib", "disk_margin_factor", "workload_report"}
+          "gpu_memory_limit_mib", "disk_margin_factor", "workload_report", "lineage_report"}
 
 
 def parse_training_config(config):
@@ -97,10 +97,9 @@ def resolve_plan(dataset, tokenizer_path, model_config, config):
     init = None
     if opts.resume:
         state = load_training_state(opts.resume, mmap=True)
-        lineage = read_json(Path(opts.resume).parent/"pilot-lineage.json")
-        init = lineage.get("initialization")
-        if init is None or lineage.get("training_manifest")!=state["manifest"]:
-            raise ValueError("resume lacks pilot initialization provenance")
+        from .pilot_lineage import load_for_resume
+        lineage = load_for_resume(opts, state, manifest, train, sampler, report=extra.get("lineage_report"))
+        init = lineage["initialization"]
     elif opts.init_from:
         init = {"sha256": file_info(Path(opts.init_from))["sha256"], "kind": "weights_only"}
     else:

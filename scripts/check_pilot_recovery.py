@@ -3,6 +3,7 @@
 import argparse
 import json
 import signal
+import shutil
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -18,6 +19,7 @@ from minillm.train import fit,load_model_checkpoint,load_training_state
 from minillm.training_manifest import write_json
 from minillm.utils import set_seed
 from minillm.workload import resolve_plan
+from minillm.recovery_state import compare_tree
 
 
 def check(dataset,tokenizer,model_config,config,out,steps=20):
@@ -27,9 +29,9 @@ def check(dataset,tokenizer,model_config,config,out,steps=20):
     source=file_info(Path(opts.init_from))
     with report_directory(out) as directory:
         original=training._train_step
-        traces={}
         def segment(current,stop,order,lrs):
-            set_seed(current.seed)
+            if not current.resume:
+                set_seed(current.seed)
             model,_,payload=load_model_checkpoint(current.init_from or opts.init_from,torch.device('cpu'))
             del payload
             sampler=EpochBatchSampler(len(train),current.batch_size,current.seed)
@@ -57,24 +59,46 @@ def check(dataset,tokenizer,model_config,config,out,steps=20):
         order,lrs=[],[]
         # 5/12 for the planned 20-update check; deterministic earlier boundaries for Nano tests.
         first=min(5,steps-2);second=min(12,steps-1)
+        continuation_out=directory/"continuation"
+        continuation_prefix=None
         for stop in (first,second,None):
             resumed=segment(current,stop,order,lrs)
             current=replace(current,init_from=None,resume=str(Path(current.out)/'state.pt'))
-        continuous=torch.load(directory/'continuous/model.pt',map_location='cpu',weights_only=False,mmap=True)
-        restarted=torch.load(directory/'resumed/model.pt',map_location='cpu',weights_only=False,mmap=True)
-        maximum=0.
-        for name,v in continuous['model'].items():
-            w=restarted['model'][name]
-            torch.testing.assert_close(v,w,atol=1e-6,rtol=1e-5)
-            maximum=max(maximum,float((v-w).abs().max()))
+            if stop==second:
+                continuation_out.mkdir()
+                for filename in ('state.pt','training-manifest.json'):
+                    shutil.copyfile(Path(current.out)/filename,continuation_out/filename)
+                continuation_prefix=len(order)
+        continuous=load_training_state(directory/'continuous/state.pt',mmap=True)
+        restarted=load_training_state(directory/'resumed/state.pt',mmap=True)
+        for name,state in (('continuous',continuous),('resumed',restarted)):
+            model_file=torch.load(directory/name/'model.pt',map_location='cpu',weights_only=False,mmap=True)
+            compare_tree(state['model'],model_file['model'],exact=True,path=f'{name}.model_checkpoint')
+            del model_file
+        maximum=compare_tree(continuous['model'],restarted['model'],path='model')
+        optimizer_max=compare_tree(continuous['optimizer'],restarted['optimizer'],path='optimizer')
+        compare_tree(continuous['rng'],restarted['rng'],exact=True,path='rng')
         keys=('global_step','epoch','micro_batches_consumed_in_epoch','samples_seen','tokens_seen')
         assert full_order==order and full_lrs==lrs
         assert all(full[k]==resumed[k] for k in keys)
+        continuation_order,continuation_lrs=[],[]
+        continued=segment(replace(base,out=str(continuation_out),init_from=None,
+                                 resume=str(continuation_out/'state.pt')),None,continuation_order,continuation_lrs)
+        continuation=load_training_state(continuation_out/'state.pt',mmap=True)
+        compare_tree(continuous['model'],continuation['model'],path='continuation.model')
+        continuation_optimizer_max=compare_tree(continuous['optimizer'],continuation['optimizer'],path='continuation.optimizer')
+        compare_tree(continuous['rng'],continuation['rng'],exact=True,path='continuation.rng')
+        assert full_order[continuation_prefix:]==continuation_order and full_lrs[second:]==continuation_lrs
+        assert all(full[k]==continued[k] for k in keys)
         assert file_info(Path(opts.init_from))==source
         report={'status':'PASS','steps':steps,'interruptions':[first,second],
                 'maximum_parameter_difference':maximum,'atol':1e-6,'rtol':1e-5,
-                'sample_order_equal':True,'lr_equal':True,'progress':{k:full[k] for k in keys},
-                'initial_checkpoint':source,'scope':'isolated recovery experiment; not part of pilot token count'}
+                'sample_order_equal':True,'lr_equal':True,'optimizer_state_equal':True,
+                'rng_state_equal':True,'optimizer_max_difference':optimizer_max,'continuation_equal':True,
+                'continuation':{'from_step':second,'updates':steps-second,'sample_order_equal':True,
+                                'lr_equal':True,'optimizer_max_difference':continuation_optimizer_max},
+                'progress':{k:full[k] for k in keys},'initial_checkpoint':source,
+                'scope':'isolated recovery experiment; not part of pilot token count'}
         write_json(directory/'recovery.json',report)
     return report
 

@@ -100,6 +100,7 @@ def check_readiness(dataset, tokenizer_path, model_config, training_config, out,
         memory_limit = raw.pop("gpu_memory_limit_mib",None)
         disk_factor = raw.pop("disk_margin_factor",1.2)
         workload_report = raw.pop("workload_report",None)
+        raw.pop("lineage_report",None)  # pilot provenance is validated by resolve_plan
         if (type(seq_len) is not int or seq_len<2 or type(allow_repeat) is not bool
                 or not isinstance(disk_factor,(int,float)) or not math.isfinite(disk_factor) or disk_factor<1):
             raise ValueError("invalid sequence, repetition or disk configuration")

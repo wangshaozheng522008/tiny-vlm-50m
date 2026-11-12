@@ -617,3 +617,5 @@ PR #5 增加完整负载探测和统一启动配置：
 [操作步骤与边界](docs/pilot-runbook.md)说明原Tokenizer固定、旧权重热启动、新任务计数、显存证据绑定、非商业研究语料和恢复方法。短CUDA探测仍不能单独获得显存预算PASS。
 
 [1000万Token实测验收](docs/pilot-results.md)：T1200完成611步、10,000,848个有效Token，工程检查通过。固定预算Validation Loss从6.7583降至5.1211，PPL从861.19降至167.52；Raw/Chat题目得分仍为0，能力改善暂不能确认。未自动启动更大训练。
+
+[PR #5可靠性修复](docs/pr5-reliability-fixes.md)在首个更新前持久化初始化谱系，严格验证旧任务恢复，保留首次启动与Resume历史，并加强AdamW/RNG及继续训练对照。本次回归仅使用CPU Nano；已完成87M权重、数据和历史测量不变。

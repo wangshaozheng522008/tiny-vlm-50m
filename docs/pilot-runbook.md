@@ -71,12 +71,16 @@ python scripts/run_pretraining_pilot.py \
   --out reports/pr5-pilot-v3/launch --execute
 ```
 
-The launcher uses one config for readiness and fit, and requires matching full-load evidence for CUDA execution. It preserves READY/BLOCKED/INCOMPLETE exit codes 0/1/2; unavailable required CUDA never falls back to CPU training. A launch-manifest is atomically published before training and records initialization SHA, configuration and data identities. Inputs are rehashed after readiness. It appends an execution result after fit and records pilot-lineage.json inside the owned run, linked to its exact training manifest.
+The launcher uses one config for readiness and fit, and requires matching full-load evidence for CUDA execution. It preserves READY/BLOCKED/INCOMPLETE exit codes 0/1/2; unavailable required CUDA never falls back to CPU training. A launch-manifest is atomically published before training and records initialization SHA, configuration and data identities. Inputs are rehashed after readiness. Before the first update, an identity-only fit callback atomically persists run-identity.json in the launch report and pilot-lineage.json in the owned run, linked to its actual run_id and exact manifest. It appends an execution result after fit; recovery no longer depends on finally running.
 
-Resume uses the same fixed plan, removes init_from, and sets resume to the new run's state.pt. Keep the original probe and use a new launch-report directory. Lineage is required; SIGKILL before the launcher can write lineage needs explicit provenance recovery from its durable launch record, not guessed initialization. Changing steps/schedule is still not resume; extend is not implemented.
+Resume uses the same fixed plan, removes init_from, and sets resume to the new run's state.pt. Keep the original probe and use a new launch-report directory. Schema-v2 lineage preserves initial_launch and appends verified resume_history. A valid state saved before SIGKILL has durable lineage. If lineage was lost, add lineage_report to the training JSON, pointing to the original launch report; only matching run_id-bound evidence (or strictly corroborated legacy records) can recover it. Legacy v1 records are validated and migrated on execution, never guessed. Missing or inconsistent evidence fails closed. Keep original source weights and referenced reports. Pilot resume stays in its owned output directory. Changing steps/schedule is still not resume; extend is not implemented.
 
 After completion, run the existing training analysis, checkpoint comparison and pilot acceptance tools. Final Test evaluation is separate. Stop and diagnose engineering failures; capability improvement is not an absolute-loss threshold or permission to launch one billion tokens. Keep generated reports/data/checkpoints local; only compact evidence and configurations belong in Git.
 
 ## Completed pilot
 
 See [pilot-results.md](pilot-results.md) for the actual 611-update / 10,000,848-token run, independent post-run verification, fixed-budget baseline/final/Test results and limitations. Compact machine-readable evidence is in [pilot-evidence.json](pilot-evidence.json). Engineering passed and validation improved; Raw/Chat exact scores stayed zero, so capability improvement is inconclusive. No further training was started.
+
+## Reliability patch after the pilot
+
+See [pr5-reliability-fixes.md](pr5-reliability-fixes.md) for pre-update lineage persistence, strict legacy recovery, immutable first-launch identity, Resume history, and new CPU-only optimizer/RNG/continuation regressions. Historical87M measurements in pilot-evidence.json were not changed. Old workload proofs retain their implementation hashes and do not automatically approve patched code.
