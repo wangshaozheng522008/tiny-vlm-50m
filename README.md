@@ -263,10 +263,16 @@ python scripts/plan_corpus_v4.py --config configs/corpus_v4.yaml --status-only
 # 全合成 fixture 的端到端演示，产物固定标记 DEMO_ONLY
 python scripts/plan_corpus_v4.py --config configs/corpus_v4.yaml \
     --demo --out reports/corpus-v4-demo
+
+# 离线合成规模基准：默认 1,000 篇；100k/1m 必须显式指定 --documents
+python scripts/benchmark_corpus_v4.py --documents 1000 \
+    --out reports/corpus-v4-benchmark-1000 --seed 42
 ```
 
 演示只验证流水线、规则和门禁，不是可训练语料；正式语料在许可、污染审计和预算通过前
-保持 `NOT_READY`，不会写入 `FROZEN`。
+保持 `NOT_READY`，不会写入 `FROZEN`。规模基准使用合成输入、CPU 和真实 v4
+ingest/quality/dedup/split 阶段，不训练 Tokenizer；实测数据、旧/新 Split 对比和
+大语料残余风险见 [语料 v4 性能与规模基准](docs/corpus-v4-performance.md)。
 
 ## 6. 训练
 

@@ -23,6 +23,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+from array import array
 import math
 import os
 import re
@@ -1028,177 +1029,327 @@ class CorpusV4Pipeline:
         split_policy = self.config["split"]
         assignment_path = self.out / "split-assignment.jsonl"
         manifest_path = self.out / "split-manifest.json"
-        with sqlite3.connect(self.out / "deduplicated.sqlite") as db:
-            db.row_factory = sqlite3.Row
-            rows = [dict(row) for row in db.execute(
-                "SELECT document_id, document_family_id, dedup_cluster, category, detected_language, "
-                "source_id, normalized_sha256, content_sha256, LENGTH(normalized_text) chars "
-                "FROM docs WHERE dedup_kept=1 ORDER BY document_id")]
-        if not rows:
-            raise CorpusError("no kept documents to split")
-        by_id = {row["document_id"]: row for row in rows}
-        dsu = _DSU()
-        for row in rows:
-            dsu.add(row["document_id"])
-        for column in ("dedup_cluster", "document_family_id"):
-            groups: dict[str, list[str]] = {}
-            for row in rows:
-                groups.setdefault(row[column], []).append(row["document_id"])
-            for group in groups.values():
-                for member in group[1:]:
-                    dsu.union(group[0], member)
-        raw_groups: dict[str, list[str]] = {}
-        for row in rows:
-            raw_groups.setdefault(dsu.find(row["document_id"]), []).append(row["document_id"])
-        groups = []
-        for members in raw_groups.values():
-            members = sorted(members)
-            group_id = "group:" + hashlib.sha256("\n".join(members).encode("utf-8")).hexdigest()[:24]
-            score = int(hashlib.sha256(f"{split_policy['seed']}:split:{group_id}".encode("utf-8")).hexdigest()[:16], 16) / 2 ** 64
-            groups.append({"group_id": group_id, "members": members, "score": score,
-                           "documents": len(members),
-                           "characters": sum(by_id[member]["chars"] for member in members)})
-        groups.sort(key=lambda group: (group["score"], group["group_id"]))
-        total_documents = len(rows)
-        ratios = split_policy["ratios"]
-        if len(groups) < 3:
-            raise CorpusError("at least three independent family/cluster groups are required for train/val/test")
-        test_groups = max(1, round(len(groups) * ratios["test"])) if ratios["test"] > 0 else 0
-        val_groups = max(1, round(len(groups) * ratios["val"])) if ratios["val"] > 0 else 0
-        while test_groups + val_groups >= len(groups):
-            if test_groups >= val_groups and test_groups > 1:
-                test_groups -= 1
-            elif val_groups > 1:
-                val_groups -= 1
-            else:
-                raise CorpusError("split ratios leave no room for independent train/val/test groups")
-        assigned: dict[str, str] = {}
-        doc_group: dict[str, str] = {}
-        for position, group in enumerate(groups):
-            if position < test_groups:
-                target = "test"
-            elif position < test_groups + val_groups:
-                target = "val"
-            else:
-                target = "train"
-            for member in group["members"]:
-                assigned[member] = target
-                doc_group[member] = group["group_id"]
-        group_splits = {group["group_id"]: next(
-            split for split in SPLITS if assigned[group["members"][0]] == split) for group in groups}
-        for group in groups:
-            splits = {assigned[member] for member in group["members"]}
-            if len(splits) != 1:
-                raise CorpusError(f"family/cluster group crosses splits: {group['group_id']}")
-        split_stats = {name: {"documents": 0, "characters": 0, "by_category": {}, "by_language": {},
-                              "groups": 0} for name in SPLITS}
-        for group in groups:
-            split = group_splits[group["group_id"]]
-            split_stats[split]["groups"] += 1
-        handles = {}
-        for name in SPLITS:
-            handle = (self.out / f".{name}.text.jsonl.tmp").open("w", encoding="utf-8")
-            handles[name] = handle
+        scratch_path = self.work / "split-scratch.sqlite"
+        scratch_path.unlink(missing_ok=True)
+        temporary = {name: self.out / f".{name}.text.jsonl.tmp" for name in SPLITS}
+        assignment_temporary = self.out / ".split-assignment.jsonl.tmp"
+        for path in (*temporary.values(), assignment_temporary):
+            path.unlink(missing_ok=True)
+        scratch = sqlite3.connect(scratch_path)
+        scratch.row_factory = sqlite3.Row
+        scratch.execute("PRAGMA journal_mode=OFF")
+        scratch.execute("PRAGMA synchronous=OFF")
+        scratch.execute("PRAGMA temp_store=FILE")
+        scratch.execute("PRAGMA cache_size=-16384")
+        scratch.execute("ATTACH DATABASE ? AS source", (str(self.out / "deduplicated.sqlite"),))
+        handles: dict[str, object] = {}
+        published: list[Path] = []
+        success = False
         try:
-            with sqlite3.connect(self.out / "deduplicated.sqlite") as source:
-                source.row_factory = sqlite3.Row
-                for split in SPLITS:
-                    for row in source.execute(
-                            "SELECT * FROM docs WHERE dedup_kept=1 ORDER BY category, document_id"):
-                        if assigned[row["document_id"]] != split:
-                            continue
-                        record = {
-                            "document_id": row["document_id"], "source_id": row["source_id"],
-                            "source_name": row["source_name"], "source_uri": row["source_uri"],
-                            "license": row["license"], "license_evidence": row["license_evidence"],
-                            "language": row["detected_language"], "category": row["category"],
-                            "text": row["normalized_text"], "content_sha256": row["content_sha256"],
-                            "normalized_sha256": row["normalized_sha256"],
-                            "document_family_id": row["document_family_id"],
-                            "collection_version": row["collection_version"],
-                            "quality_flags": json.loads(row["quality_flags"]),
-                            "provenance_status": row["provenance_status"],
-                            "author": json.loads(row["metadata"]).get("author"),
-                            "publication_date": json.loads(row["metadata"]).get("publication_date"),
-                            "acquisition_date": json.loads(row["metadata"]).get("acquisition_date"),
-                            "original_format": json.loads(row["metadata"]).get("original_format"),
-                            "transformation_history": json.loads(row["metadata"]).get("transformation_history", []),
-                            "split": split, "group_id": doc_group[row["document_id"]],
-                            "dedup_cluster": row["dedup_cluster"],
-                            "quality_action": row["quality_action"],
-                        }
-                        handles[split].write(json_bytes(record).decode())
-                        stats = split_stats[split]
-                        stats["documents"] += 1
-                        stats["characters"] += len(row["normalized_text"])
-                        for field, label in (("by_category", row["category"]),
-                                             ("by_language", row["detected_language"])):
-                            stats[field][label] = stats[field].get(label, 0) + 1
+            scratch.executescript("""
+                CREATE TABLE doc_meta(
+                    id INTEGER PRIMARY KEY,
+                    document_id TEXT NOT NULL UNIQUE,
+                    family TEXT,
+                    cluster TEXT,
+                    category TEXT NOT NULL,
+                    language TEXT,
+                    source_id TEXT NOT NULL,
+                    normalized_sha256 TEXT,
+                    content_sha256 TEXT,
+                    chars INTEGER NOT NULL,
+                    root INTEGER,
+                    split TEXT
+                );
+                CREATE TABLE family_first(key TEXT, first_id INTEGER);
+                CREATE TABLE cluster_first(key TEXT, first_id INTEGER);
+                CREATE TABLE group_meta(
+                    root INTEGER PRIMARY KEY,
+                    group_id TEXT NOT NULL UNIQUE,
+                    score REAL NOT NULL,
+                    members INTEGER NOT NULL,
+                    characters INTEGER NOT NULL,
+                    split TEXT
+                );
+            """)
+            scratch.execute("""
+                INSERT INTO doc_meta(id, document_id, family, cluster, category, language, source_id,
+                                     normalized_sha256, content_sha256, chars)
+                SELECT ROW_NUMBER() OVER (ORDER BY document_id), document_id, document_family_id,
+                       dedup_cluster, category, detected_language, source_id, normalized_sha256,
+                       content_sha256, LENGTH(normalized_text)
+                FROM source.docs WHERE dedup_kept=1
+            """)
+            total_documents = int(scratch.execute("SELECT COUNT(*) FROM doc_meta").fetchone()[0])
+            if not total_documents:
+                raise CorpusError("no kept documents to split")
+            scratch.executescript("""
+                CREATE INDEX doc_meta_family ON doc_meta(family);
+                CREATE INDEX doc_meta_cluster ON doc_meta(cluster);
+                INSERT INTO family_first SELECT family, MIN(id) FROM doc_meta GROUP BY family;
+                INSERT INTO cluster_first SELECT cluster, MIN(id) FROM doc_meta GROUP BY cluster;
+            """)
+            # Compact integer DSU: row ids follow document_id order, and union always
+            # attaches the larger root to the smaller one.  Therefore the root is the
+            # smallest document_id in the component, exactly like the previous string
+            # DSU, while memory is O(N) 32-bit ints instead of several dicts.
+            parent = array("i", range(total_documents + 1))
+
+            def find(member: int) -> int:
+                root = member
+                while parent[root] != root:
+                    parent[root] = parent[parent[root]]
+                    root = parent[root]
+                while parent[member] != member:
+                    following = parent[member]
+                    parent[member] = root
+                    member = following
+                return root
+
+            def union(left: int, right: int):
+                left, right = find(left), find(right)
+                if left != right:
+                    if left < right:
+                        parent[right] = left
+                    else:
+                        parent[left] = right
+
+            # Two independent connectivity relations are merged together.  The order
+            # (family then cluster) matches the reference implementation; the final
+            # component root is order-independent because it is the minimum member.
+            for first_id, member_id in scratch.execute(
+                    "SELECT f.first_id, d.id FROM doc_meta d JOIN family_first f "
+                    "ON d.family IS f.key WHERE d.id != f.first_id ORDER BY f.first_id, d.id"):
+                union(int(first_id), int(member_id))
+            for first_id, member_id in scratch.execute(
+                    "SELECT f.first_id, d.id FROM doc_meta d JOIN cluster_first f "
+                    "ON d.cluster IS f.key WHERE d.id != f.first_id ORDER BY f.first_id, d.id"):
+                union(int(first_id), int(member_id))
+
+            updates = []
+            for member_id in range(1, total_documents + 1):
+                updates.append((find(member_id), member_id))
+                if len(updates) >= 5000:
+                    scratch.executemany("UPDATE doc_meta SET root=? WHERE id=?", updates)
+                    updates.clear()
+            if updates:
+                scratch.executemany("UPDATE doc_meta SET root=? WHERE id=?", updates)
+            scratch.execute("CREATE INDEX doc_meta_root ON doc_meta(root, id)")
+            scratch.commit()
+
+            # The group id is the SHA256 of the newline-joined, document_id-sorted
+            # members, exactly as before.  Stream members grouped by root and keep
+            # only the digest state for one group at a time.
+            group_count = 0
+            current_root = None
+            digest = None
+            members = 0
+            group_characters = 0
+            group_rows = []
+
+            def finish_group():
+                nonlocal group_count, group_rows
+                if current_root is None:
+                    return
+                group_id = "group:" + digest.hexdigest()[:24]
+                score = int(hashlib.sha256(
+                    f"{split_policy['seed']}:split:{group_id}".encode("utf-8")).hexdigest()[:16], 16) / 2 ** 64
+                group_rows.append((current_root, group_id, score, members, group_characters))
+                group_count += 1
+                if len(group_rows) >= 1000:
+                    scratch.executemany(
+                        "INSERT INTO group_meta(root, group_id, score, members, characters) "
+                        "VALUES(?,?,?,?,?)", group_rows)
+                    group_rows.clear()
+
+            for row in scratch.execute("SELECT root, document_id, chars FROM doc_meta ORDER BY root, id"):
+                root = int(row["root"])
+                if root != current_root:
+                    finish_group()
+                    current_root = root
+                    digest = hashlib.sha256()
+                    members = 0
+                    group_characters = 0
+                if members:
+                    digest.update(b"\n")
+                digest.update(row["document_id"].encode("utf-8"))
+                members += 1
+                group_characters += int(row["chars"])
+            finish_group()
+            if group_rows:
+                scratch.executemany(
+                    "INSERT INTO group_meta(root, group_id, score, members, characters) "
+                    "VALUES(?,?,?,?,?)", group_rows)
+            scratch.commit()
+            if group_count < 3:
+                raise CorpusError("at least three independent family/cluster groups are required for train/val/test")
+
+            ratios = split_policy["ratios"]
+            test_groups = max(1, round(group_count * ratios["test"])) if ratios["test"] > 0 else 0
+            val_groups = max(1, round(group_count * ratios["val"])) if ratios["val"] > 0 else 0
+            while test_groups + val_groups >= group_count:
+                if test_groups >= val_groups and test_groups > 1:
+                    test_groups -= 1
+                elif val_groups > 1:
+                    val_groups -= 1
+                else:
+                    raise CorpusError("split ratios leave no room for independent train/val/test groups")
+            group_split_counts = {name: 0 for name in SPLITS}
+            group_updates = []
+            for position, row in enumerate(scratch.execute(
+                    "SELECT root FROM group_meta ORDER BY score, group_id")):
+                if position < test_groups:
+                    target = "test"
+                elif position < test_groups + val_groups:
+                    target = "val"
+                else:
+                    target = "train"
+                group_split_counts[target] += 1
+                group_updates.append((target, int(row["root"])))
+                if len(group_updates) >= 5000:
+                    scratch.executemany("UPDATE group_meta SET split=? WHERE root=?", group_updates)
+                    group_updates.clear()
+            if group_updates:
+                scratch.executemany("UPDATE group_meta SET split=? WHERE root=?", group_updates)
+            scratch.execute("CREATE INDEX group_meta_split ON group_meta(split)")
+            scratch.execute("UPDATE doc_meta SET split=(SELECT split FROM group_meta "
+                            "WHERE group_meta.root=doc_meta.root)")
+            scratch.commit()
+            violations = int(scratch.execute(
+                "SELECT COUNT(*) FROM (SELECT root FROM doc_meta GROUP BY root "
+                "HAVING COUNT(DISTINCT split) != 1)").fetchone()[0])
+            if violations:
+                raise CorpusError("family/cluster group crosses splits")
+            if scratch.execute("SELECT COUNT(*) FROM doc_meta WHERE split IS NULL").fetchone()[0]:
+                raise CorpusError("split left an unassigned document")
+
+            split_stats = {name: {"documents": 0, "characters": 0, "by_category": {},
+                                  "by_language": {}, "groups": group_split_counts[name]}
+                           for name in SPLITS}
+            for name in SPLITS:
+                handles[name] = temporary[name].open("w", encoding="utf-8")
+            for split in SPLITS:
+                query = scratch.execute(
+                    "SELECT d.document_id, d.source_id, d.source_name, d.source_uri, d.license, "
+                    "d.license_evidence, d.detected_language, d.category, d.normalized_text, "
+                    "d.content_sha256, d.normalized_sha256, d.document_family_id, "
+                    "d.collection_version, d.quality_flags, d.provenance_status, d.metadata, "
+                    "d.dedup_cluster, d.quality_action, g.group_id "
+                    "FROM source.docs d JOIN doc_meta m ON m.document_id=d.document_id "
+                    "JOIN group_meta g ON g.root=m.root "
+                    "WHERE m.split=? ORDER BY d.category, d.document_id", (split,))
+                for row in query:
+                    metadata = json.loads(row["metadata"])
+                    record = {
+                        "document_id": row["document_id"], "source_id": row["source_id"],
+                        "source_name": row["source_name"], "source_uri": row["source_uri"],
+                        "license": row["license"], "license_evidence": row["license_evidence"],
+                        "language": row["detected_language"], "category": row["category"],
+                        "text": row["normalized_text"], "content_sha256": row["content_sha256"],
+                        "normalized_sha256": row["normalized_sha256"],
+                        "document_family_id": row["document_family_id"],
+                        "collection_version": row["collection_version"],
+                        "quality_flags": json.loads(row["quality_flags"]),
+                        "provenance_status": row["provenance_status"],
+                        "author": metadata.get("author"),
+                        "publication_date": metadata.get("publication_date"),
+                        "acquisition_date": metadata.get("acquisition_date"),
+                        "original_format": metadata.get("original_format"),
+                        "transformation_history": metadata.get("transformation_history", []),
+                        "split": split, "group_id": row["group_id"],
+                        "dedup_cluster": row["dedup_cluster"],
+                        "quality_action": row["quality_action"],
+                    }
+                    handles[split].write(json_bytes(record).decode())
+                    stats = split_stats[split]
+                    stats["documents"] += 1
+                    stats["characters"] += len(row["normalized_text"])
+                    for field, label in (("by_category", row["category"]),
+                                         ("by_language", row["detected_language"])):
+                        stats[field][label] = stats[field].get(label, 0) + 1
+            for handle in handles.values():
+                handle.close()
+            handles.clear()
+
+            with assignment_temporary.open("w", encoding="utf-8") as handle:
+                for row in scratch.execute(
+                        "SELECT d.document_id, g.group_id, d.split, d.category, d.language, "
+                        "d.source_id FROM doc_meta d JOIN group_meta g ON g.root=d.root "
+                        "ORDER BY d.split, g.group_id, d.document_id"):
+                    handle.write(json_bytes({
+                        "document_id": row["document_id"], "group_id": row["group_id"],
+                        "split": row["split"], "category": row["category"],
+                        "language": row["language"], "source_id": row["source_id"],
+                    }).decode())
+
+            file_hashes = {f"{name}.text.jsonl": file_info(temporary[name]) for name in SPLITS}
+            file_hashes["split-assignment.jsonl"] = file_info(assignment_temporary)
+            leakage = self._split_leakage(scratch_path, family_cluster_violations=violations)
+
+            for name in SPLITS:
+                os.replace(temporary[name], self.out / f"{name}.text.jsonl")
+                published.append(self.out / f"{name}.text.jsonl")
+            os.replace(assignment_temporary, assignment_path)
+            published.append(assignment_path)
+            # Recompute hashes on the published names; replacement is byte-preserving.
+            file_hashes = {f"{name}.text.jsonl": file_info(self.out / f"{name}.text.jsonl")
+                           for name in SPLITS}
+            file_hashes["split-assignment.jsonl"] = file_info(assignment_path)
+            manifest = {
+                "schema_version": 1, "strategy": split_policy["strategy"],
+                "seed": split_policy["seed"], "ratios": ratios,
+                "group_count": group_count, "document_count": total_documents,
+                "splits": split_stats, "files": file_hashes,
+                "assignment_sha256": file_hashes["split-assignment.jsonl"]["sha256"],
+                "leakage": leakage,
+                "known_limitations": "Group assignment is deterministic but not size-optimal; ratios are approximate at group granularity.",
+            }
+            if not split_stats["train"]["documents"]:
+                raise CorpusError("split produced no train documents")
+            if not split_stats["val"]["documents"] or not split_stats["test"]["documents"]:
+                raise CorpusError("split produced an empty validation/test split; add independent groups")
+            write_json(manifest_path, manifest)
+            success = True
+            stats = {"documents": total_documents, "splits": split_stats, "groups": group_count,
+                     "leakage": leakage, "split_manifest_sha256": sha256(manifest_path)}
+            return stats, [*(self.out / f"{name}.text.jsonl" for name in SPLITS),
+                           assignment_path, manifest_path]
         finally:
             for handle in handles.values():
                 handle.close()
-        for name in SPLITS:
-            os.replace(self.out / f".{name}.text.jsonl.tmp", self.out / f"{name}.text.jsonl")
-        assignment_rows = sorted(
-            ({"document_id": member, "group_id": doc_group[member],
-              "split": assigned[member], "category": by_id[member]["category"],
-              "language": by_id[member]["detected_language"], "source_id": by_id[member]["source_id"]}
-             for member in assigned), key=lambda row: (row["split"], row["group_id"], row["document_id"]))
-        def write_assignment(handle):
-            for row in assignment_rows:
-                handle.write(json_bytes(row))
-        atomic_write(assignment_path, write_assignment)
-        leakage = self._split_leakage(assigned, by_id)
-        file_hashes = {f"{name}.text.jsonl": file_info(self.out / f"{name}.text.jsonl") for name in SPLITS}
-        file_hashes["split-assignment.jsonl"] = file_info(assignment_path)
-        manifest = {
-            "schema_version": 1, "strategy": split_policy["strategy"],
-            "seed": split_policy["seed"], "ratios": ratios,
-            "group_count": len(groups), "document_count": total_documents,
-            "splits": split_stats, "files": file_hashes,
-            "assignment_sha256": file_hashes["split-assignment.jsonl"]["sha256"],
-            "leakage": leakage,
-            "known_limitations": "Group assignment is deterministic but not size-optimal; ratios are approximate at group granularity.",
-        }
-        if not split_stats["train"]["documents"]:
-            raise CorpusError("split produced no train documents")
-        if not split_stats["val"]["documents"] or not split_stats["test"]["documents"]:
-            raise CorpusError("split produced an empty validation/test split; add independent groups")
-        write_json(manifest_path, manifest)
-        stats = {"documents": total_documents, "splits": split_stats, "groups": len(groups),
-                 "leakage": leakage, "split_manifest_sha256": sha256(manifest_path)}
-        return stats, [*(self.out / f"{name}.text.jsonl" for name in SPLITS), assignment_path, manifest_path]
+            if not success:
+                for path in published:
+                    path.unlink(missing_ok=True)
+                for path in (*temporary.values(), assignment_temporary):
+                    path.unlink(missing_ok=True)
+            scratch.close()
+            scratch_path.unlink(missing_ok=True)
 
-    def _split_leakage(self, assigned: dict, by_id: dict) -> dict:
-        exact = {}
-        for name in SPLITS:
-            hashes = {row["normalized_sha256"] for row in by_id.values() if assigned[row["document_id"]] == name}
-            exact[name] = hashes
-        overlaps = {}
-        for a, b in (("train", "val"), ("train", "test"), ("val", "test")):
-            overlaps[f"{a}/{b}"] = len(exact[a] & exact[b])
-        raw = {}
-        with sqlite3.connect(self.out / "deduplicated.sqlite") as db:
-            for a, b in (("train", "val"), ("train", "test"), ("val", "test")):
-                ids_a = [doc_id for doc_id, name in assigned.items() if name == a]
-                ids_b = [doc_id for doc_id, name in assigned.items() if name == b]
-                def grouped(ids):
-                    if not ids:
-                        return {}
-                    placeholders = ",".join("?" for _ in ids)
-                    return {row[0]: row[1] for row in db.execute(
-                        f"SELECT content_sha256, COUNT(*) FROM docs WHERE document_id IN ({placeholders}) "
-                        "GROUP BY content_sha256", ids)}
-                raw[f"{a}/{b}"] = len(set(grouped(ids_a)) & set(grouped(ids_b)))
+    def _split_leakage(self, scratch_path: Path, *, family_cluster_violations: int = 0) -> dict:
+        # Exact overlap is a set intersection in SQLite; never materialise a
+        # Python dict of every kept document (which would defeat the split memory
+        # optimisation at 100k-1M scale).
+        with sqlite3.connect(scratch_path) as scratch:
+            def overlap(column: str, left: str, right: str) -> int:
+                return int(scratch.execute(
+                    f"SELECT COUNT(*) FROM (SELECT {column} FROM doc_meta WHERE split=? "
+                    f"INTERSECT SELECT {column} FROM doc_meta WHERE split=?)",
+                    (left, right)).fetchone()[0])
+
+            overlaps = {}
+            raw = {}
+            for left, right in (("train", "val"), ("train", "test"), ("val", "test")):
+                overlaps[f"{left}/{right}"] = overlap("normalized_sha256", left, right)
+                raw[f"{left}/{right}"] = overlap("content_sha256", left, right)
         near = {"status": "NOT_ASSESSED", "hits": 0}
         if self.config["split"]["verify_near_cross_split"]:
-            near = self._cross_split_near(assigned)
+            near = self._cross_split_near(scratch_path)
         return {"exact_normalized": overlaps, "exact_raw": raw,
-                "family_cluster_violations": 0,
+                "family_cluster_violations": int(family_cluster_violations),
                 "near_duplicate": near,
                 "scope": "group isolation is enforced; exact raw/normalized hashes are recomputed across splits"}
 
-    def _cross_split_near(self, assigned: dict) -> dict:
+    def _cross_split_near(self, scratch_path: Path) -> dict:
         policy = NearDupPolicy.from_config(self.config["deduplication"]["near"])
         temporary = self.work / "cross-split-near.sqlite"
         temporary.unlink(missing_ok=True)
@@ -1209,34 +1360,36 @@ class CorpusV4Pipeline:
         try:
             with sqlite3.connect(self.out / "deduplicated.sqlite") as source:
                 source.row_factory = sqlite3.Row
+                source.execute("ATTACH DATABASE ? AS split_meta", (str(scratch_path),))
                 pairs = (("train", ("val", "test")), ("val", ("test",)))
+
+                def documents(split):
+                    return source.execute(
+                        "SELECT d.document_id, d.normalized_text, d.detected_language "
+                        "FROM docs d JOIN split_meta.doc_meta m ON m.document_id=d.document_id "
+                        "WHERE d.dedup_kept=1 AND m.split=? ORDER BY d.document_id", (split,))
+
                 for pair_index, (left, right_names) in enumerate(pairs):
                     index = MinHashLSHIndex(conn, policy, prefix=f"cross{pair_index}")
-                    for row in source.execute(
-                            "SELECT document_id, normalized_text, detected_language FROM docs "
-                            "WHERE dedup_kept=1 ORDER BY document_id"):
-                        if assigned[row["document_id"]] == left:
-                            index.add(row["document_id"], row["normalized_text"], row["detected_language"])
-                    for row in source.execute(
-                            "SELECT document_id, normalized_text, detected_language FROM docs "
-                            "WHERE dedup_kept=1 ORDER BY document_id"):
-                        if assigned[row["document_id"]] not in right_names:
-                            continue
-                        for chunk_index, _, own_values, signature, _ in chunk_features(
-                                row["normalized_text"], row["detected_language"], policy):
-                            for candidate_id, candidate_chunk in index.candidates(
-                                    row["document_id"], chunk_index, signature):
-                                candidate = source.execute(
-                                    "SELECT normalized_text, detected_language FROM docs WHERE document_id=?",
-                                    (candidate_id,)).fetchone()
-                                candidate_text = chunk_text(candidate["normalized_text"], candidate_chunk, policy)
-                                if candidate_text is None:
-                                    continue
-                                values, _ = shingles(candidate_text, candidate["detected_language"], policy)
-                                similarity = exact_jaccard(own_values, values)
-                                maximum = max(maximum, similarity)
-                                if similarity >= policy.threshold:
-                                    hits += 1
+                    for row in documents(left):
+                        index.add(row["document_id"], row["normalized_text"], row["detected_language"])
+                    for right_name in right_names:
+                        for row in documents(right_name):
+                            for chunk_index, _, own_values, signature, _ in chunk_features(
+                                    row["normalized_text"], row["detected_language"], policy):
+                                for candidate_id, candidate_chunk in index.candidates(
+                                        row["document_id"], chunk_index, signature):
+                                    candidate = source.execute(
+                                        "SELECT normalized_text, detected_language FROM docs WHERE document_id=?",
+                                        (candidate_id,)).fetchone()
+                                    candidate_text = chunk_text(candidate["normalized_text"], candidate_chunk, policy)
+                                    if candidate_text is None:
+                                        continue
+                                    values, _ = shingles(candidate_text, candidate["detected_language"], policy)
+                                    similarity = exact_jaccard(own_values, values)
+                                    maximum = max(maximum, similarity)
+                                    if similarity >= policy.threshold:
+                                        hits += 1
             return {"status": "CHECKED", "hits": hits, "max_similarity": round(maximum, 6),
                     "threshold": policy.threshold,
                     "method": "MinHash LSH candidates for train/val/test pairs; exact Jaccard confirmation"}
