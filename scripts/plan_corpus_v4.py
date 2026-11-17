@@ -50,7 +50,7 @@ def _registry(config: dict, demo: bool):
     else:
         sources, source_base = config["sources"], base
     registry = build_registry(sources, demo=demo, license_policy=config["license_policy"])
-    return registry, inventory(registry, source_base)
+    return registry, inventory(registry, source_base, config=None if demo else config)
 
 
 def _stage_result(pipeline: CorpusV4Pipeline, stage: str):

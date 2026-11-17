@@ -260,6 +260,10 @@ PR #10 的当前来源清单、只读暂存、分阶段候选评估和人工定�
 [来源审核与接入](docs/corpus-v4-source-review.md)、[Tokenizer 比较](docs/tokenizer-v4-selection.md)
 和 [人工决定记录](docs/tokenizer-v4-decision.md)。Pilot 与正式 100M 使用独立数据版本；
 工程测试通过不代表真实来源获批、Tokenizer 定版或正式数据已冻结。
+正式来源还必须有完整人工审核条目、训练用途/许可义务结论、非占位许可证据引用和适用数据版本，
+并与实际输入 SHA256/大小绑定；裸内联 APPROVED 字段不能用于正式 Pilot/100M 数据。
+完整审核记录保存在来源级，文档只引用审核身份，避免重复复制大型文件清单。
+本轮 P1/P2 修复、验证链和存储对照见 [来源审核安全修复记录](docs/corpus-v4-source-safety-results.md)。
 
 ```bash
 # 正式状态：当前没有 APPROVED 来源，预期 NOT_READY，不会伪造语料

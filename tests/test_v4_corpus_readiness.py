@@ -58,3 +58,20 @@ def test_existing_pr9_policy_and_frozen_compatibility(tmp_path):
     assert version["independent_effective_tokens"] >= 2048
     assert all(row["cleaning_documents"] >= row["deduplicated_documents"]
                for row in version["budget"]["categories"].values())
+
+
+def test_pr9_production_cannot_promote_legacy_inline_approval(tmp_path):
+    from unittest.mock import patch
+    from minillm.v4_admission import audit_v4_dataset
+    from minillm.v4_training_pilot import run_pilot
+    from v4_pilot_helpers import arguments
+    fixture = assets(tmp_path)
+    assert audit_v4_dataset(fixture["dataset"])["ok"]  # Explicit legacy CPU compatibility.
+    strict = audit_v4_dataset(fixture["dataset"], require_source_review=True)
+    assert not strict["ok"] and strict["errors"]
+    args = arguments(fixture)
+    args.update(cpu_nano_test=False, approved_config_path=None)
+    with patch("minillm.v4_training_pilot.launch_pilot", side_effect=AssertionError("must not launch")):
+        result = run_pilot(**args, out=tmp_path / "rejected-production", execute=True)
+    assert result["training_status"] == "NOT_RUN"
+    assert "BLOCKED_DATA_NOT_READY" in result["preflight"]["blockers"]

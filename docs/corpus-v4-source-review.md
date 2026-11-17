@@ -3,14 +3,38 @@
 PR10 当前状态：7 个候选、0 个 APPROVED、7 个 REVIEW_REQUIRED、0 个 REJECTED。
 没有下载新语料，没有改变任何真实来源的批准状态。公开许可说明仅是候选证据，不能代替人工决定。
 
-唯一审批入口是 [corpus_v4_sources.review.json](../configs/corpus_v4_sources.review.json)
-的 `v4_source` 字段。正式与 Pilot 配置引用同一份清单；不允许同时声明另一份 `sources`。
-发布者、版本、商业使用和再分发义务也须审核。加载配置时完整审核元数据及清单条目哈希进入
-`transformation_history`，随后进入原有 Plan、来源清单、阶段哈希和 Manifest 身份链。
+审批记录是 [corpus_v4_sources.review.json](../configs/corpus_v4_sources.review.json)
+的完整来源条目，不能只填写 `v4_source` 中的 APPROVED/审核人等基础字段。
+正式与 Pilot 配置引用同一份清单；不允许同时声明另一份 `sources`。
+发布者、版本、商业使用、再分发、模型训练用途及署名/ShareAlike 等义务必须有明确人工结论。
+完整记录保存于来源级 `source_review`（证据协议版本 2），绑定原始条目摘要和选定语料版本。
+Plan/来源清单/Manifest 保存完整来源证据；文档 metadata 仅保存 source_id、审核 SHA256、
+输入文件 SHA256 和简短 history 引用，不再复制大型文件清单。
 运行时盘点是观测结果，不会回写审批清单。
 审批时还须在 `local_inventory.files` 记录实际输入文件的绝对路径、SHA256 与字节数；
 可从转换 Manifest 的输出文件身份获取。正式 Inventory 比较实际文件清单与该审核快照，
 缺证据或替换内容均拒绝，不能仅凭相同文件名准入。
+
+APPROVED 条目还须人工填写 `model_training`、`license_obligations`，并在 `corpus_versions`
+显式列出审批适用的数据版本。模板中的 PENDING/空列表不构成默认批准。
+审核字符串只在验证时 strip/大小写归一化，拒绝 PENDING、NOT_PINNED、UNKNOWN、UNVERIFIED、
+TBD、TODO、N/A 等占位值；保存内容和摘要不因验证而改写。
+`license_references` 必须是非空对象列表，每条含有效 `uri` 和非占位的人工 `verification`。
+HTTP(S) 引用不要求离线时访问网络；本地证据使用绝对路径或 file URI，并提供 SHA256，验证文件存在及内容。
+例如本地证据：`{"uri":"/absolute/COPYRIGHT.txt","sha256":"实际文件摘要","verification":"人工审核说明"}`。
+URL 可打开或哈希匹配均不能证明许可合法，真实审核责任仍由所署审核人承担。
+
+生产审核范围使用已有有效监督 Token 目标和 PR9 批准策略确定：Pilot 下限 1,020,000 及以上的
+正式配置强制完整来源审核，不使用 corpus_version 的字符串猜测。
+显式 CPU/旧版小规模 Fixture 继续支持裸内联来源，但不能满足 PR9 固定生产策略；
+PR9 正式入口无条件要求完整审核。任一新审核流程的数据版本还通过不可变
+`source_review_policy` 和 Ingest 阶段键保持该要求，删除记录不能退回旧接口。
+
+同一 `validate_reviewed_source()` 在 Inventory/构建前、Audit/Finalize、verify_frozen 和 PR9 再准入时复用。
+它重算原始条目与版本摘要，比较条目和实际来源的完整规范内容、实际 Ingest 文件集合与 SHA256/大小，
+并重验本地版权证据。来源清单、生成配置、Plan 与 Manifest 绑定也须一致。
+伪造标记、复用其他来源/版本的记录、重算自身哈希但引用其他输入文件都不能替代有效证据。
+已有缺证据的生产规模产物必须补齐真实审核并创建新版本，不能自动迁移为 READY/FROZEN。
 
 | 类别 | 候选 | 需补齐的证据 |
 |---|---|---|

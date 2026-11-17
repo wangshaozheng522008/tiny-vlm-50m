@@ -305,7 +305,7 @@ def load_config(path: str | Path) -> dict:
         registry_path = Path(registry)
         if not registry_path.is_absolute():
             registry_path = Path(path).resolve().parent / registry_path
-        raw["sources"] = reviewed_source_specs(registry_path)
+        raw["sources"] = reviewed_source_specs(registry_path, corpus_version=raw.get("corpus_version"))
     return validate_config(raw)
 
 
@@ -320,7 +320,7 @@ def build_registry(sources: list[dict], *, demo: bool, license_policy: dict) -> 
                       "license_evidence", "license_reviewer", "license_reviewed_at",
                       "category", "language", "paths", "priority", "enabled",
                       "provenance_status", "acquisition_date", "author", "original_format",
-                      "transformation_history", "family_policy", "notes"}
+                      "transformation_history", "family_policy", "notes", "source_review"}
     for spec in sources:
         if not isinstance(spec, dict):
             raise CorpusError("each source must be a mapping")
@@ -395,6 +395,8 @@ def build_registry(sources: list[dict], *, demo: bool, license_policy: dict) -> 
             "transformation_history": spec.get("transformation_history", []),
             "family_policy": family_policy, "notes": spec.get("notes", ""),
         }
+        if "source_review" in spec:
+            entry["source_review"] = copy.deepcopy(spec["source_review"])
         reason = None
         if not entry["enabled"]:
             reason = "disabled"
@@ -426,7 +428,7 @@ def build_registry(sources: list[dict], *, demo: bool, license_policy: dict) -> 
     return manifest
 
 
-def inventory(registry: dict, base: Path) -> list[dict]:
+def inventory(registry: dict, base: Path, *, config: dict | None = None) -> list[dict]:
     files = []
     for source in registry["sources"]:
         for pattern in source["paths"]:
@@ -443,14 +445,13 @@ def inventory(registry: dict, base: Path) -> list[dict]:
                               **file_info(path)})
     if not files:
         raise CorpusError("no JSONL/TXT source files found for the admitted sources")
-    for source in registry["sources"]:
-        review = next((entry["review"] for entry in reversed(source["transformation_history"])
-                       if isinstance(entry, dict) and entry.get("kind") == "source_review"), None)
-        if review is not None and source["license_status"] == "APPROVED":
-            observed = {str(Path(f["path"]).resolve()): {k: f[k] for k in ("sha256", "bytes")}
-                        for f in files if f["source_id"] == source["source_id"]}
-            if observed != review.get("local_inventory", {}).get("files"):
-                raise CorpusError("approved local source differs from reviewed file SHA256/size evidence")
+    from .v4_sources import validate_reviewed_source, validate_source_inputs
+    if config is not None:
+        validate_source_inputs(config, registry, files)
+    else:
+        for source in registry["sources"]:
+            if "source_review" in source:
+                validate_reviewed_source(source, files)
     return sorted(files, key=lambda item: (item["source_id"], item["sha256"], item["path"]))
 
 
@@ -468,15 +469,17 @@ def status_report(config: dict, base: Path, *, demo: bool = False, dataset_dir: 
         base = manifest_path.parent
     registry = build_registry(sources, demo=demo, license_policy=config["license_policy"])
     blockers = []
+    input_error = None
     if not registry["sources"]:
         blockers.append("NO_ADMISSIBLE_SOURCES")
     if not demo and registry["counts"].get("APPROVED", 0) == 0:
         blockers.append("NO_APPROVED_SOURCES")
     if registry["sources"]:
         try:
-            inventory(registry, base)
-        except CorpusError:
+            inventory(registry, base, config=None if demo else config)
+        except CorpusError as exc:
             blockers.append("APPROVED_LOCAL_INPUT_MISSING")
+            input_error = str(exc)
     if not config["contamination"]["enabled"]:
         blockers.append("CONTAMINATION_AUDIT_DISABLED")
     if not all((original_base / asset["path"]).is_file() for asset in config["contamination"]["assets"]
@@ -495,6 +498,7 @@ def status_report(config: dict, base: Path, *, demo: bool = False, dataset_dir: 
         except (OSError, ValueError, KeyError, CorpusError):
             decision_status = "TOKENIZER_DECISION_INVALID"
     return {"schema_version": 2, "status": status, "blockers": sorted(set(blockers)),
+            "source_input_error": input_error,
             "stages": {"text_preparation": "BLOCKED" if blockers else "READY",
                        "tokenizer_evaluation": "TOKENIZER_TRAINING_BLOCKED" if blockers else "READY_FOR_TOKENIZER_EVALUATION",
                        "tokenizer_selection": decision_status,
@@ -670,7 +674,10 @@ class CorpusV4Pipeline:
         self.category_ratios = config["targets"]["category_token_ratios"]
         self.external_selection: dict | None = None
         self._done: set[str] = set()
-        self.out.mkdir(parents=True, exist_ok=True)
+        source_reviews = {}
+        if not demo:
+            from .v4_sources import validate_source_inputs
+            source_reviews = validate_source_inputs(config, registry, inputs, verify_inputs=True)
         plan = {
             "schema_version": V4_SCHEMA_VERSION, "corpus_version": config["corpus_version"],
             "dataset_name": config["dataset_name"], "demo": demo,
@@ -688,7 +695,14 @@ class CorpusV4Pipeline:
                 "tokenizer_config_sha256": identity(config["tokenizer"]),
             },
         }
+        if source_reviews:
+            plan["source_review_policy"] = {"schema_version": 2, "corpus_version": config["corpus_version"],
+                                             "require_complete_reviews": True}
         plan["plan_key"] = identity(plan)
+        if not demo:
+            from .v4_sources import validate_source_plan
+            validate_source_plan(plan, registry)
+        self.out.mkdir(parents=True, exist_ok=True)
         owner = self.out / ".v4" / "plan.json"
         if owner.exists():
             previous = json.loads(owner.read_text(encoding="utf-8"))
@@ -727,11 +741,20 @@ class CorpusV4Pipeline:
     # ------------------------------------------------------------------ ingest
 
     def ingest(self):
+        if not self.demo:
+            from .v4_sources import validate_source_plan
+            validate_source_plan(self.plan, self.registry, verify_inputs=True)
         if "ingested" in self._done:
             return self.stats["ingested"]
         path = self.out / "ingested.sqlite"
         key = self._key("ingested")
-        self._run("ingested", key, lambda: self._build_ingest(path))
+        def producer():
+            result = self._build_ingest(path)
+            if not self.demo:
+                from .v4_sources import validate_source_plan
+                validate_source_plan(self.plan, self.registry, verify_inputs=True)
+            return result
+        self._run("ingested", key, producer)
         return self.stats["ingested"]
 
     def _build_ingest(self, path: Path):
@@ -800,6 +823,14 @@ class CorpusV4Pipeline:
                             "source_notes": source.get("notes", ""),
                             "family_policy": source["family_policy"],
                         }
+                        if "source_review" in source:
+                            from .v4_sources import review_reference
+                            metadata["transformation_history"] = [h for h in metadata["transformation_history"]
+                                if not (isinstance(h, dict) and h.get("kind") == "source_review")]
+                            metadata["transformation_history"].append(review_reference(source))
+                            metadata.update(source_id=source["source_id"],
+                                            source_review_sha256=source["source_review"]["sha256"],
+                                            input_file_sha256=item["sha256"])
                         db.execute(
                             "INSERT INTO docs VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                             (document_id, source["source_id"], source["source_name"],
@@ -2049,6 +2080,9 @@ class CorpusV4Pipeline:
 
     def audit(self, *, retokenize: str | None = None) -> dict:
         self._assert_writable()
+        if not self.demo:
+            from .v4_sources import validate_source_plan
+            validate_source_plan(self.plan, self.registry, verify_inputs=True)
         if "tokenized" not in self._done:
             self.tokenize()
         self.contamination()
@@ -2198,6 +2232,9 @@ class CorpusV4Pipeline:
 
     def finalize(self, *, audit: dict | None = None) -> dict:
         self._assert_writable()
+        if not self.demo:
+            from .v4_sources import validate_source_plan
+            validate_source_plan(self.plan, self.registry, verify_inputs=True)
         audit = audit or self.audit()
         published_audit = json.loads((self.out / "audit-report.json").read_text(encoding="utf-8"))
         if audit != published_audit:
@@ -2268,6 +2305,24 @@ def verify_frozen(directory: str | Path) -> dict:
         recomputed[stage] = {"key": data.get("key"), "files": files}
     if recomputed != manifest["identity"].get("stage_hashes"):
         raise CorpusError("stage hashes do not match the frozen manifest")
+    from .v4_sources import validate_source_plan
+    source_plan_path = directory / ".v4/plan.json"
+    source_plan = json.loads(source_plan_path.read_text(encoding="utf-8")) if source_plan_path.is_file() else {}
+    production_sources = manifest["budget"]["target_effective_train_tokens"] >= 1_020_000
+    reviewed_sources = (production_sources or "source_review_policy" in source_plan
+                        or any("source_review" in s for s in manifest["license_sources"]["sources"]))
+    source_hashes = {}
+    if reviewed_sources:
+        if not source_plan:
+            raise CorpusError("missing source review generation plan")
+        source_hashes = validate_source_plan(source_plan, manifest["license_sources"],
+                                            require=production_sources, verify_inputs=True)
+    if source_hashes and recomputed.get("ingested", {}).get("key") != identity(
+            [V4_SCHEMA_VERSION, source_plan["plan_key"], "ingested", {}]):
+        raise CorpusError("reviewed source generation plan differs from the actual Ingest stage")
+    if source_hashes and (manifest["source_manifest_sha256"] != manifest["license_sources"]["sha256"]
+                         or manifest["identity"]["v4"]["source_manifest_sha256"] != manifest["license_sources"]["sha256"]):
+        raise CorpusError("frozen source review registry is not bound to the manifest")
     if (manifest["tokenizer"]["vocab_size"] >= 24576
             or manifest["budget"]["target_effective_train_tokens"] >= 1_020_000):
         from .v4_tokenizer_decision import verify_selection

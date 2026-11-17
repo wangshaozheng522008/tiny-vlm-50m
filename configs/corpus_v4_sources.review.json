@@ -40,7 +40,10 @@
           "data/raw/candidate-zh-wikipedia"
         ],
         "family_policy": "document"
-      }
+      },
+      "model_training": "PENDING",
+      "license_obligations": "PENDING",
+      "corpus_versions": []
     },
     {
       "publisher": "PENDING",
@@ -75,7 +78,10 @@
           "data/raw/candidate-zh-education"
         ],
         "family_policy": "document"
-      }
+      },
+      "model_training": "PENDING",
+      "license_obligations": "PENDING",
+      "corpus_versions": []
     },
     {
       "publisher": "PENDING",
@@ -110,7 +116,10 @@
           "data/raw/candidate-math-code"
         ],
         "family_policy": "document"
-      }
+      },
+      "model_training": "PENDING",
+      "license_obligations": "PENDING",
+      "corpus_versions": []
     },
     {
       "publisher": "Work authors and Wikisource contributors",
@@ -149,7 +158,10 @@
           "data/raw/candidate-zh-wikisource"
         ],
         "family_policy": "document"
-      }
+      },
+      "model_training": "PENDING",
+      "license_obligations": "PENDING",
+      "corpus_versions": []
     },
     {
       "publisher": "Wikibooks contributors",
@@ -188,7 +200,10 @@
           "data/raw/candidate-zh-wikibooks"
         ],
         "family_policy": "document"
-      }
+      },
+      "model_training": "PENDING",
+      "license_obligations": "PENDING",
+      "corpus_versions": []
     },
     {
       "publisher": "Work authors and Wikisource contributors",
@@ -227,7 +242,10 @@
           "data/raw/candidate-en-wikisource"
         ],
         "family_policy": "document"
-      }
+      },
+      "model_training": "PENDING",
+      "license_obligations": "PENDING",
+      "corpus_versions": []
     },
     {
       "publisher": "Python Software Foundation and individual contributors",
@@ -266,7 +284,10 @@
           "data/raw/candidate-python-docs"
         ],
         "family_policy": "document"
-      }
+      },
+      "model_training": "PENDING",
+      "license_obligations": "PENDING",
+      "corpus_versions": []
     }
   ]
 }

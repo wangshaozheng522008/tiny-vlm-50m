@@ -114,7 +114,7 @@ def preflight(dataset, tokenizer, model_config, training_config, workspace, *,
         blockers.append(code)
         details.setdefault(code, []).append(str(reason))
 
-    audit = audit_v4_dataset(dataset, tokenizer_path=tokenizer)
+    audit = audit_v4_dataset(dataset, tokenizer_path=tokenizer, require_source_review=not cpu_nano_test)
     manifest = None
     if not audit["ok"]:
         block("BLOCKED_DATA_NOT_READY", "; ".join(audit["errors"]))
