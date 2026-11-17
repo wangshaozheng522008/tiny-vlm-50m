@@ -9,7 +9,8 @@ import pytest
 
 from minillm.corpus_utils import CorpusError
 from minillm.corpus_v4 import (CorpusV4Pipeline, build_registry, inventory, load_config,
-                               status_report, validate_config, verify_frozen)
+                               status_report, validate_config, validate_split_isolation,
+                               verify_frozen)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -113,3 +114,62 @@ def test_missing_source_fails_inventory_before_ingest(tmp_path):
     registry = build_registry([source], demo=True, license_policy={"approved_only": False})
     with pytest.raises(CorpusError, match="missing source file"):
         inventory(registry, tmp_path)
+
+
+def _complete_leakage():
+    return {
+        "exact_normalized": {"train/val": 0, "train/test": 0, "val/test": 0},
+        "exact_raw": {"train/val": 0, "train/test": 0, "val/test": 0},
+        "family_cluster_violations": 0,
+        "near_duplicate": {"status": "CHECKED", "hits": 0, "max_similarity": 0.0,
+                           "candidate_truncations": 0, "truncated_chunks": 0,
+                           "candidate_queries": 3, "candidate_comparisons": 0,
+                           "threshold": 0.85},
+    }
+
+
+def test_split_isolation_requires_complete_evidence():
+    leakage = _complete_leakage()
+    assert validate_split_isolation(leakage) == "PASS"
+    assert validate_split_isolation(None) == "NOT_ASSESSED"
+    assert validate_split_isolation({}) == "NOT_ASSESSED"
+    assert validate_split_isolation([]) == "FAIL"
+
+
+@pytest.mark.parametrize("field", ["hits", "candidate_truncations", "truncated_chunks",
+                                    "candidate_queries", "candidate_comparisons"])
+@pytest.mark.parametrize("value", [-1, "0", 0.0, True, None])
+def test_split_isolation_rejects_invalid_near_counts(field, value):
+    leakage = _complete_leakage()
+    leakage["near_duplicate"][field] = value
+    assert validate_split_isolation(leakage) == "FAIL"
+
+
+@pytest.mark.parametrize("field,value", [
+    ("max_similarity", float("nan")), ("max_similarity", float("inf")),
+    ("max_similarity", -0.1), ("max_similarity", 1.1), ("max_similarity", False),
+    ("threshold", 0), ("threshold", 1.1), ("threshold", "0.85"),
+])
+def test_split_isolation_rejects_invalid_similarity_statistics(field, value):
+    leakage = _complete_leakage()
+    leakage["near_duplicate"][field] = value
+    assert validate_split_isolation(leakage) == "FAIL"
+
+
+@pytest.mark.parametrize("field", ["exact_normalized", "exact_raw", "family_cluster_violations"])
+@pytest.mark.parametrize("value", [1, -1, True, "0"])
+def test_split_isolation_rejects_exact_or_family_violations(field, value):
+    leakage = _complete_leakage()
+    if field == "family_cluster_violations":
+        leakage[field] = value
+    else:
+        leakage[field]["train/val"] = value
+    assert validate_split_isolation(leakage) == "FAIL"
+
+
+@pytest.mark.parametrize("field", ["exact_normalized", "exact_raw", "family_cluster_violations",
+                                    "near_duplicate"])
+def test_split_isolation_rejects_missing_evidence(field):
+    leakage = _complete_leakage()
+    del leakage[field]
+    assert validate_split_isolation(leakage) == "NOT_ASSESSED"

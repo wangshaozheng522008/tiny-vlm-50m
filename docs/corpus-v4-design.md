@@ -244,6 +244,29 @@ identity (含 stage hashes), files, budget, contamination
 `license_review` 不是 APPROVED、污染未清除或预算不足都会得到 `NOT_READY`。
 `verify_frozen()` 重新验证 manifest 身份和每个文件哈希，任何篡改都会报错。
 
+跨 Split 冻结门禁修复将 `split-manifest.json` 和 `audit-report.json` 的
+`schema_version` 升至 **2**；dataset manifest 的 schema 仍为 1，继续通过文件哈希、
+stage hashes 和 `content_id` 绑定审核证据。旧 Split 报告缺少必要统计或 schema 不受支持时
+不能通过新门禁，须使用新输出目录重建；不改写历史冻结资产。
+
+`leakage.near_duplicate` 必须包含 `status`、`hits`、`max_similarity`、`threshold`、
+`candidate_queries`、`candidate_comparisons`、`candidate_truncations` 和 `truncated_chunks`。
+候选查询/截断数汇总 train→val/test、val→test 两次索引的真实计数；比较数是实际执行的
+Jaccard 次数；特征截断数汇总索引构建和查询时的 chunk 特征生成事件（val/test 参与多个
+阶段时分别计数），候选复核复用同一索引 chunk 的截断证据，不重复计数。
+
+禁用检查返回 `NOT_ASSESSED`；候选或特征发生截断返回 `INCOMPLETE`；执行完整返回
+`CHECKED`（即使命中也保留该状态）。执行异常仍使 Split 阶段失败。统一的
+`validate_split_isolation()` 只有在三组 raw/normalized 精确交集、family/cluster 违规、
+near 命中和两种截断均为零，状态为 `CHECKED` 且统计类型/范围有效时返回 `PASS`。
+已知违规、截断、未知状态或非法统计返回 `FAIL`；缺少证据或未执行返回 `NOT_ASSESSED`。
+后两者均禁止正式冻结。
+
+`finalize()` 重新校验 Split 阶段绑定的报告、已发布审核及其数据身份；配置改动、过期审核或
+仅篡改 READY 字段都不能放行。`verify_frozen()` 从已验证哈希的 Split Manifest 重新判断
+隔离状态，不以 READY/FROZEN 标记代替证据。分组、排序、阈值和文本输出不变；报告新增
+字段会改变 Split Manifest 哈希，并按既有机制传递至阶段哈希和最终数据身份。
+
 ## 10. 演示数据
 
 `tests/fixtures/corpus_v4/` 全部为原创合成文本，覆盖精确重复、近似重复、短文本、重复字符、

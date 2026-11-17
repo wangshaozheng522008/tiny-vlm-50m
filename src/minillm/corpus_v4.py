@@ -513,6 +513,109 @@ def _safe_json(value) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, allow_nan=False)
 
 
+def validate_split_isolation(leakage: dict) -> str:
+    """Fail closed on absent, malformed or incomplete split evidence.
+
+    Counts must be nonnegative integers (booleans are not counts). Known
+    violations take precedence over missing evidence, which is NOT_ASSESSED.
+    """
+    if not isinstance(leakage, dict):
+        return "NOT_ASSESSED" if leakage is None else "FAIL"
+    failed, missing = False, False
+
+    def count(report, field, *, must_be_zero=False):
+        nonlocal failed, missing
+        if field not in report:
+            missing = True
+            return None
+        value = report[field]
+        if type(value) is not int or value < 0:
+            failed = True
+            return None
+        if must_be_zero and value != 0:
+            failed = True
+        return value
+
+    for field in ("exact_normalized", "exact_raw"):
+        if field not in leakage:
+            missing = True
+        elif not isinstance(leakage[field], dict):
+            failed = True
+        else:
+            for pair in ("train/val", "train/test", "val/test"):
+                count(leakage[field], pair, must_be_zero=True)
+    count(leakage, "family_cluster_violations", must_be_zero=True)
+    near = leakage.get("near_duplicate")
+    if near is None:
+        missing = True
+    elif not isinstance(near, dict):
+        failed = True
+    else:
+        status = near.get("status")
+        if "status" not in near or status == "NOT_ASSESSED":
+            missing = True
+        elif status != "CHECKED":
+            failed = True
+        for field in ("hits", "candidate_truncations", "truncated_chunks"):
+            count(near, field, must_be_zero=True)
+        queries = count(near, "candidate_queries")
+        comparisons = count(near, "candidate_comparisons")
+        if queries == 0 and comparisons is not None and comparisons > 0:
+            failed = True
+        for field in ("max_similarity", "threshold"):
+            if field not in near:
+                missing = True
+                continue
+            value = near[field]
+            if type(value) not in (int, float) or not 0 <= value <= 1 \
+                    or (field == "threshold" and value == 0):
+                failed = True
+    return "FAIL" if failed else ("NOT_ASSESSED" if missing else "PASS")
+
+
+def _split_isolation_check(directory: Path, *, verified_files: dict | None = None) -> dict:
+    """Validate evidence and its published split-stage/file hash bindings.
+
+    Freeze/verification callers reuse hashes they have just computed, avoiding
+    another pass over the split texts. Audit verifies those files here.
+    """
+    detail = {"files_verified": False, "leakage": None}
+
+    def verify(name, info):
+        if verified_files is None:
+            verify_file(directory / name, info)
+        elif not info or verified_files.get(name) != info:
+            raise CorpusError(f"file missing or SHA256/size mismatch: {name}")
+
+    try:
+        path = directory / "split-manifest.json"
+        report = json.loads(path.read_text(encoding="utf-8"))
+        detail["leakage"] = report.get("leakage")
+        status = validate_split_isolation(detail["leakage"])
+        if report.get("schema_version") != 2:
+            status = "FAIL" if status == "FAIL" else "NOT_ASSESSED"
+        required = {f"{name}.text.jsonl" for name in SPLITS} | {"split-assignment.jsonl"}
+        files = report.get("files", {})
+        if not required <= files.keys():
+            raise CorpusError("missing split file evidence")
+        for name, info in files.items():
+            if Path(name).name != name:
+                raise CorpusError("split file names must be local")
+            verify(name, info)
+        stage = json.loads((directory / ".v4" / "split.stage.json").read_text(encoding="utf-8"))
+        info = stage.get("files", {}).get(str(path.resolve()))
+        verify(path.name, info)
+        detail.update(files_verified=True, split_manifest_sha256=info["sha256"])
+    except FileNotFoundError as exc:
+        detail["error"] = str(exc)
+        status = "FAIL" if detail["leakage"] is not None and \
+            validate_split_isolation(detail["leakage"]) == "FAIL" else "NOT_ASSESSED"
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, CorpusError) as exc:
+        detail["error"] = str(exc)
+        status = "FAIL"
+    return {"status": status, "detail": detail}
+
+
 class CorpusV4Pipeline:
     def __init__(self, out: Path, config: dict, registry: dict, inputs: list[dict], *,
                  demo: bool = False, log=print):
@@ -569,6 +672,8 @@ class CorpusV4Pipeline:
     def _assert_writable(self):
         if (self.out / "FROZEN").exists():
             raise CorpusError("dataset is already frozen; create a new corpus version instead of modifying it")
+        if identity(self.config) != self.plan["config_sha256"]:
+            raise CorpusError("corpus v4 configuration changed; select a new --out")
 
     def _run(self, name: str, key: str, producer):
         self._assert_writable()
@@ -1296,7 +1401,7 @@ class CorpusV4Pipeline:
                            for name in SPLITS}
             file_hashes["split-assignment.jsonl"] = file_info(assignment_path)
             manifest = {
-                "schema_version": 1, "strategy": split_policy["strategy"],
+                "schema_version": 2, "strategy": split_policy["strategy"],
                 "seed": split_policy["seed"], "ratios": ratios,
                 "group_count": group_count, "document_count": total_documents,
                 "splits": split_stats, "files": file_hashes,
@@ -1341,7 +1446,10 @@ class CorpusV4Pipeline:
             for left, right in (("train", "val"), ("train", "test"), ("val", "test")):
                 overlaps[f"{left}/{right}"] = overlap("normalized_sha256", left, right)
                 raw[f"{left}/{right}"] = overlap("content_sha256", left, right)
-        near = {"status": "NOT_ASSESSED", "hits": 0}
+        near = {"status": "NOT_ASSESSED", "hits": 0, "max_similarity": 0.0,
+                "candidate_truncations": 0, "truncated_chunks": 0,
+                "candidate_queries": 0, "candidate_comparisons": 0,
+                "threshold": self.config["deduplication"]["near"]["threshold"]}
         if self.config["split"]["verify_near_cross_split"]:
             near = self._cross_split_near(scratch_path)
         return {"exact_normalized": overlaps, "exact_raw": raw,
@@ -1357,6 +1465,8 @@ class CorpusV4Pipeline:
         conn.row_factory = sqlite3.Row
         hits = 0
         maximum = 0.0
+        stats = {"candidate_truncations": 0, "truncated_chunks": 0,
+                 "candidate_queries": 0, "candidate_comparisons": 0}
         try:
             with sqlite3.connect(self.out / "deduplicated.sqlite") as source:
                 source.row_factory = sqlite3.Row
@@ -1375,8 +1485,9 @@ class CorpusV4Pipeline:
                         index.add(row["document_id"], row["normalized_text"], row["detected_language"])
                     for right_name in right_names:
                         for row in documents(right_name):
-                            for chunk_index, _, own_values, signature, _ in chunk_features(
+                            for chunk_index, _, own_values, signature, truncated in chunk_features(
                                     row["normalized_text"], row["detected_language"], policy):
+                                stats["truncated_chunks"] += int(truncated)
                                 for candidate_id, candidate_chunk in index.candidates(
                                         row["document_id"], chunk_index, signature):
                                     candidate = source.execute(
@@ -1384,13 +1495,19 @@ class CorpusV4Pipeline:
                                         (candidate_id,)).fetchone()
                                     candidate_text = chunk_text(candidate["normalized_text"], candidate_chunk, policy)
                                     if candidate_text is None:
-                                        continue
+                                        raise CorpusError("cross-split candidate chunk is missing")
+                                    # Candidate feature truncation was counted by index.add().
                                     values, _ = shingles(candidate_text, candidate["detected_language"], policy)
+                                    stats["candidate_comparisons"] += 1
                                     similarity = exact_jaccard(own_values, values)
                                     maximum = max(maximum, similarity)
                                     if similarity >= policy.threshold:
                                         hits += 1
-            return {"status": "CHECKED", "hits": hits, "max_similarity": round(maximum, 6),
+                    for field in ("candidate_truncations", "candidate_queries", "truncated_chunks"):
+                        stats[field] += index.stats[field]
+            complete = not stats["candidate_truncations"] and not stats["truncated_chunks"]
+            return {"status": "CHECKED" if complete else "INCOMPLETE", **stats,
+                    "hits": hits, "max_similarity": round(maximum, 6),
                     "threshold": policy.threshold,
                     "method": "MinHash LSH candidates for train/val/test pairs; exact Jaccard confirmation"}
         finally:
@@ -1881,15 +1998,8 @@ class CorpusV4Pipeline:
                "near_duplicates": dedup_report["near"]["duplicates"],
                "candidate_truncations": dedup_report["near"].get("candidate_truncations", 0)})
 
-        split_manifest = json.loads((self.out / "split-manifest.json").read_text(encoding="utf-8"))
-        split_files_ok = all((self.out / name).is_file() and file_info(self.out / name) == info
-                             for name, info in split_manifest["files"].items())
-        leakage = split_manifest["leakage"]
-        blocked = any(leakage["exact_normalized"].values()) or any(leakage["exact_raw"].values()) \
-            or bool(leakage["family_cluster_violations"]) \
-            or (leakage["near_duplicate"].get("hits", 0) > 0)
-        check("split_isolation", "PASS" if split_files_ok and not blocked else "FAIL",
-              {"files_verified": split_files_ok, "leakage": leakage})
+        split_check = _split_isolation_check(self.out)
+        check("split_isolation", split_check["status"], split_check["detail"])
 
         selection = self.stats.get("tokenizer_eval", {}).get("selection") or self.external_selection
         tokenization = self.stats["tokenized"]
@@ -1949,7 +2059,7 @@ class CorpusV4Pipeline:
             status = "NOT_ASSESSED"
         else:
             status = "READY"
-        report = {"schema_version": 1, "status": status, "checks": checks,
+        report = {"schema_version": 2, "status": status, "checks": checks,
                   "blockers": sorted(set(blockers)), "demo_only": self.demo,
                   "limitations": ("A PASS is evidence for the recorded policy and hashes, not a semantic "
                                   "guarantee; licence review, contamination dispositions and world-knowledge "
@@ -1992,6 +2102,9 @@ class CorpusV4Pipeline:
     def finalize(self, *, audit: dict | None = None) -> dict:
         self._assert_writable()
         audit = audit or self.audit()
+        published_audit = json.loads((self.out / "audit-report.json").read_text(encoding="utf-8"))
+        if audit != published_audit:
+            raise CorpusError("audit does not match the published audit report")
         if self.demo:
             freeze_status, dataset_status = "NOT_READY", "DEMO_ONLY"
         elif audit["status"] == "READY":
@@ -2002,6 +2115,16 @@ class CorpusV4Pipeline:
             freeze_status, dataset_status = "NOT_READY", "FORMAL"
         marker = self.out / "FROZEN"
         manifest = self.build_manifest(freeze_status=freeze_status, dataset_status=dataset_status)
+        split_check = _split_isolation_check(self.out, verified_files=manifest["files"])
+        if audit.get("checks", {}).get("split_isolation") != split_check:
+            raise CorpusError("split isolation evidence changed since audit; audit again")
+        if audit.get("status") == "READY" and (
+                split_check["status"] != "PASS" or audit.get("blockers")
+                or any(check.get("status") != "PASS" for check in audit["checks"].values())):
+            raise CorpusError("READY audit lacks passing validation evidence")
+        if freeze_status == "READY" and manifest["content_id"] != audit.get("checks", {}).get(
+                "manifest_completeness", {}).get("detail", {}).get("content_id"):
+            raise CorpusError("dataset identity changed since audit; audit again")
         write_json(self.out / "dataset-manifest.json", manifest)
         if self.demo:
             atomic_write(self.out / "DEMO_ONLY", lambda handle: handle.write(json_bytes({
@@ -2048,6 +2171,12 @@ def verify_frozen(directory: str | Path) -> dict:
         recomputed[stage] = {"key": data.get("key"), "files": files}
     if recomputed != manifest["identity"].get("stage_hashes"):
         raise CorpusError("stage hashes do not match the frozen manifest")
+    split_check = _split_isolation_check(directory, verified_files=manifest["files"])
+    split_info = manifest["files"].get("split-manifest.json", {})
+    if split_check["status"] != "PASS" or not split_info \
+            or split_info.get("sha256") != manifest["identity"].get("v4", {}).get("split_manifest_sha256") \
+            or split_info.get("sha256") != split_check["detail"].get("split_manifest_sha256"):
+        raise CorpusError("frozen dataset lacks complete passing split isolation evidence")
     if not (directory / "FROZEN").is_file():
         raise CorpusError("missing FROZEN marker")
     if manifest["license_review_status"] != "APPROVED":

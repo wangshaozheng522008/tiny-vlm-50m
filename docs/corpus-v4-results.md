@@ -219,3 +219,54 @@ PR #9 开始正式训练前必须补齐：
   的 Dedup 已占约 759 s，真实语料需要单独评估；Split 的 100k 实测和旧/新对比见
   [语料 v4 性能与规模基准](corpus-v4-performance.md)；
 - demo 的 `tokenizers/` 与正式 `artifacts/tokenizers/` 路径分离，避免 demo 被误当正式产物。
+
+## 11. PR #8 跨 Split 冻结门禁 P1 修复（2026-11-17）
+
+根因是 `split_isolation` 仅检查 near `hits > 0`，没有要求状态为 `CHECKED`；禁用检查时
+`NOT_ASSESSED/hits=0` 会被当成安全。跨 Split 扫描还丢弃了 LSH 候选截断及索引/查询的
+特征截断信息；`finalize(audit=...)` 和 `verify_frozen()` 没有重新验证这份审核证据。
+
+修复集中在 `corpus_v4.py`：汇总真实查询、Jaccard 比较、候选截断和两阶段特征截断计数；
+有截断即 `INCOMPLETE`。统一校验缺失字段、未知状态、负数、错误类型、非有限/越界相似度，
+仅完整 `CHECKED`、零泄漏、零截断可 PASS。冻结前重验已发布审核、Split 阶段文件绑定、
+配置身份和审核时的 `content_id`；冻结后从已验证哈希的 Split 报告重新判定，不能只改
+READY/FROZEN 标记放行。冻结复核复用已经计算的文件哈希，不新增大文本扫描。
+
+`split-manifest.json`、`audit-report.json` schema 升至 **2**。Dataset Manifest schema
+仍为 1，阶段哈希/文件 SHA256/数据身份的机制不变；旧报告缺少必要证据不能通过新门禁。
+Demo 与 1,000 文档固定快照均确认 assignment 和 train/val/test 文本的 SHA256 不变，
+仅更新 Split Manifest 的报告哈希；新增字段及实现哈希会按现有机制改变下游 Manifest/
+`content_id`。没有修改默认阈值、分组、排序、质量规则、Tokenizer 训练、模型、Loss、
+AdamW、Scheduler、训练 Checkpoint/Resume，也没有改写原始数据或历史冻结评测资产。
+
+新增 **82 个参数化回归用例**，三份语料测试最终为 **101 passed**。覆盖完整无命中、
+命中、禁用、INCOMPLETE/FAILED/未知状态、缺失证据、负数/错误类型、真实截断、配置修改、
+伪造 READY、过期审核、数据身份变化、执行异常、正式冻结正例及 `verify_frozen()` 反例。
+真实 LSH 溢出用例设置 `max_candidates_per_chunk=1`，产生 **29 次实际候选截断**、
+36 次查询、29 次比较、`hits=0`，Split 审核仍 FAIL，且禁止冻结；统计来自真实索引查询。
+特征截断分别验证 train 索引、val 索引和查询、test 查询，亦验证其传至最终审核。
+现有同输入/Seed、物理行序和分组隔离测试继续通过。
+
+CPU Demo：15 篇，Train/Val/Test **13/1/1**，effective train tokens **21,463**；
+near `CHECKED`，3 次查询、0 次候选比较、0 命中、两类截断均为 0，`split_isolation=PASS`。
+总体仍为 `DEMO_ONLY / NOT_READY`，blockers 为 `DEMO_ONLY`、`license_review`，没有 FROZEN。
+
+最终验证使用仓库 `.venv` 的 Python 3.11.17（加入 PATH 后执行以下 Python 命令）：
+
+| 命令 | 实际结果 |
+| --- | --- |
+| `python -m pytest -q -o addopts=''` | **602 passed**，退出码 0 |
+| `python -m pytest -q -o addopts='' tests/test_corpus_v4.py tests/test_corpus_v4_manifest.py tests/test_corpus_v4_scale.py` | **101 passed**，退出码 0，包含冻结/验证正反例 |
+| `./scripts/smoke_test.sh` | 通过，退出码 0（本机语料，CPU nano） |
+| `SYNTHETIC=1 ./scripts/smoke_test.sh` | 通过，退出码 0（合成语料，CPU nano） |
+| `python scripts/check_training_reliability.py --out reports/pr8-split-isolation-20261117/reliability` | 通过，退出码 0；参数/优化器最大差均为 0，样本顺序/RNG/LR/状态一致 |
+| `python scripts/plan_corpus_v4.py --config configs/corpus_v4.yaml --demo --out reports/pr8-split-isolation-20261117/cpu-demo-final` | 通过，退出码 0，维持 DEMO_ONLY |
+
+最终日志保留在 `reports/pr8-split-isolation-20261117/`：`pytest-final.log`、
+`regression-final.log`、`smoke.log`、`smoke-synthetic.log`、`reliability.log`、
+`cpu-demo-final.log`（reports 已 gitignore）。
+
+未重跑 100k/1M：现有扫描、候选选择和比较范围不变，仅在现有循环内收集常数开销计数；
+冻结验证复用已有文件哈希。既有规模记录不是 schema v2 的冻结验收证据。
+本次门禁修复未发现新增 P0/P1/P2；第 9、10 节的正式语料就绪阻断、LSH 概率漏召回及
+其他已有风险仍然存在，此修复不将它们声明为已解决。

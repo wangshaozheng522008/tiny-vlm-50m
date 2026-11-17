@@ -31,10 +31,11 @@ def _pipeline_from_generated(tmp_path, documents=300, seed=7):
 
 
 # Captured from the pre-SQLite-staging implementation on the synthetic demo.
-# The split code must preserve exact group ids, ordering, text rows and manifest.
+# Group ids, ordering and text rows stay byte-identical. Only the report hash
+# changes for split-manifest schema v2's complete cross-split scan evidence.
 REFERENCE_1000_SPLIT_HASHES = {
     "split-assignment.jsonl": "06a34c17f14df9fe4614a228018c3fa39e5aaeb395105f45a611a5d81a98c09e",
-    "split-manifest.json": "1fdc4f2ad4ef5053679309ca0a7aadd388070f0c4bafb6bdb65fadb2e31792b9",
+    "split-manifest.json": "1f3aa679ff086b93bf47b15b5544873ba91b1f5dbdec2ff2813ca362cccbbe76",
     "train.text.jsonl": "f8d3b9fdc90b76f408b4e573015b384afd90fdc143a1482b3b96a6e99b124eae",
     "val.text.jsonl": "291aa0015222c3ae82e42c8113509c76bc08326dcf437e16385e783dcfc584bc",
     "test.text.jsonl": "76292d0d74a5cc5106d7cb652071c614c818014532dd26bcaa2529b2595675e6",
@@ -42,7 +43,7 @@ REFERENCE_1000_SPLIT_HASHES = {
 
 REFERENCE_SPLIT_HASHES = {
     "split-assignment.jsonl": "5b359ae6f579c000908405723c308b33b55eb6930cae4bb985a230ec0c65085f",
-    "split-manifest.json": "e76ef0d51d9c746e4192c508cdc4965a0caf22e9b2b67ff13a4b3a9fa760496a",
+    "split-manifest.json": "9322322f06c1fd0b809ffe082561459499c4389751c2a4e0a45ccc00df952f6d",
     "train.text.jsonl": "0368b2778ac525df6fe5135e1b45c46259cbc463c6e28d1ce52955a0822961a2",
     "val.text.jsonl": "8aee49902ccb26178c82265df2089b2891139be210a28519230bb58851a95f14",
     "test.text.jsonl": "7e06e92303d1d31b7e76e262e0f0cd91a49a1879de8f9d0a8e57bdcb00c0d73a",
