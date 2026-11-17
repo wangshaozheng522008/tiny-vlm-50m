@@ -637,6 +637,9 @@ class CorpusV4Pipeline:
             "schema_version": V4_SCHEMA_VERSION, "corpus_version": config["corpus_version"],
             "dataset_name": config["dataset_name"], "demo": demo,
             "config_sha256": identity(config), "implementation_sha256": implementation_sha256(),
+            # Policy admission must recover the actual generation settings,
+            # not infer them from an opaque config hash or a corpus name.
+            "generation_config": copy.deepcopy(config),
             "registry": registry, "inputs": inputs,
             "policies": {
                 "text_policy": config["text_policy"],

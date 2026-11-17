@@ -23,7 +23,7 @@ def _ratios():
             "en_general": 0.10, "math_logic_code": 0.10}
 
 
-def _formal_pipeline(tmp_path, *, verify_near=True, near=None, extra_sources=(), split_ratios=None):
+def _formal_pipeline(tmp_path, *, verify_near=True, near=None, extra_sources=(), split_ratios=None, configure=None):
     root = _root()
     config = load_config(root / "configs" / "corpus_v4.yaml")
     config["targets"]["effective_train_tokens"] = 2048
@@ -36,6 +36,8 @@ def _formal_pipeline(tmp_path, *, verify_near=True, near=None, extra_sources=(),
     if split_ratios:
         config["split"]["ratios"] = split_ratios
     config["deduplication"]["near"].update(near or {})
+    if configure:
+        configure(config)
     manifest = json.loads((root / "tests" / "fixtures" / "corpus_v4" / "demo-sources.json").read_text(
         encoding="utf-8"))
     sources = []

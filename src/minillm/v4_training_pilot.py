@@ -23,12 +23,37 @@ from .training_manifest import write_json
 from .training_pilot import evaluate_pilot
 from .training_readiness import planned_tokens
 from .utils import set_seed
-from .v4_admission import audit_v4_dataset
+from .v4_admission import APPROVED_PILOT_CONFIG, audit_v4_dataset, validate_v4_pilot_policy
 from .workload import (hardware, parse_training_config, preserved_process, probe_workload,
                        resolve_plan, verify_workload)
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SUITES = [ROOT / "data/evaluation/pretrain-v1", ROOT / "data/evaluation/chinese-foundation-v1"]
+PILOT_TARGET_TOKENS = 1_000_000
+
+
+def validate_pilot_budget(samples, opts, extra, *, cpu_nano_test=False):
+    """One cumulative fixed plan, including Resume; rounding is < one update."""
+    target = extra.get("target_tokens")
+    if type(target) is not int or (target < 1 if cpu_nano_test else target != PILOT_TARGET_TOKENS):
+        raise ValueError("V4 Pilot requires exactly 1,000,000 integer target tokens (CPU fixtures use their independent small budget)")
+    if opts.max_steps < 3 or extra.get("allow_data_repetition", False) is not False:
+        raise ValueError("at least three fixed updates and no corpus repetition required")
+    seq_len = extra["seq_len"]
+    planned = planned_tokens(samples, opts.batch_size, opts.grad_accum, seq_len, opts.max_steps)
+    independent = samples * (seq_len - 1)
+    update = opts.batch_size * opts.grad_accum * (seq_len - 1)
+    if not target <= planned < target + update or planned > independent:
+        raise ValueError("fixed plan misses target/rounding or repeats independent windows")
+    declared = extra.get("planned_effective_tokens", planned)
+    if type(declared) is not int or declared != planned:
+        raise ValueError("declared planned token budget differs from actual fixed windows")
+    if not cpu_nano_test and independent < 1_020_000:
+        raise ValueError("at least 1.02M independent effective tokens required")
+    return {"planned_effective_tokens": planned, "independent_effective_tokens": independent,
+            "target_tokens": target, "optimizer_updates": opts.max_steps,
+            "full_update_effective_tokens": update, "train_windows": samples,
+            "allow_data_repetition": False}
 
 
 def evaluation_policy(config, suites):
@@ -75,7 +100,8 @@ def _resolved(raw, workspace):
 
 
 def preflight(dataset, tokenizer, model_config, training_config, workspace, *,
-              cpu_nano_test=False, evaluation_config=None, suites=None, require_workload=True):
+              cpu_nano_test=False, evaluation_config=None, suites=None, require_workload=True,
+              approved_config_path=None):
     """Read-only admission. Never construct an 87M model on failed data gates."""
     raw = read_json(training_config) if isinstance(training_config, (str, Path)) else dict(training_config)
     opts, extra = parse_training_config(raw)
@@ -94,6 +120,13 @@ def preflight(dataset, tokenizer, model_config, training_config, workspace, *,
         block("BLOCKED_DATA_NOT_READY", "; ".join(audit["errors"]))
     else:
         manifest = read_json(Path(dataset) / "dataset-manifest.json")
+    if approved_config_path is not None and not cpu_nano_test:
+        pilot_policy = {"ok": False, "status": "BLOCKED_POLICY_MISMATCH",
+                        "errors": ["production Pilot policy is pinned to the repository-approved configuration"]}
+    else:
+        pilot_policy = validate_v4_pilot_policy(dataset, approved_config_path or APPROVED_PILOT_CONFIG)
+    if not pilot_policy["ok"]:
+        block(pilot_policy["status"], "; ".join(pilot_policy["errors"]))
     try:
         from .tokenizer import MiniLLMTokenizer
         tok = MiniLLMTokenizer.load(tokenizer)
@@ -118,28 +151,12 @@ def preflight(dataset, tokenizer, model_config, training_config, workspace, *,
         block("BLOCKED_TOKEN_BUDGET", "V4 pilot does not allow corpus repetition")
     budget = None
     try:
-        target = extra.get("target_tokens")
-        if type(target) is not int or target < (1 if cpu_nano_test else 1_000_000) or opts.max_steps < 3:
-            raise ValueError("explicit target and at least three fixed updates required; production target >= 1M")
         train = PackedPretrainDataset(Path(dataset) / "train.bin", extra["seq_len"])
         val = PackedPretrainDataset(Path(dataset) / "val.bin", extra["seq_len"])
         if not len(train) or not len(val) or extra["seq_len"] > cfg.max_position_embeddings:
             raise ValueError("nonempty complete train/val windows within model context required")
-        planned = planned_tokens(len(train), opts.batch_size, opts.grad_accum, extra["seq_len"], opts.max_steps)
-        independent = len(train) * (extra["seq_len"] - 1)
-        update = opts.batch_size * opts.grad_accum * (extra["seq_len"] - 1)
-        if not target <= planned < target + update or planned > independent:
-            raise ValueError("fixed plan misses target/rounding or repeats independent windows")
-        if extra.get("planned_effective_tokens", planned) != planned:
-            raise ValueError("declared planned token budget differs from actual fixed windows")
-        if not cpu_nano_test and (independent < 1_020_000 or manifest is None
-                or manifest["budget"]["target_effective_train_tokens"] < 1_020_000
-                or "pilot" not in manifest["corpus_version"].lower()):
-            raise ValueError("independent Pilot version with at least 1.02M effective tokens required")
-        budget = {"planned_effective_tokens": planned, "independent_effective_tokens": independent,
-                  "target_tokens": target, "optimizer_updates": opts.max_steps,
-                  "full_update_effective_tokens": update, "train_windows": len(train),
-                  "val_windows": len(val), "allow_data_repetition": False}
+        budget = validate_pilot_budget(len(train), opts, extra, cpu_nano_test=cpu_nano_test)
+        budget["val_windows"] = len(val)
     except (OSError, ValueError, RuntimeError, KeyError) as exc:
         block("BLOCKED_TOKEN_BUDGET", exc)
     device = torch.device(opts.device or "cpu")
@@ -171,6 +188,7 @@ def preflight(dataset, tokenizer, model_config, training_config, workspace, *,
         evaluation = evaluation_policy(evaluation_config, suites)
         if manifest is not None:
             request = _request(dataset, tokenizer, cfg, raw, evaluation, cpu_nano_test)
+            request["approved_policy_sha256"] = pilot_policy.get("approved_policy_sha256")
         if Path(workspace).exists():
             _workspace_plan(workspace, request)
         elif opts.resume:
@@ -191,7 +209,7 @@ def preflight(dataset, tokenizer, model_config, training_config, workspace, *,
     return {"schema_version": 1, "status": "READY" if not blockers else blockers[0],
             "readiness": "READY" if not blockers else "BLOCKED", "blockers": sorted(set(blockers)),
             "blocker_details": details, "scope": "CPU_NANO_TEST" if cpu_nano_test else "87M_GPU_PILOT",
-            "dataset_audit": audit, "data": {"content_id": manifest["content_id"],
+            "dataset_audit": audit, "pilot_policy": pilot_policy, "data": {"content_id": manifest["content_id"],
                 "corpus_version": manifest["corpus_version"], "license_status": manifest["license_review_status"]} if manifest else None,
             "model": {"parameters": cfg.num_parameters, "configuration": cfg.to_dict()},
             "tokenizer_fingerprint": manifest["tokenizer_fingerprint"] if manifest else None,
@@ -241,7 +259,8 @@ def _evaluations(checkpoint, tokenizer, dataset, destination, config, suites, de
 
 
 def run_pilot(dataset, tokenizer, model_config, training_config, out, workspace, *,
-              execute=False, probe=False, cpu_nano_test=False, evaluation_config=None, suites=None):
+              execute=False, probe=False, cpu_nano_test=False, evaluation_config=None, suites=None,
+              approved_config_path=None):
     raw = read_json(training_config) if isinstance(training_config, (str, Path)) else dict(training_config)
     opts, _ = parse_training_config(raw)
     out, workspace = Path(out).resolve(), Path(workspace).resolve()
@@ -254,7 +273,8 @@ def run_pilot(dataset, tokenizer, model_config, training_config, out, workspace,
     evaluation_config = evaluation_config or EvaluationConfig(stage="pretrain")
     suites = list(suites or DEFAULT_SUITES)
     pre = preflight(dataset, tokenizer, model_config, raw, workspace, cpu_nano_test=cpu_nano_test,
-                    evaluation_config=evaluation_config, suites=suites, require_workload=not probe)
+                    evaluation_config=evaluation_config, suites=suites, require_workload=not probe,
+                    approved_config_path=approved_config_path)
     report = {"schema_version": 1, "scope": pre["scope"], "status": pre["status"],
               "training_status": "NOT_RUN", "gpu_training_status": "NOT_RUN", "preflight": pre,
               "initialization": None, "training": None, "evaluation": None, "recovery": {"status": "NOT_RUN"},
@@ -288,7 +308,8 @@ def run_pilot(dataset, tokenizer, model_config, training_config, out, workspace,
             # Recheck all V4 evidence after baseline/probe and immediately before
             # the existing launcher performs its own readiness/rehash/ownership checks.
             again = preflight(dataset, tokenizer, model_config, raw, workspace, cpu_nano_test=cpu_nano_test,
-                              evaluation_config=evaluation_config, suites=suites)
+                              evaluation_config=evaluation_config, suites=suites,
+                              approved_config_path=approved_config_path)
             if again["readiness"] != "READY" or again["request"] != pre["request"]:
                 raise ValueError("V4 inputs/evaluation/workload changed after preflight")
             launched_at = time.perf_counter()
@@ -350,6 +371,8 @@ def main(argv=None):
     parser.add_argument("--evaluation-config", default="configs/evaluation.pretrain.json")
     parser.add_argument("--test-suite", action="append", type=Path,
                         help="custom frozen fixture suites are accepted only with --cpu-nano-test")
+    parser.add_argument("--test-policy-config", type=Path,
+                        help="explicit versioned CPU fixture policy; cannot override production policy")
     stages = parser.add_mutually_exclusive_group()
     stages.add_argument("--probe", action="store_true")
     stages.add_argument("--execute", action="store_true")
@@ -359,7 +382,8 @@ def main(argv=None):
         report = run_pilot(args.dataset, args.tokenizer or str(Path(args.dataset) / "tokenizer.json"),
                            args.config, args.training_config, args.out, args.workspace,
                            execute=args.execute, probe=args.probe, cpu_nano_test=args.cpu_nano_test,
-                           evaluation_config=EvaluationConfig(**read_json(args.evaluation_config)), suites=args.test_suite)
+                           evaluation_config=EvaluationConfig(**read_json(args.evaluation_config)), suites=args.test_suite,
+                           approved_config_path=args.test_policy_config)
     except (OSError, ValueError, RuntimeError, KeyError, TypeError) as exc:
         print(f"BLOCKED V4 pilot: {exc}", file=sys.stderr)
         return 1

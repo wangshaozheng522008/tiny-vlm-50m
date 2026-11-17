@@ -1,5 +1,6 @@
 """Offline V4 fixture; no research corpus, historical model, or GPU is used."""
 from pathlib import Path
+import copy
 
 from minillm.config import MINILLM_NANO
 from minillm.corpus_utils import file_info
@@ -9,9 +10,20 @@ from minillm.training_manifest import write_json
 from test_corpus_v4_manifest import _formal_pipeline
 
 
-def assets(tmp_path):
-    pipeline = _formal_pipeline(tmp_path)
+def assets(tmp_path, *, policy_change=None):
+    approved = {}
+
+    def configure(config):
+        config["corpus_version"] = "minillm-corpus-v4-cpu-pilot-test-v1"
+        config["dataset_name"] = "minillm-corpus-v4-cpu-pilot-test"
+        approved.update(copy.deepcopy(config))
+        if policy_change:
+            policy_change(config)
+
+    pipeline = _formal_pipeline(tmp_path, configure=configure)
     pipeline.finalize()
+    approved_config = tmp_path / "approved-cpu-policy.json"
+    write_json(approved_config, approved)
     tokenizer = pipeline.out / "tokenizer.json"
     cfg = MINILLM_NANO.copy()
     cfg.vocab_size = MiniLLMTokenizer.load(tokenizer).vocab_size
@@ -36,7 +48,7 @@ def assets(tmp_path):
             "model_config": str(model_config), "training_config": training,
             "workspace": tmp_path / "workspace", "cpu_nano_test": True,
             "evaluation_config": EvaluationConfig(stage="pretrain", seq_len=16, token_budget=31, max_new_tokens=2),
-            "suites": [suite]}
+            "suites": [suite], "approved_config_path": approved_config}
 
 
 def arguments(value):

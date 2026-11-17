@@ -104,3 +104,17 @@ def test_resume_can_refresh_workload_in_new_directory_without_touching_state_or_
     result = run_pilot(**resumed, out=tmp_path / "resume-new-proof", execute=True)
     assert result["status"] == "COMPLETED", result
     assert result["training"]["tokens_seen"] == 120
+
+
+@pytest.mark.parametrize("target,steps,planned", [(100, 8, 240), (180, 6, 180)])
+def test_resume_cannot_restart_or_extend_the_original_cumulative_budget(tmp_path, target, steps, planned):
+    args = arguments(assets(tmp_path))
+    resumed = _interrupted(args, tmp_path)
+    state = Path(resumed["training_config"]["resume"])
+    before = file_info(state)
+    resumed["training_config"].update(target_tokens=target, max_steps=steps, planned_effective_tokens=planned)
+    with patch("minillm.v4_training_pilot.launch_pilot", side_effect=AssertionError("must not launch")):
+        result = run_pilot(**resumed, out=tmp_path / "enlarged-resume", execute=True)
+    assert result["training_status"] == "NOT_RUN"
+    assert {"BLOCKED_TOKEN_BUDGET", "BLOCKED_PILOT_IDENTITY"} & set(result["preflight"]["blockers"])
+    assert file_info(state) == before

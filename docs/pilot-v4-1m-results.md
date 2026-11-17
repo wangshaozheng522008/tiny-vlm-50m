@@ -201,3 +201,117 @@ and PR6/PR7 frozen assets were not modified. The next step is clearing data and
 tokenizer admission, then measuring the bounded 1M plan. Larger training should
 wait for actual GPU engineering/recovery and evaluation evidence plus human
 review of compute/data budgets; this PR does not start a longer run.
+
+## P1 policy and fixed-budget gates (2026-11-17)
+
+The review of commit `673c1bd` found two gaps: self-consistent frozen artifacts
+did not establish agreement with the approved Pilot generation policy, and a
+target larger than 1M could move the previous lower-bound/rounding window upward.
+These gates are now independent of corpus-name heuristics and caller-declared
+expected SHA256 values.
+
+`validate_v4_pilot_policy()` derives the approved policy from the contents of
+`configs/corpus_v4_pilot_1m.yaml`. Production preflight pins that configuration;
+it cannot be replaced with a CPU test profile. The explicit CPU profile has its
+own version and output, and still requires the complete V4 freeze and source
+approval checks. Sources/paths/license evidence, reviewed tokenizer candidate
+selection, runtime and hardware settings may vary. Quality, dedup, Split,
+contamination, targets, class ratios, Text Policy and audit requirements cannot.
+
+The evidence chain is:
+
+1. V4 now records a deep-copied `generation_config` in `.v4/plan.json`. Its hash
+   must equal `config_sha256`; the complete plan must reproduce `plan_key`.
+2. Ingested, Quality, Dedup, Split and Tokenized stage keys are reconstructed
+   using the existing V4 key formula and compared with the file-verified stage
+   hashes in the frozen Manifest. A recomputed plan hash alone cannot adopt old
+   stage outputs. Generation implementation identity must match the current
+   repository implementation, as well as the frozen identity.
+3. Full quality policy plus `QUALITY_RULES_VERSION`, exact/near dedup policy,
+   Split strategy/seed/ratios/near-check flag and Text Policy are compared with
+   approved values and their existing report/Manifest policy hashes.
+4. Contamination configuration is bound by the generation plan. Recorded asset
+   SHA256, declaration SHA256, version, kind and record counts must match the
+   approved frozen PR6/PR7 assets; thresholds, completeness and the audit content
+   identity must match. Existing human disposition/clearance checks still apply.
+5. The exact corpus target, sequence length, five category ratios and budget
+   content identity are checked against their frozen reports. The actual source
+   registry is plan-bound and must still have complete human APPROVED evidence.
+   Train-only tokenizer selection/fingerprint/special IDs are verified as before.
+6. All nine required audit checks must PASS, and the audit's content identity,
+   freeze record, FROZEN marker and Manifest hash must identify the same dataset.
+
+Success is `POLICY_MATCH`; mismatches are `BLOCKED_POLICY_MISMATCH`; missing
+required evidence is `BLOCKED_POLICY_EVIDENCE_MISSING`. No value in a Manifest is
+overwritten before comparison. Failed admission returns before initialization,
+workload, baseline or launcher, so it cannot create a training checkpoint.
+
+The three-line V4 base-module addition records evidence only. It does not change
+quality rules, cleaning, grouping, sorting, thresholds, tokenizer training or
+tokenization. Plan schema remains V4 with an additive evidence field; stage keys
+and dataset identities change through their existing hashes. The original PR8
+generic `verify_frozen()` remains unchanged. Older data missing the new evidence
+can still be generically verified, but cannot be promoted to this Pilot by
+assuming default policies or patching its plan. Use a newly reviewed independent
+data version/output instead of rewriting historical artifacts. Existing fixed
+Split assignment/text/Manifest hash assertions were retained.
+
+Formal training requires `type(target_tokens) is int` and exactly **1,000,000**.
+`validate_pilot_budget()` recomputes the cumulative plan from real complete
+windows, batch size, accumulation, sequence length and the original maximum
+updates. It requires:
+
+```
+1_000_000 <= planned < 1_000_000 + batch_size * grad_accum * (seq_len - 1)
+planned <= independent_effective_tokens
+independent_effective_tokens >= 1_020_000
+```
+
+The declared `planned_effective_tokens`, when supplied, must be a strict integer
+equal to the computed value. Repetition remains disabled. At L=1024/B=1/G=8,
+123 updates yield 1,006,632, with the exclusive upper bound **1,008,184**; 124
+updates fail. At L=512/B=1/G=8, 245 updates yield 1,001,560, below **1,004,088**.
+The upper bound uses the actual configuration's update size. Bool, float,
+string, 999,999 and targets greater than 1M fail as `BLOCKED_TOKEN_BUDGET`.
+
+Resume revalidates the same cumulative target and fixed plan, not a fresh 1M
+allocation. The approved policy identity is also bound into the existing Pilot
+workspace request. Original checkpoint/optimizer/RNG/cursor/LR rules are not
+changed. Completion still checks actual cumulative tokens and Global Step
+against that fixed plan before publishing final acceptance.
+
+New regressions generate genuinely different, self-consistent frozen corpora:
+weaker quality can PASS its own `verify_frozen()` and ordinary V4 admission but
+must fail approved Pilot policy. Other cases cover quality-version/threshold
+changes, dedup changes, disabled near/contamination checks, Split changes,
+changed assets/thresholds/ratios/Text Policy/targets, missing policy or review
+evidence, recomputed plan hashes, permitted source/tokenizer/runtime variations,
+strict target types, step overruns, real BIN-window rounding at 512/1024, and
+Resume extension. Failure paths assert the launcher is not called and state is
+not replaced. CPU fixture policy selection is explicit via `--test-policy-config`
+and cannot override production policy.
+
+P1 repair verification (earlier tables remain the original PR9 measurements):
+
+| Check | Actual result |
+| --- | --- |
+| Full `python -m pytest -q -o addopts=''`, CUDA isolated | **685 passed, 1 skipped**; the skip is the preexisting optional CUDA inference equivalence case |
+| Optional `test_cuda_fp32_loss_matches_cpu`, separately on available CUDA | **1 passed**; forward inference only, no optimizer/training update |
+| Three PR9 Pilot test files | **84 passed**, including **55 new cases** |
+| CPU Nano end-to-end and all Resume tests | **8 passed** |
+| Both smoke commands | PASS, exit 0 |
+| `python scripts/check_training_reliability.py` (separate output) | PASS, exit 0; existing exact parameter/optimizer/RNG/LR checks retained |
+| Real Pilot preflight | `BLOCKED_DATA_NOT_READY`, `training=NOT_RUN`, expected exit 1 |
+
+The full suite includes the unchanged PR8 freeze/audit and fixed Split output
+hash regressions; no fixed hash assertion was removed or lowered. Logs and CPU
+artifacts are in `reports/pr9-p1-policy-budget/`: `pytest-final.log`,
+`regression-verified.log`, `cpu-nano.log`, `cuda-inference-equivalence.log`,
+`smoke.log`, `smoke-synthetic.log`, `reliability.log`, `preflight.log`.
+All training/recovery regressions and smoke runs used explicit CPU isolation.
+There was no real 87M GPU pilot, 100M run, new 87M GPU workload proof or fabricated GPU
+Loss/PPL/peak-memory measurement, and no historical output directory was reused.
+
+No new P0/P1/P2 defect was identified in this repair. The existing missing
+approved data/tokenizer and GPU-acceptance blockers, LSH probability limits and
+local-checksum trust boundary remain unchanged.
