@@ -1,0 +1,476 @@
+{
+  "corpus": {
+    "category_counts": {
+      "en_general": 100,
+      "math_logic_code": 100,
+      "zh_education": 150,
+      "zh_encyclopedic": 250,
+      "zh_general": 400
+    },
+    "directory": "/home/voyah/work_space/git_ws/min_llm/reports/pr10-benchmark-verified-input",
+    "documents": 1000,
+    "exact_duplicate_events": 32,
+    "family_groups": 334,
+    "files": {
+      "bench-en-general": {
+        "bytes": 73960,
+        "path": "en-general.jsonl",
+        "sha256": "f8f587db67f970d19538a689e2b52409718792725236cb7e1d093e2c72209f1d"
+      },
+      "bench-math-code": {
+        "bytes": 72849,
+        "path": "math-code.jsonl",
+        "sha256": "22af2d96ab76d4a8058a6e22211a3fca3bcfc609d043ae2950eebb5fd21d042d"
+      },
+      "bench-zh-education": {
+        "bytes": 111930,
+        "path": "zh-education.jsonl",
+        "sha256": "4d6fe8c8ef77e8c7853b004f9728e844304d1b851cf922d97f3db0dcea77b6eb"
+      },
+      "bench-zh-encyclopedic": {
+        "bytes": 185820,
+        "path": "zh-encyclopedic.jsonl",
+        "sha256": "6284701e0d703985779e45424321c7eb8d1fe2d7c802e7f48f100d3c138bb80c"
+      },
+      "bench-zh-general": {
+        "bytes": 302000,
+        "path": "zh-general.jsonl",
+        "sha256": "9ae4d1a775eb7f720884cff2126695dde650122027799e59bc03339799632d81"
+      }
+    },
+    "generator": "corpus_benchmark.generate_synthetic_corpus",
+    "input_sha256": "70d3fe0a6d3622ae27b392794936d3b92e30a7bfe6ef228524ee45503b156097",
+    "manifest": "sources.json",
+    "manifest_sha256": "6e6feb92450283a4039196a2c9a06421913367dbb501baea4c6c4d89edeed9aa",
+    "near_duplicate_events": 21,
+    "schema_version": 1,
+    "seed": 42,
+    "source_counts": {
+      "bench-en-general": 100,
+      "bench-math-code": 100,
+      "bench-zh-education": 150,
+      "bench-zh-encyclopedic": 250,
+      "bench-zh-general": 400
+    }
+  },
+  "environment": {
+    "config_sha256": "592fd92326267e861f02112b526293443c393de339d095c4218be4274be84243",
+    "cpu_count": 16,
+    "gpu": "not used",
+    "network": "not used",
+    "platform": "Linux-6.8.0-149-generic-x86_64-with-glibc2.35",
+    "python": "3.11.17",
+    "sqlite": "3.53.1"
+  },
+  "generated_at": "2026-11-17T14:26:33+0800",
+  "limitations": "Synthetic corpus, CPU only, no tokenizer/model training. Peak RSS includes the whole Python process and is not a per-stage allocation measurement. Temp high-water is sampled at 0.25s intervals and can miss a shorter spike.",
+  "metrics": {
+    "deleted_documents": 53,
+    "group_count": 365,
+    "leakage": {
+      "exact_normalized": {
+        "train/test": 0,
+        "train/val": 0,
+        "val/test": 0
+      },
+      "exact_raw": {
+        "train/test": 0,
+        "train/val": 0,
+        "val/test": 0
+      },
+      "family_cluster_violations": 0,
+      "near_duplicate": {
+        "candidate_comparisons": 60,
+        "candidate_queries": 57,
+        "candidate_truncations": 0,
+        "hits": 0,
+        "max_similarity": 0.052109,
+        "method": "MinHash LSH candidates for train/val/test pairs; exact Jaccard confirmation",
+        "status": "CHECKED",
+        "threshold": 0.85,
+        "truncated_chunks": 0
+      },
+      "scope": "group isolation is enforced; exact raw/normalized hashes are recomputed across splits"
+    },
+    "not_run": [],
+    "output_bytes": 25065738,
+    "output_payload_bytes": 25040253,
+    "peak_rss_bytes": 538161152,
+    "retained_documents": 947,
+    "sqlite_bytes": 23285760,
+    "sqlite_files": {
+      "deduplicated.sqlite": 17506304,
+      "ingested.sqlite": 1470464,
+      "reviewed.sqlite": 4308992
+    },
+    "stage_seconds": {
+      "dedup": 4.353751,
+      "ingest": 0.173189,
+      "quality": 1.558847,
+      "split": 3.124368
+    },
+    "stage_stats": {
+      "dedup": {
+        "chars": {
+          "after": 258823,
+          "before": 272299
+        },
+        "clusters": {
+          "deleted_documents": 53,
+          "size_histogram": {
+            "1": 895,
+            "2": 52
+          },
+          "total": 947
+        },
+        "determinism": "documents ordered by id; representatives by (-priority, source_id, document_id); union roots canonicalised by member set",
+        "documents": 947,
+        "exact": {
+          "duplicates": 32,
+          "enabled": true,
+          "groups": 32,
+          "method": "normalized text SHA256"
+        },
+        "limitations": "Near-duplicate similarity is exact Jaccard on shingles for retrieved candidates; LSH can miss candidates below the documented probability curve.",
+        "near": {
+          "bands": 32,
+          "buckets": 29440,
+          "candidate_comparisons": 856,
+          "candidate_probability_at_0.5": 0.873211,
+          "candidate_probability_at_threshold": 0.999999999945,
+          "candidate_queries": 0,
+          "candidate_truncated": false,
+          "candidate_truncations": 0,
+          "chunks": 920,
+          "clusters": 21,
+          "duplicates": 21,
+          "enabled": true,
+          "max_candidates_observed": 29,
+          "method": "one-permutation-minhash+lsh+exact-jaccard",
+          "rows": 4,
+          "signature_estimated_comparisons": 0,
+          "threshold": 0.85,
+          "truncated_chunks": 0
+        },
+        "near_policy_sha256": "e808298c55b923e323f04e40327b5c95033f318455c62d55957713e255ed88ec",
+        "policy": {
+          "bands": 32,
+          "chunk_chars": 20000,
+          "code_ngram": 8,
+          "en_ngram": 3,
+          "include_code": false,
+          "max_candidates_per_chunk": 512,
+          "max_shingles_per_chunk": 20000,
+          "method": "minhash_lsh",
+          "num_bins": 128,
+          "rows": 4,
+          "seed": 42,
+          "threshold": 0.85,
+          "zh_ngram": 5
+        },
+        "policy_sha256": "e2bdc0a91d7302bdb417498fd6a1a9944908863b37714bf257b41c4e9c09a95e",
+        "relations": {
+          "exact": 32,
+          "near": 21,
+          "rejected": 0,
+          "review_held": 0
+        },
+        "schema_version": 1,
+        "tokens_estimated": {
+          "after": 119806,
+          "basis": "chars_per_token budget estimate before tokenizer selection",
+          "before": 126495,
+          "deleted": 6689
+        }
+      },
+      "ingest": {
+        "by_source_reason": [
+          {
+            "n": 100,
+            "reason": "accepted_unique",
+            "source_id": "bench-en-general"
+          },
+          {
+            "n": 100,
+            "reason": "records_seen",
+            "source_id": "bench-en-general"
+          },
+          {
+            "n": 100,
+            "reason": "accepted_unique",
+            "source_id": "bench-math-code"
+          },
+          {
+            "n": 100,
+            "reason": "records_seen",
+            "source_id": "bench-math-code"
+          },
+          {
+            "n": 150,
+            "reason": "accepted_unique",
+            "source_id": "bench-zh-education"
+          },
+          {
+            "n": 150,
+            "reason": "records_seen",
+            "source_id": "bench-zh-education"
+          },
+          {
+            "n": 250,
+            "reason": "accepted_unique",
+            "source_id": "bench-zh-encyclopedic"
+          },
+          {
+            "n": 250,
+            "reason": "records_seen",
+            "source_id": "bench-zh-encyclopedic"
+          },
+          {
+            "n": 400,
+            "reason": "accepted_unique",
+            "source_id": "bench-zh-general"
+          },
+          {
+            "n": 400,
+            "reason": "records_seen",
+            "source_id": "bench-zh-general"
+          }
+        ],
+        "documents": 1000,
+        "records_seen": 1000
+      },
+      "quality": {
+        "by_source": {
+          "bench-en-general": {
+            "category_distribution": {
+              "en_general": 100
+            },
+            "document_ratio": 0.1,
+            "documents": 100,
+            "kept": 100,
+            "language_distribution": {
+              "en": 100
+            },
+            "normalized_bytes": 61390,
+            "normalized_character_ratio": 0.22545069941498133,
+            "normalized_characters": 61390,
+            "raw_bytes": 61390,
+            "raw_character_ratio": 0.22540930937877504,
+            "raw_characters": 61390,
+            "reject_ratio": 0.0,
+            "rejected": 0,
+            "review": 0,
+            "review_ratio": 0.0,
+            "token_basis": "not estimated before tokenizer selection; see tokenization-report.json",
+            "token_ratio": null,
+            "tokens": null,
+            "top_reasons": []
+          },
+          "bench-math-code": {
+            "category_distribution": {
+              "math_logic_code": 100
+            },
+            "document_ratio": 0.1,
+            "documents": 100,
+            "kept": 100,
+            "language_distribution": {
+              "code": 50,
+              "zh": 50
+            },
+            "normalized_bytes": 59629,
+            "normalized_character_ratio": 0.14406589814872622,
+            "normalized_characters": 39229,
+            "raw_bytes": 59679,
+            "raw_character_ratio": 0.14422303735280834,
+            "raw_characters": 39279,
+            "reject_ratio": 0.0,
+            "rejected": 0,
+            "review": 0,
+            "review_ratio": 0.0,
+            "token_basis": "not estimated before tokenizer selection; see tokenization-report.json",
+            "token_ratio": null,
+            "tokens": null,
+            "top_reasons": []
+          },
+          "bench-zh-education": {
+            "category_distribution": {
+              "zh_education": 150
+            },
+            "document_ratio": 0.15,
+            "documents": 150,
+            "kept": 150,
+            "language_distribution": {
+              "zh": 150
+            },
+            "normalized_bytes": 93075,
+            "normalized_character_ratio": 0.11757296207477809,
+            "normalized_characters": 32015,
+            "raw_bytes": 93075,
+            "raw_character_ratio": 0.11755137709336183,
+            "raw_characters": 32015,
+            "reject_ratio": 0.0,
+            "rejected": 0,
+            "review": 0,
+            "review_ratio": 0.0,
+            "token_basis": "not estimated before tokenizer selection; see tokenization-report.json",
+            "token_ratio": null,
+            "tokens": null,
+            "top_reasons": []
+          },
+          "bench-zh-encyclopedic": {
+            "category_distribution": {
+              "zh_encyclopedic": 250
+            },
+            "document_ratio": 0.25,
+            "documents": 250,
+            "kept": 250,
+            "language_distribution": {
+              "zh": 250
+            },
+            "normalized_bytes": 154395,
+            "normalized_character_ratio": 0.19506131127914536,
+            "normalized_characters": 53115,
+            "raw_bytes": 154395,
+            "raw_character_ratio": 0.1950255003690118,
+            "raw_characters": 53115,
+            "reject_ratio": 0.0,
+            "rejected": 0,
+            "review": 0,
+            "review_ratio": 0.0,
+            "token_basis": "not estimated before tokenizer selection; see tokenization-report.json",
+            "token_ratio": null,
+            "tokens": null,
+            "top_reasons": []
+          },
+          "bench-zh-general": {
+            "category_distribution": {
+              "zh_general": 400
+            },
+            "document_ratio": 0.4,
+            "documents": 400,
+            "kept": 400,
+            "language_distribution": {
+              "zh": 400
+            },
+            "normalized_bytes": 251750,
+            "normalized_character_ratio": 0.317849129082369,
+            "normalized_characters": 86550,
+            "raw_bytes": 251750,
+            "raw_character_ratio": 0.317790775806043,
+            "raw_characters": 86550,
+            "reject_ratio": 0.0,
+            "rejected": 0,
+            "review": 0,
+            "review_ratio": 0.0,
+            "token_basis": "not estimated before tokenizer selection; see tokenization-report.json",
+            "token_ratio": null,
+            "tokens": null,
+            "top_reasons": []
+          }
+        },
+        "documents": 1000,
+        "kept": 1000,
+        "normalized_bytes": 620239,
+        "raw_bytes": 620289,
+        "rejected": 0,
+        "review": 0,
+        "rules_version": "corpus-quality-v4.1"
+      },
+      "split": {
+        "documents": 947,
+        "groups": 365,
+        "leakage": {
+          "exact_normalized": {
+            "train/test": 0,
+            "train/val": 0,
+            "val/test": 0
+          },
+          "exact_raw": {
+            "train/test": 0,
+            "train/val": 0,
+            "val/test": 0
+          },
+          "family_cluster_violations": 0,
+          "near_duplicate": {
+            "candidate_comparisons": 60,
+            "candidate_queries": 57,
+            "candidate_truncations": 0,
+            "hits": 0,
+            "max_similarity": 0.052109,
+            "method": "MinHash LSH candidates for train/val/test pairs; exact Jaccard confirmation",
+            "status": "CHECKED",
+            "threshold": 0.85,
+            "truncated_chunks": 0
+          },
+          "scope": "group isolation is enforced; exact raw/normalized hashes are recomputed across splits"
+        },
+        "split_manifest_sha256": "1f3aa679ff086b93bf47b15b5544873ba91b1f5dbdec2ff2813ca362cccbbe76",
+        "splits": {
+          "test": {
+            "by_category": {
+              "zh_education": 6,
+              "zh_encyclopedic": 5,
+              "zh_general": 9
+            },
+            "by_language": {
+              "zh": 20
+            },
+            "characters": 4282,
+            "documents": 20,
+            "groups": 7
+          },
+          "train": {
+            "by_category": {
+              "en_general": 94,
+              "math_logic_code": 96,
+              "zh_education": 126,
+              "zh_encyclopedic": 227,
+              "zh_general": 367
+            },
+            "by_language": {
+              "code": 48,
+              "en": 94,
+              "zh": 768
+            },
+            "characters": 249717,
+            "documents": 910,
+            "groups": 351
+          },
+          "val": {
+            "by_category": {
+              "en_general": 3,
+              "zh_education": 9,
+              "zh_encyclopedic": 3,
+              "zh_general": 2
+            },
+            "by_language": {
+              "en": 3,
+              "zh": 14
+            },
+            "characters": 4824,
+            "documents": 17,
+            "groups": 7
+          }
+        }
+      }
+    },
+    "temp_peak_bytes": 17506304,
+    "total_seconds": 9.220087
+  },
+  "parameters": {
+    "config": "/home/voyah/work_space/git_ws/min_llm/configs/corpus_v4.yaml",
+    "documents": 1000,
+    "input_dir": "/home/voyah/work_space/git_ws/min_llm/reports/pr10-benchmark-verified-input",
+    "out": "/home/voyah/work_space/git_ws/min_llm/reports/pr10-benchmark-verified",
+    "requested_stages": [
+      "ingest",
+      "quality",
+      "dedup",
+      "split"
+    ],
+    "seed": 42
+  },
+  "schema_version": 1,
+  "status": "COMPLETED",
+  "summary_path": "reports/pr10-benchmark-verified/benchmark-summary.md"
+}

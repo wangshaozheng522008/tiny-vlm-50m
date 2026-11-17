@@ -1,0 +1,16 @@
+{"id": "words", "category": "zh_prose", "text": "常用词语：今天、学习、朋友、工作、自然、家庭。"}
+{"id": "sentence", "category": "zh_prose", "text": "清晨的街道逐渐热闹起来，沿河散步的人们停下脚步，观察桥下缓慢流动的河水，并讨论下一次出行的安排。"}
+{"id": "punctuation", "category": "zh_prose", "text": "他说：“可以吗？”她答：可以！括号（补充）；破折号——以及省略号……"}
+{"id": "dates", "category": "zh_education", "text": "日期为2026年11月17日，质量2.5千克，距离300米，温度18摄氏度。"}
+{"id": "mixed", "category": "zh_prose", "text": "使用 Python 读取 UTF-8 文件，在 CPU 上检查 SHA256，再输出 JSON 报告。"}
+{"id": "entities", "category": "zh_knowledge", "text": "专有名词：长江、珠穆朗玛峰、北京大学、阿基米德、联合国。"}
+{"id": "geography", "category": "zh_knowledge", "text": "地理与国家：河流从高处流向低处，地图使用比例尺表示实际距离。", "topic": "geography_country"}
+{"id": "history", "category": "zh_knowledge", "text": "历史研究需要比较不同年代的史料，并区分事件发生时间和记录形成时间。", "topic": "history"}
+{"id": "science", "category": "zh_knowledge", "text": "基础科学：水蒸发会吸收热量；植物利用光能，将二氧化碳和水转化为有机物。", "topic": "basic_science"}
+{"id": "life", "category": "zh_knowledge", "text": "生活常识：保存食物时需要考虑温度与清洁，过马路应观察交通信号。", "topic": "daily_life"}
+{"id": "logic", "category": "math", "text": "数学与逻辑：若 A 大于 B 且 B 大于 C，则 A 大于 C；x² + y² = r²。", "topic": "math_logic"}
+{"id": "tech", "category": "zh_knowledge", "text": "技术知识：计算机使用二进制表示信息，网络协议约定发送与接收数据的方式。", "topic": "technology"}
+{"id": "english", "category": "en", "text": "A careful reader compares evidence before drawing a conclusion."}
+{"id": "python", "category": "python", "text": "def total(values):\n    return sum(x * x for x in values)\n"}
+{"id": "cpp", "category": "cpp", "text": "#include <vector>\nint main() { std::vector<int> xs{1, 2, 3}; return xs[0]; }\n"}
+{"id": "unicode", "category": "special", "text": "全角ＡＢＣ１２３　emoji🙂 组合é ∑√∞→ αβγ © ™ \t\n终。"}

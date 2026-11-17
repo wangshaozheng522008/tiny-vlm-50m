@@ -1,0 +1,149 @@
+{
+  "schema_version": 1,
+  "review_baseline": "e3bf50e25cb9a3fdedb19836e4458c4f69b67d76",
+  "implementation_sha256": "7add92b324ef2cd06e02cedd9fcb61d0b60d51537f52c95158858b76cd5a8a91",
+  "states": {
+    "code": "CODE_READY",
+    "data": "DATA_NOT_READY",
+    "tokenizer": "TOKENIZER_NOT_FINALIZED",
+    "pilot": "PILOT_DATA_NOT_READY",
+    "formal": "FORMAL_CORPUS_NOT_READY"
+  },
+  "real_source_approvals_unchanged": true,
+  "real_source_counts": {
+    "APPROVED": 0,
+    "REVIEW_REQUIRED": 7,
+    "REJECTED": 0
+  },
+  "source_review_protocol": 2,
+  "new_regression_cases": 107,
+  "checks": {
+    "full_pytest": {
+      "status": "PASS",
+      "passed": 822,
+      "skipped": 1,
+      "seconds": 348.27
+    },
+    "focused_regressions": {
+      "status": "PASS",
+      "passed": 215,
+      "skipped": 0,
+      "seconds": 65.84
+    },
+    "smoke": {
+      "status": "PASS",
+      "device": "cpu"
+    },
+    "synthetic_smoke": {
+      "status": "PASS",
+      "device": "cpu"
+    },
+    "training_reliability": {
+      "status": "PASS",
+      "scope": "CPU Nano synthetic fixture, not official GPU pilot",
+      "result": {
+        "continuous": {
+          "steps": 7,
+          "epoch": 3,
+          "micro_batches_consumed_in_epoch": 4,
+          "samples_seen": 41,
+          "tokens_seen": 451
+        },
+        "two_resumes": {
+          "steps": 7,
+          "epoch": 3,
+          "micro_batches_consumed_in_epoch": 4,
+          "samples_seen": 41,
+          "tokens_seen": 451
+        },
+        "interruptions_and_final": [
+          {
+            "steps": 1,
+            "epoch": 0,
+            "micro_batches_consumed_in_epoch": 4
+          },
+          {
+            "steps": 2,
+            "epoch": 1,
+            "micro_batches_consumed_in_epoch": 0
+          },
+          {
+            "steps": 7,
+            "epoch": 3,
+            "micro_batches_consumed_in_epoch": 4
+          }
+        ],
+        "max_parameter_difference": 0.0,
+        "sample_order_equal": true,
+        "rng_equal": true,
+        "lr_equal": true,
+        "optimizer_state_equal": true,
+        "rng_state_equal": true,
+        "optimizer_max_difference": 0.0,
+        "seed": 17,
+        "updates_per_epoch": 2,
+        "target_updates": 7,
+        "backup_recovery_step": 6
+      }
+    },
+    "formal_status": {
+      "status": "NOT_READY",
+      "blockers": [
+        "NO_ADMISSIBLE_SOURCES",
+        "NO_APPROVED_SOURCES"
+      ]
+    },
+    "pilot_status": {
+      "status": "NOT_READY",
+      "blockers": [
+        "NO_ADMISSIBLE_SOURCES",
+        "NO_APPROVED_SOURCES"
+      ]
+    },
+    "pr9_real_preflight": {
+      "status": "BLOCKED_DATA_NOT_READY",
+      "training_status": "NOT_RUN",
+      "scope": "87M_GPU_PILOT"
+    },
+    "tokenizer_readiness": {
+      "status": "NOT_ASSESSED",
+      "tokenizer_status": "TOKENIZER_NOT_FINALIZED",
+      "human_decision": "NOT_RECORDED"
+    }
+  },
+  "storage_comparison": {
+    "documents": 256,
+    "new_metadata_bytes": 142080,
+    "new_sqlite_bytes": 397312,
+    "old_metadata_bytes": 3489536,
+    "old_sqlite_bytes": 3710976,
+    "scope": "synthetic metadata layout comparison; no real source approval",
+    "source_files": 64,
+    "metadata_reduction_fraction": 0.9592839850341134,
+    "sqlite_reduction_fraction": 0.8929359823399559
+  },
+  "approved_content_policies": {
+    "configs/corpus_v4.yaml": {
+      "unchanged": true,
+      "policy_sha256": "d39528603f73057c5240974c02a546271a86cf72ec40071d2e5af8b78800da51"
+    },
+    "configs/corpus_v4_pilot_1m.yaml": {
+      "unchanged": true,
+      "policy_sha256": "fd8e1a6384b2ea050e38c877839b1eaa4243c2fe0999f0b684a17feb5248a3f4"
+    }
+  },
+  "resolved": [
+    "P1 inline source review bypass",
+    "P1 placeholder/reference validation",
+    "P2 duplicated per-document source inventory"
+  ],
+  "not_run": [
+    "real_GPU_training",
+    "formal_tokenizer_training",
+    "100k_document_benchmark",
+    "1m_document_benchmark",
+    "100M_training"
+  ],
+  "source_review_registry_identity": "6f1c69a8eea7f8954f3856d1687d64f10770f981656c32c8e468df5cf3710723",
+  "source_review_registry_file_sha256": "d4a803045527487235f959b840cab12e7b7b0c65088cd65da8630c41bf0e4e99"
+}

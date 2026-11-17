@@ -80,6 +80,10 @@ def validate_eval_texts(rows: list[dict]) -> list[dict]:
         seen.add(row["id"])
         result.append({"id": row["id"], "category": row["category"],
                        "text_category": text_category, "text": row["text"]})
+        if "topic" in row:
+            if row["topic"] not in {"geography_country", "history", "basic_science", "daily_life", "math_logic", "technology"}:
+                raise ValueError("invalid tokenizer knowledge topic")
+            result[-1]["topic"] = row["topic"]
     if not result:
         raise ValueError("empty tokenizer evaluation text set")
     return result
@@ -240,9 +244,9 @@ def guard_train_only(train_path: str | Path, split_manifest_path: str | Path) ->
     if not entry or file_info(train_path) != entry:
         raise ValueError("train split does not match the split manifest hash")
     for name in ("val.text.jsonl", "test.text.jsonl"):
-        if name in files and (train_path.parent / name).exists():
-            if file_info(train_path.parent / name) != files[name]:
-                raise ValueError(f"held-out split {name} was modified; refusing tokenizer fitting")
+        if (name not in files or not (train_path.parent / name).is_file()
+                or file_info(train_path.parent / name) != files[name]):
+            raise ValueError(f"held-out split {name} was modified or missing; refusing tokenizer fitting")
     return manifest
 
 
@@ -252,48 +256,74 @@ def train_candidate(selection: dict, train_path: Path, *, name: str, vocab_size:
     directory = Path(out_root) / name
     if directory.exists() and any(directory.iterdir()):
         raise ValueError(f"refusing to overwrite tokenizer candidate: {directory}")
-    directory.mkdir(parents=True, exist_ok=True)
-    started = time.monotonic()
-    texts = iter_selected_texts(selection, train_path, text_policy=text_policy)
-    tokenizer = MiniLLMTokenizer.train(texts, vocab_size=vocab_size)
-    tokenizer.text_policy = text_policy
-    target = directory / "tokenizer.json"
-    atomic_write(target, lambda handle: handle.write(tokenizer._tok.to_str().encode("utf-8")))
-    elapsed = time.monotonic() - started
-    metadata = {
-        "schema_version": CANDIDATE_SCHEMA_VERSION, "name": name,
-        "vocab_size": tokenizer.vocab_size, "fingerprint": tokenizer.fingerprint,
-        "special_token_ids": tokenizer.special_ids, "text_policy": text_policy,
-        "train_split_sha256": sha256(train_path), "split_manifest_sha256": split_manifest_sha256,
-        "training_selection": {key: selection[key] for key in (
-            "seed", "max_chars", "category_weights", "category_budgets",
-            "selected_documents", "selected_chars", "selected_by_category")},
-        "training_corpus_sha256": selection_digest(selection, train_path, text_policy=text_policy),
-        "tokenizers_version": importlib.metadata.version("tokenizers"),
-        "unicode_version": unicodedata.unidata_version,
-        "demo_only": bool(demo), "seconds": round(elapsed, 3),
-        "selection_deterministic": True,
-    }
-    from .corpus_utils import write_json
-    write_json(directory / "candidate.json", metadata)
-    metadata["files"] = {path.name: file_info(path) for path in sorted(directory.iterdir()) if path.is_file()}
-    metadata["content_id"] = identity({key: metadata[key] for key in (
+    from .assessment_io import report_directory
+    final_directory = directory
+    with report_directory(final_directory) as directory:
+        started = time.monotonic()
+        texts = iter_selected_texts(selection, train_path, text_policy=text_policy)
+        try:
+            tokenizer = MiniLLMTokenizer.train(texts, vocab_size=vocab_size)
+        except RuntimeError as exc:
+            raise ValueError(f"TOKENIZER_TRAINING_BLOCKED: {exc}") from exc
+        tokenizer.text_policy = text_policy
+        target = directory / "tokenizer.json"
+        atomic_write(target, lambda handle: handle.write(tokenizer._tok.to_str().encode("utf-8")))
+        elapsed = time.monotonic() - started
+        metadata = {
+            "schema_version": CANDIDATE_SCHEMA_VERSION, "name": name,
+            "vocab_size": tokenizer.vocab_size, "fingerprint": tokenizer.fingerprint,
+            "special_token_ids": tokenizer.special_ids, "text_policy": text_policy,
+            "train_split_sha256": sha256(train_path), "split_manifest_sha256": split_manifest_sha256,
+            "training_selection": {key: selection[key] for key in (
+                "seed", "max_chars", "category_weights", "category_budgets",
+                "selected_documents", "selected_chars", "selected_by_category")},
+            "training_corpus_sha256": selection_digest(selection, train_path, text_policy=text_policy),
+            "tokenizers_version": importlib.metadata.version("tokenizers"),
+            "unicode_version": unicodedata.unidata_version,
+            "demo_only": bool(demo), "seconds": round(elapsed, 3),
+            "selection_deterministic": True,
+        }
+        from .corpus_utils import write_json
+        write_json(directory / "candidate.json", metadata)
+        metadata["files"] = {path.name: file_info(path) for path in sorted(directory.iterdir()) if path.is_file()}
+        metadata["content_id"] = identity({key: metadata[key] for key in (
+            "name", "vocab_size", "fingerprint", "text_policy", "train_split_sha256",
+            "split_manifest_sha256", "training_corpus_sha256", "tokenizers_version")})
+        write_json(directory / "candidate-manifest.json", metadata)
+    return candidate_record(final_directory)
+
+
+def candidate_record(directory: Path) -> dict:
+    """Verify a published candidate before reuse, evaluation or human selection."""
+    from .corpus_utils import verify_file
+    directory = Path(directory)
+    metadata = json.loads((directory / "candidate-manifest.json").read_text(encoding="utf-8"))
+    for name in ("tokenizer.json", "candidate.json"):
+        verify_file(directory / name, metadata["files"][name])
+    candidate = json.loads((directory / "candidate.json").read_text(encoding="utf-8"))
+    if any(metadata.get(k) != v for k, v in candidate.items()):
+        raise ValueError("candidate metadata/manifest mismatch")
+    tokenizer = MiniLLMTokenizer.load(directory / "tokenizer.json")
+    if (tokenizer.fingerprint != metadata["fingerprint"] or tokenizer.vocab_size != metadata["vocab_size"]
+            or tokenizer.special_ids != metadata["special_token_ids"]):
+        raise ValueError("candidate fingerprint/vocabulary/special token mismatch")
+    expected = identity({key: metadata[key] for key in (
         "name", "vocab_size", "fingerprint", "text_policy", "train_split_sha256",
         "split_manifest_sha256", "training_corpus_sha256", "tokenizers_version")})
-    write_json(directory / "candidate-manifest.json", metadata)
-    return {"name": name, "vocab_size": tokenizer.vocab_size,
-            "fingerprint": tokenizer.fingerprint, "path": str(target.resolve()),
-            "directory": str(directory.resolve()), "metadata": metadata,
-            "files": metadata["files"]}
+    if expected != metadata["content_id"]:
+        raise ValueError("candidate content identity mismatch")
+    return {"name": metadata["name"], "vocab_size": metadata["vocab_size"],
+            "fingerprint": metadata["fingerprint"], "path": str((directory / "tokenizer.json").resolve()),
+            "directory": str(directory.resolve()), "metadata": metadata, "files": metadata["files"]}
 
 
 def _percentiles(values: list[int]) -> dict:
     if not values:
-        return {"p10": 0, "p50": 0, "p90": 0, "mean": 0.0}
+        return {"p10": 0, "p50": 0, "p90": 0, "p99": 0, "mean": 0.0}
     ordered = sorted(values)
     def at(fraction):
         return ordered[min(len(ordered) - 1, int(fraction * (len(ordered) - 1) + 0.5))]
-    return {"p10": at(0.1), "p50": at(0.5), "p90": at(0.9),
+    return {"p10": at(0.1), "p50": at(0.5), "p90": at(0.9), "p99": at(0.99),
             "mean": round(statistics.fmean(values), 3)}
 
 
@@ -301,6 +331,7 @@ def evaluate_tokenizer(tokenizer: MiniLLMTokenizer, texts: list[dict]) -> dict:
     """Measure a tokenizer on fixed, evaluation-only text."""
     categories: dict[str, dict] = {}
     token_lengths: dict[str, list[int]] = {}
+    examples = []
     roundtrip_failures, boundary_failures = [], []
     for row in texts:
         category, text = row["category"], row["text"]
@@ -320,6 +351,10 @@ def evaluate_tokenizer(tokenizer: MiniLLMTokenizer, texts: list[dict]) -> dict:
         bucket["tokens"] += len(ids)
         bucket["words"] += max(1, len(text.split()))
         token_lengths.setdefault(category, []).append(len(ids))
+        examples.append({"id": row["id"], "category": category, "topic": row.get("topic"),
+                         "characters": len(text), "tokens": len(ids), "document_tokens": len(document_ids),
+                         "roundtrip_ok": row["id"] not in roundtrip_failures,
+                         "eos_ok": row["id"] not in boundary_failures})
     for category, bucket in categories.items():
         bucket["characters_per_token"] = bucket["characters"] / max(bucket["tokens"], 1)
         bucket["tokens_per_character"] = bucket["tokens"] / max(bucket["characters"], 1)
@@ -335,15 +370,29 @@ def evaluate_tokenizer(tokenizer: MiniLLMTokenizer, texts: list[dict]) -> dict:
                       if category in ("python", "cpp"))
     code_chars = sum(bucket["characters"] for category, bucket in categories.items()
                      if category in ("python", "cpp"))
+    topics = {}
+    for topic in sorted({e["topic"] for e in examples if e["topic"]}):
+        rows = [e for e in examples if e["topic"] == topic]
+        chars, tokens = sum(e["characters"] for e in rows), sum(e["tokens"] for e in rows)
+        topics[topic] = {"documents": len(rows), "characters": chars, "tokens": tokens,
+                         "characters_per_token": chars / max(tokens, 1),
+                         "tokens_per_character": tokens / max(chars, 1),
+                         "token_length_distribution": _percentiles([e["tokens"] for e in rows]),
+                         "roundtrip_ok": all(e["roundtrip_ok"] for e in rows),
+                         "document_boundary_ok": all(e["eos_ok"] for e in rows)}
     return {
         "vocab_size": tokenizer.vocab_size, "fingerprint": tokenizer.fingerprint,
         "text_policy": tokenizer.text_policy,
         "categories": categories,
+        "knowledge_topics": topics,
+        "examples": examples,
+        "character_unit": "Unicode code points in each text category, including punctuation; not a knowledge score",
         "zh": {"characters": zh_chars, "tokens": zh_tokens,
                "characters_per_token": zh_chars / max(zh_tokens, 1),
                "tokens_per_character": zh_tokens / max(zh_chars, 1),
                "characters_per_1024_tokens": 1024 * zh_chars / max(zh_tokens, 1)},
         "code": {"characters": code_chars, "tokens": code_tokens,
+                 "tokens_per_character": code_tokens / max(code_chars, 1),
                  "characters_per_token": code_chars / max(code_tokens, 1),
                  "tokens_per_document": code_tokens / max(
                      sum(b["documents"] for c, b in categories.items() if c in ("python", "cpp")), 1)},
@@ -352,6 +401,9 @@ def evaluate_tokenizer(tokenizer: MiniLLMTokenizer, texts: list[dict]) -> dict:
         "document_boundary_ok": not boundary_failures,
         "document_boundary_failures": boundary_failures,
         "special_token_ids": tokenizer.special_ids,
+        "overall_token_length_distribution": _percentiles([v for lengths in token_lengths.values() for v in lengths]),
+        "mean_tokens_per_document": sum(b["tokens"] for b in categories.values()) / max(len(texts), 1),
+        "special_character_overhead": categories.get("special", {}),
     }
 
 
@@ -372,6 +424,10 @@ def compare_candidates(candidates: list[dict], texts: list[dict], *,
     results = {}
     loaded = {}
     for candidate in candidates:
+        if "directory" in candidate:
+            verified = candidate_record(Path(candidate["directory"]))
+            if candidate != verified:
+                raise ValueError("candidate differs from immutable training evidence")
         tokenizer = MiniLLMTokenizer.load(candidate["path"])
         tokenizer.text_policy = validate_policy(text_policy)
         loaded[candidate["name"]] = tokenizer
@@ -408,9 +464,14 @@ def compare_candidates(candidates: list[dict], texts: list[dict], *,
                                                     baseline["code"]["characters_per_token"]),
                 "vocab_size": _delta(result["vocab_size"], baseline["vocab_size"]),
             }
+            for field in ("categories", "knowledge_topics"):
+                row["relative_to_baseline"][field] = {category: {
+                    metric: _delta(values[metric], baseline[field][category][metric])
+                    for metric in ("characters_per_token", "tokens_per_character")}
+                    for category, values in result[field].items() if category in baseline[field]}
         comparisons[name] = row
     recommendation = _selection_hint(comparisons, config)
-    return {"schema_version": 1, "status": "COMPARED",
+    return {"schema_version": 2, "status": "COMPARED",
             "fixed_texts": {"documents": len(texts),
                             "categories": sorted({row["category"] for row in texts}),
                             "sha256": identity(texts)},
@@ -472,6 +533,13 @@ def parameter_budget(vocab_sizes: list[int], *, base_config: MiniLLMConfig | Non
         lm_head_extra = 0 if cfg.tie_word_embeddings else embedding
         total = breakdown["total"] + lm_head_extra
         weight_bytes = total * 4
+        # Exact tensor payload for the existing group-128 format; serialization
+        # metadata is not measured here. Norms remain fp16 and the head is tied.
+        from .quantize import effective_group
+        h, kv, f, layers = cfg.hidden_size, cfg.num_key_value_heads * cfg.head_dim, cfg.intermediate_size, cfg.num_hidden_layers
+        matrices = [(vocab, h)] + [(h, h), (kv, h), (kv, h), (h, h), (f, h), (f, h), (h, f)] * layers
+        quantized = sum(r * c // 2 + r * (c // effective_group(c, 128)) * 2 for r, c in matrices)
+        norms = (2 * layers + 1) * h * 2
         grad_bytes = total * 4
         adamw_bytes = total * 8
         optimizer_total = weight_bytes + grad_bytes + adamw_bytes
@@ -490,6 +558,9 @@ def parameter_budget(vocab_sizes: list[int], *, base_config: MiniLLMConfig | Non
             "delta_vs_87m_reference": total - 87_000_000,
             "exceeds_87m_reference": total > 87_000_000,
             "fp32_weight_bytes": weight_bytes,
+            "int4_tensor_payload_bytes_estimated": quantized + norms,
+            "int4_serialized_bytes": None,
+            "int4_under_50m_tensor_payload": quantized + norms < 50_000_000,
             "fp32_weight_mib": weight_bytes / 1024 ** 2,
             "adamw_state_bytes": adamw_bytes,
             "gradient_bytes": grad_bytes,

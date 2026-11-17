@@ -1,0 +1,293 @@
+{
+  "schema_version": 1,
+  "approval_authority": "v4_source fields; human decisions only. Candidate references do not constitute approval.",
+  "sources": [
+    {
+      "publisher": "Wikimedia contributors; individual copyright holders vary",
+      "release": "NOT_PINNED",
+      "license_references": [
+        {
+          "uri": "https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use",
+          "verification": "public terms reference read; dataset/release NOT verified"
+        }
+      ],
+      "commercial_use": "PENDING",
+      "redistribution": "PENDING",
+      "limitations": [
+        "No source-level human approval; project licence alone is insufficient.",
+        "Pin release, work-level exceptions, attribution and redistribution obligations before admission."
+      ],
+      "local_inventory": {
+        "raw_sha256": null,
+        "documents": null,
+        "characters": null,
+        "estimated_tokens": null,
+        "files": {}
+      },
+      "v4_source": {
+        "source_id": "candidate-zh-wikipedia",
+        "source_name": "Chinese Wikipedia (candidate; not yet cleared for this build)",
+        "source_uri": "https://zh.wikipedia.org/",
+        "license": "CC-BY-SA-4.0",
+        "license_status": "REVIEW_REQUIRED",
+        "license_evidence": "",
+        "license_reviewer": "",
+        "license_reviewed_at": "",
+        "category": "zh_encyclopedic",
+        "language": "zh",
+        "provenance_status": "UNVERIFIED",
+        "paths": [
+          "data/raw/candidate-zh-wikipedia"
+        ],
+        "family_policy": "document"
+      },
+      "model_training": "PENDING",
+      "license_obligations": "PENDING",
+      "corpus_versions": []
+    },
+    {
+      "publisher": "PENDING",
+      "release": "NOT_PINNED",
+      "license_references": [],
+      "commercial_use": "PENDING",
+      "redistribution": "PENDING",
+      "limitations": [
+        "No source-level human approval; project licence alone is insufficient.",
+        "Pin release, work-level exceptions, attribution and redistribution obligations before admission."
+      ],
+      "local_inventory": {
+        "raw_sha256": null,
+        "documents": null,
+        "characters": null,
+        "estimated_tokens": null,
+        "files": {}
+      },
+      "v4_source": {
+        "source_id": "candidate-zh-education",
+        "source_name": "Chinese education/open-text candidate (not yet cleared)",
+        "source_uri": null,
+        "license": "LICENSE_UNVERIFIED",
+        "license_status": "REVIEW_REQUIRED",
+        "license_evidence": "",
+        "license_reviewer": "",
+        "license_reviewed_at": "",
+        "category": "zh_education",
+        "language": "zh",
+        "provenance_status": "UNVERIFIED",
+        "paths": [
+          "data/raw/candidate-zh-education"
+        ],
+        "family_policy": "document"
+      },
+      "model_training": "PENDING",
+      "license_obligations": "PENDING",
+      "corpus_versions": []
+    },
+    {
+      "publisher": "PENDING",
+      "release": "NOT_PINNED",
+      "license_references": [],
+      "commercial_use": "PENDING",
+      "redistribution": "PENDING",
+      "limitations": [
+        "No source-level human approval; project licence alone is insufficient.",
+        "Pin release, work-level exceptions, attribution and redistribution obligations before admission."
+      ],
+      "local_inventory": {
+        "raw_sha256": null,
+        "documents": null,
+        "characters": null,
+        "estimated_tokens": null,
+        "files": {}
+      },
+      "v4_source": {
+        "source_id": "candidate-math-code",
+        "source_name": "Math/code corpus candidate (not yet cleared)",
+        "source_uri": null,
+        "license": "LICENSE_UNVERIFIED",
+        "license_status": "REVIEW_REQUIRED",
+        "license_evidence": "",
+        "license_reviewer": "",
+        "license_reviewed_at": "",
+        "category": "math_logic_code",
+        "language": "mixed",
+        "provenance_status": "UNVERIFIED",
+        "paths": [
+          "data/raw/candidate-math-code"
+        ],
+        "family_policy": "document"
+      },
+      "model_training": "PENDING",
+      "license_obligations": "PENDING",
+      "corpus_versions": []
+    },
+    {
+      "publisher": "Work authors and Wikisource contributors",
+      "release": "NOT_PINNED",
+      "license_references": [
+        {
+          "uri": "https://zh.wikisource.org/wiki/Wikisource:版权信息/全文",
+          "verification": "candidate reference only; no dataset downloaded or approved"
+        }
+      ],
+      "commercial_use": "PENDING",
+      "redistribution": "PENDING",
+      "limitations": [
+        "Review specific release, upstream exceptions, attribution and downstream use. No approval inferred from public availability."
+      ],
+      "local_inventory": {
+        "raw_sha256": null,
+        "documents": null,
+        "characters": null,
+        "estimated_tokens": null,
+        "files": {}
+      },
+      "v4_source": {
+        "source_id": "candidate-zh-wikisource",
+        "source_name": "Chinese Wikisource work-level public-domain candidate",
+        "source_uri": "https://zh.wikisource.org/",
+        "license": "WORK_LEVEL_REVIEW_REQUIRED",
+        "license_status": "REVIEW_REQUIRED",
+        "license_evidence": "",
+        "license_reviewer": "",
+        "license_reviewed_at": "",
+        "category": "zh_general",
+        "language": "zh",
+        "provenance_status": "UNVERIFIED",
+        "paths": [
+          "data/raw/candidate-zh-wikisource"
+        ],
+        "family_policy": "document"
+      },
+      "model_training": "PENDING",
+      "license_obligations": "PENDING",
+      "corpus_versions": []
+    },
+    {
+      "publisher": "Wikibooks contributors",
+      "release": "NOT_PINNED",
+      "license_references": [
+        {
+          "uri": "https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use",
+          "verification": "candidate reference only; no dataset downloaded or approved"
+        }
+      ],
+      "commercial_use": "PENDING",
+      "redistribution": "PENDING",
+      "limitations": [
+        "Review specific release, upstream exceptions, attribution and downstream use. No approval inferred from public availability."
+      ],
+      "local_inventory": {
+        "raw_sha256": null,
+        "documents": null,
+        "characters": null,
+        "estimated_tokens": null,
+        "files": {}
+      },
+      "v4_source": {
+        "source_id": "candidate-zh-wikibooks",
+        "source_name": "Chinese Wikibooks educational candidate",
+        "source_uri": "https://zh.wikibooks.org/",
+        "license": "CC-BY-SA-4.0",
+        "license_status": "REVIEW_REQUIRED",
+        "license_evidence": "",
+        "license_reviewer": "",
+        "license_reviewed_at": "",
+        "category": "zh_education",
+        "language": "zh",
+        "provenance_status": "UNVERIFIED",
+        "paths": [
+          "data/raw/candidate-zh-wikibooks"
+        ],
+        "family_policy": "document"
+      },
+      "model_training": "PENDING",
+      "license_obligations": "PENDING",
+      "corpus_versions": []
+    },
+    {
+      "publisher": "Work authors and Wikisource contributors",
+      "release": "NOT_PINNED",
+      "license_references": [
+        {
+          "uri": "https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use",
+          "verification": "candidate reference only; no dataset downloaded or approved"
+        }
+      ],
+      "commercial_use": "PENDING",
+      "redistribution": "PENDING",
+      "limitations": [
+        "Review specific release, upstream exceptions, attribution and downstream use. No approval inferred from public availability."
+      ],
+      "local_inventory": {
+        "raw_sha256": null,
+        "documents": null,
+        "characters": null,
+        "estimated_tokens": null,
+        "files": {}
+      },
+      "v4_source": {
+        "source_id": "candidate-en-wikisource",
+        "source_name": "English Wikisource work-level candidate",
+        "source_uri": "https://en.wikisource.org/",
+        "license": "WORK_LEVEL_REVIEW_REQUIRED",
+        "license_status": "REVIEW_REQUIRED",
+        "license_evidence": "",
+        "license_reviewer": "",
+        "license_reviewed_at": "",
+        "category": "en_general",
+        "language": "en",
+        "provenance_status": "UNVERIFIED",
+        "paths": [
+          "data/raw/candidate-en-wikisource"
+        ],
+        "family_policy": "document"
+      },
+      "model_training": "PENDING",
+      "license_obligations": "PENDING",
+      "corpus_versions": []
+    },
+    {
+      "publisher": "Python Software Foundation and individual contributors",
+      "release": "NOT_PINNED",
+      "license_references": [
+        {
+          "uri": "https://docs.python.org/3/license.html",
+          "verification": "candidate reference only; no dataset downloaded or approved"
+        }
+      ],
+      "commercial_use": "PENDING",
+      "redistribution": "PENDING",
+      "limitations": [
+        "Review specific release, upstream exceptions, attribution and downstream use. No approval inferred from public availability."
+      ],
+      "local_inventory": {
+        "raw_sha256": null,
+        "documents": null,
+        "characters": null,
+        "estimated_tokens": null,
+        "files": {}
+      },
+      "v4_source": {
+        "source_id": "candidate-python-docs",
+        "source_name": "Python documentation and code examples candidate",
+        "source_uri": "https://docs.python.org/3/",
+        "license": "PSF-2.0; examples 0BSD; exceptions require review",
+        "license_status": "REVIEW_REQUIRED",
+        "license_evidence": "",
+        "license_reviewer": "",
+        "license_reviewed_at": "",
+        "category": "math_logic_code",
+        "language": "mixed",
+        "provenance_status": "UNVERIFIED",
+        "paths": [
+          "data/raw/candidate-python-docs"
+        ],
+        "family_policy": "document"
+      },
+      "model_training": "PENDING",
+      "license_obligations": "PENDING",
+      "corpus_versions": []
+    }
+  ]
+}

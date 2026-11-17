@@ -1,0 +1,12 @@
+{
+  "configs/corpus_v4.yaml": {
+    "content_policy_unchanged": true,
+    "policy_sha256": "d39528603f73057c5240974c02a546271a86cf72ec40071d2e5af8b78800da51",
+    "target_effective_tokens": 100000000
+  },
+  "configs/corpus_v4_pilot_1m.yaml": {
+    "content_policy_unchanged": true,
+    "policy_sha256": "fd8e1a6384b2ea050e38c877839b1eaa4243c2fe0999f0b684a17feb5248a3f4",
+    "target_effective_tokens": 1020000
+  }
+}

@@ -72,6 +72,9 @@ def validate_v4_pilot_policy(dataset_dir, approved_config_path=APPROVED_PILOT_CO
                 "generation implementation identity mismatch")
         require(plan["registry"] == frozen["license_sources"] and plan["registry"]["sha256"]
                 == recorded["source_manifest_sha256"], "generation source registry binding mismatch")
+        from .v4_sources import requires_source_review, validate_source_plan
+        validate_source_plan(plan, frozen["license_sources"], require=requires_source_review(approved),
+                             verify_inputs=True)
 
         quality_hash = identity({"rules_version": QUALITY_RULES_VERSION, "quality": approved["quality"]})
         require(policies["quality_policy_sha256"] == recorded["cleaning_policy_sha256"] == quality_hash,
@@ -165,7 +168,7 @@ def validate_v4_pilot_policy(dataset_dir, approved_config_path=APPROVED_PILOT_CO
 
 
 def audit_v4_dataset(directory, *, manifest=None, tokenizer_path=None,
-                     retokenize=False, verify_inputs=False):
+                     retokenize=False, verify_inputs=False, require_source_review=False):
     """Verify the original V4 gate, plus its source and train-only evidence.
 
     This is an adapter, not an alternative way to freeze a corpus. It never
@@ -190,6 +193,11 @@ def audit_v4_dataset(directory, *, manifest=None, tokenizer_path=None,
         approved = build_registry(registry["sources"], demo=False, license_policy={"approved_only": True})
         if not approved["sources"] or approved["excluded"]:
             raise CorpusError("included sources are not all approved with verified provenance")
+        from .v4_sources import validate_source_plan
+        source_reviews = validate_source_plan(read_json(directory / ".v4/plan.json"), registry,
+                                              require=require_source_review, verify_inputs=True)
+        if source_reviews:
+            report["checks"]["source_reviews"] = source_reviews
         report["checks"]["source_approval"] = "APPROVED"
         contamination = read_json(directory / "contamination-report.json")
         if contamination["status"] != recorded["contamination_audit_status"]:
@@ -210,10 +218,13 @@ def audit_v4_dataset(directory, *, manifest=None, tokenizer_path=None,
                 or tok.vocab_size != manifest["tokenizer"]["vocab_size"]):
             raise CorpusError("tokenizer fingerprint/vocabulary mismatch")
         selection = read_json(directory / "tokenizer-evaluation.json")["selection"]
+        if (directory / "tokenizer-selection.json").is_file():
+            from .v4_tokenizer_decision import verify_selection
+            selection = verify_selection(directory)
         candidates = read_json(directory / "tokenizer-candidates.json")["candidates"]
         selected = next((c for c in candidates if c["fingerprint"] == tok.fingerprint
                          and c["name"] == selection["name"]), None)
-        if selected is None or selection.get("mode") != "EXPLICIT_CONFIG":
+        if selected is None or selection.get("mode") not in ("EXPLICIT_CONFIG", "HUMAN_REVIEWED"):
             raise CorpusError("V4 tokenizer has no explicit reviewed train-only selection")
         metadata = selected["metadata"]
         if (metadata.get("demo_only") is not False
