@@ -74,3 +74,28 @@ def packed_data(tmp_path_factory, tiny_tokenizer):
     pack_tokens(train, tiny_tokenizer, texts[:80])
     pack_tokens(val, tiny_tokenizer, texts[80:])
     return train, val
+
+
+# --- corpus v4 fixture pipeline -------------------------------------------------
+
+def make_v4_demo_pipeline(tmp_path, name: str = "dataset"):
+    """Build the synthetic v4 demo pipeline without touching checked-in reports."""
+    import json
+
+    from minillm.corpus_v4 import (CorpusV4Pipeline, build_registry, inventory,
+                                   load_config)
+
+    root = Path(__file__).resolve().parents[1]
+    config = load_config(root / "configs" / "corpus_v4.yaml")
+    manifest = json.loads((root / "tests" / "fixtures" / "corpus_v4" / "demo-sources.json").read_text(
+        encoding="utf-8"))
+    registry = build_registry(manifest["sources"], demo=True,
+                              license_policy=config["license_policy"])
+    inputs = inventory(registry, root / "tests" / "fixtures" / "corpus_v4")
+    return CorpusV4Pipeline(Path(tmp_path) / name, config, registry, inputs,
+                            demo=True, log=lambda *_: None)
+
+
+@pytest.fixture
+def v4_demo(tmp_path):
+    return make_v4_demo_pipeline(tmp_path)

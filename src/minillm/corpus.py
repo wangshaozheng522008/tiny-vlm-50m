@@ -210,23 +210,43 @@ def write_splits(path: Path, dedup_path: Path, out: Path, content: dict, runtime
             "by_source": source_distribution, "known_near_duplicate_cross_split_groups": 0}, [path, *(out / f"{n}.text.jsonl" for n in SPLITS)]
 
 
-def tokenize_split(records, tokenizer: MiniLLMTokenizer, out_path: Path, *, buffer_bytes: int = 1048576):
+def tokenize_split(records, tokenizer: MiniLLMTokenizer, out_path: Path, *, buffer_bytes: int = 1048576,
+                   category_key: str = "category", source_key: str = "source",
+                   text_category_key: str | None = None,
+                   index_path: Path | None = None, index_fields: tuple[str, ...] = ()):
+    """Stream one split into uint16 tokens and exact length/statistics.
+
+    ``category_key`` selects the metadata label used for reporting (the v4
+    pipeline reports its domain categories), while ``text_category_key`` selects
+    the label passed to the tokenizer's text policy (language).  Legacy callers
+    leave both defaults unchanged.  An optional ``index_path`` receives one JSON
+    line per document with its token count, letting the budget planner compute
+    exact packed-stream supervision without re-tokenizing the corpus.
+    """
     if not 1 <= tokenizer.vocab_size <= 65536 or buffer_bytes < 2:
         raise CorpusError("invalid uint16 vocabulary or token buffer size")
     stats = {"documents": 0, "chars": 0, "tokens": 0, "by_source": {}, "by_category": {},
-             "character_length_histogram": {}, "token_length_histogram": {}}
+             "by_language": {}, "character_length_histogram": {}, "token_length_histogram": {}}
     digest = hashlib.sha256()
+    index_handle = None
+    index_temporary = None
+    if index_path is not None:
+        index_path = Path(index_path)
+        index_temporary = index_path.parent / f".{index_path.name}.tmp"
+        index_handle = index_temporary.open("w", encoding="utf-8")
     def writer(handle):
         buffer = bytearray()
         for record in records:
             text = record["text"] if isinstance(record, dict) else record
-            source = record.get("source", "unknown") if isinstance(record, dict) else "unknown"
-            category = record.get("category", "unknown") if isinstance(record, dict) else "unknown"
+            source = record.get(source_key, "unknown") if isinstance(record, dict) else "unknown"
+            category = record.get(category_key, "unknown") if isinstance(record, dict) else "unknown"
+            text_category = record.get(text_category_key or category_key, "unknown") if isinstance(record, dict) else "unknown"
+            language = record.get("language", text_category) if isinstance(record, dict) else "unknown"
             if len(stats["by_source"]) >= 128 and source not in stats["by_source"]:
                 raise CorpusError("too many tokenization sources")
-            if tokenizer.prepare_text(text, category=category) != text:
+            if tokenizer.prepare_text(text, category=text_category) != text:
                 raise CorpusError("split text is not canonical under its category/text policy; regenerate text splits in a new dataset")
-            tokens = next(iter(encode_document_tokens((text,), tokenizer, drop_empty=False, category=category)))
+            tokens = next(iter(encode_document_tokens((text,), tokenizer, drop_empty=False, category=text_category)))
             data = tokens.tobytes()
             # The staging buffer is fixed; one already-bounded document may be larger.
             for offset in range(0, len(data), buffer_bytes):
@@ -241,16 +261,34 @@ def tokenize_split(records, tokenizer: MiniLLMTokenizer, out_path: Path, *, buff
             stats["tokens"] += len(tokens)
             histogram_add(stats["character_length_histogram"], len(text))
             histogram_add(stats["token_length_histogram"], len(tokens))
-            for field, label in (("by_source", source), ("by_category", category)):
-                item = stats[field].setdefault(label, {"documents": 0, "tokens": 0})
+            for field, label in (("by_source", source), ("by_category", category), ("by_language", language)):
+                item = stats[field].setdefault(label, {"documents": 0, "chars": 0, "tokens": 0})
                 item["documents"] += 1
+                item["chars"] += len(text)
                 item["tokens"] += len(tokens)
+            if index_handle is not None and isinstance(record, dict):
+                entry = {field: record.get(field) for field in index_fields}
+                entry["tokens"] = len(tokens)
+                index_handle.write(json.dumps(entry, ensure_ascii=False, sort_keys=True) + "\n")
         if buffer:
             handle.write(buffer)
             digest.update(buffer)
         if handle.tell() != stats["tokens"] * 2:
             raise CorpusError("token stream length mismatch before publication")
-    atomic_write(out_path, writer)
+    try:
+        atomic_write(out_path, writer)
+        if index_handle is not None:
+            index_handle.flush()
+            os.fsync(index_handle.fileno())
+            index_handle.close()
+            index_handle = None
+            os.replace(index_temporary, index_path)
+            index_temporary = None
+    finally:
+        if index_handle is not None:
+            index_handle.close()
+        if index_temporary is not None:
+            Path(index_temporary).unlink(missing_ok=True)
     stats.update(bytes=out_path.stat().st_size, sha256=digest.hexdigest())
     if stats["bytes"] != stats["tokens"] * 2:
         raise CorpusError(f"token output length mismatch: {out_path}")

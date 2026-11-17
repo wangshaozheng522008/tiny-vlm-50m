@@ -34,3 +34,8 @@ reports/
 !/data/diagnostics/memorization-v1/*.jsonl
 !/data/diagnostics/memorization-v1/*.json
 !/data/evaluation/chinese-foundation-v1/*.jsonl
+
+# PR8 synthetic corpus-v4 fixtures are original test data, not downloaded text.
+!/tests/fixtures/corpus_v4/
+!/tests/fixtures/corpus_v4/*.jsonl
+!/tests/fixtures/corpus_v4/*.json

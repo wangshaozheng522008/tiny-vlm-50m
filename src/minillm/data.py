@@ -286,7 +286,11 @@ def stream_corpus_records(path: str | Path, *, max_record_bytes: int = 1048576):
                 if not isinstance(record, dict) or not isinstance(record.get("text"), str):
                     yield {"_issue": "missing_text", "_line": line_number}
                     continue
-                fields = ("text", "source", "category", "language", "license", "parent_id")
+                # v4 provenance needs the optional bibliographic fields as well;
+                # legacy callers only read text/source/category/language/license.
+                fields = ("text", "source", "category", "language", "license", "parent_id",
+                          "author", "publication_date", "acquisition_date", "original_format",
+                          "transformation_history")
                 yield {**{k: record[k] for k in fields if k in record}, "_line": line_number}
             else:
                 if not line.strip():

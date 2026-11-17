@@ -87,9 +87,11 @@ def database_output(path: Path, *, source: Path | None = None, cache_mib: int = 
 
 class Stages:
     """A stage marker is published last, and reused only after full hash verification."""
-    def __init__(self, out: Path, work: Path, runtime: dict, log=print):
+    def __init__(self, out: Path, work: Path, runtime: dict, log=print, control: str = ".pipeline"):
         self.out, self.work, self.runtime, self.log = out, work, runtime, log
-        self.control = out / ".pipeline"
+        if not control.startswith(".") or "/" in control:
+            raise CorpusError("stage control directory must be a hidden local directory name")
+        self.control = out / control
         self.control.mkdir(parents=True, exist_ok=True)
         work.mkdir(parents=True, exist_ok=True)
 
