@@ -39,3 +39,4 @@ reports/
 !/tests/fixtures/corpus_v4/
 !/tests/fixtures/corpus_v4/*.jsonl
 !/tests/fixtures/corpus_v4/*.json
+!/configs/tokenizer-v4-evaluation.jsonl

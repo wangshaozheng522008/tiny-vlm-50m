@@ -256,6 +256,11 @@ PR #2 的游标、RNG 和严格 Resume 规则保持不变。
 设计见 [语料 v4 设计](docs/corpus-v4-design.md)，实际数量、缺口和未完成的人类审核见
 [语料 v4 结果](docs/corpus-v4-results.md)。
 
+PR #10 的当前来源清单、只读暂存、分阶段候选评估和人工定版流程见
+[来源审核与接入](docs/corpus-v4-source-review.md)、[Tokenizer 比较](docs/tokenizer-v4-selection.md)
+和 [人工决定记录](docs/tokenizer-v4-decision.md)。Pilot 与正式 100M 使用独立数据版本；
+工程测试通过不代表真实来源获批、Tokenizer 定版或正式数据已冻结。
+
 ```bash
 # 正式状态：当前没有 APPROVED 来源，预期 NOT_READY，不会伪造语料
 python scripts/plan_corpus_v4.py --config configs/corpus_v4.yaml --status-only

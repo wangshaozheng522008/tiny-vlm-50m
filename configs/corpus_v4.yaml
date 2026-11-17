@@ -25,59 +25,8 @@ targets:
     en_general: 0.10
     math_logic_code: 0.10
 
-# Source admission registry.  Each entry must carry:
-#   source_id, source_name, source_uri, license, license_status,
-#   license_evidence, license_reviewer, license_reviewed_at, category,
-#   language, provenance_status, paths
-# `license_status` is APPROVED / REVIEW_REQUIRED / REJECTED.  A domain string
-# never implies permission.  LICENSE_UNVERIFIED entries can never be approved.
-# The three Chinese sources below are intentionally REVIEW_REQUIRED: they are
-# candidate sources, not cleared training data.
-sources:
-  - source_id: candidate-zh-wikipedia
-    source_name: "Chinese Wikipedia (candidate; not yet cleared for this build)"
-    source_uri: "https://zh.wikipedia.org/"
-    license: "CC-BY-SA-4.0"
-    license_status: REVIEW_REQUIRED
-    license_evidence: "Project-level licence page; share-alike and attribution obligations not yet reviewed for model training."
-    license_reviewer: ""
-    license_reviewed_at: ""
-    category: zh_encyclopedic
-    language: zh
-    provenance_status: UNVERIFIED
-    paths:
-      - data/raw/candidate-zh-wikipedia
-    family_policy: document
-
-  - source_id: candidate-zh-education
-    source_name: "Chinese education/open-text candidate (not yet cleared)"
-    source_uri: null
-    license: LICENSE_UNVERIFIED
-    license_status: REVIEW_REQUIRED
-    license_evidence: "No documented licence or redistribution permission yet; do not ingest."
-    license_reviewer: ""
-    license_reviewed_at: ""
-    category: zh_education
-    language: zh
-    provenance_status: UNVERIFIED
-    paths:
-      - data/raw/candidate-zh-education
-    family_policy: document
-
-  - source_id: candidate-math-code
-    source_name: "Math/code corpus candidate (not yet cleared)"
-    source_uri: null
-    license: LICENSE_UNVERIFIED
-    license_status: REVIEW_REQUIRED
-    license_evidence: "Mixed upstream provenance; per-repository licence mapping still required."
-    license_reviewer: ""
-    license_reviewed_at: ""
-    category: math_logic_code
-    language: mixed
-    provenance_status: UNVERIFIED
-    paths:
-      - data/raw/candidate-math-code
-    family_policy: document
+# Single human-maintained authority shared by Pilot and formal versions.
+source_registry: corpus_v4_sources.review.json
 
 license_policy:
   approved_only: true
@@ -133,9 +82,9 @@ tokenizer:
     - {name: v4-24576, vocab_size: 24576}
     - {name: v4-32768, vocab_size: 32768}
   selected: null
-  output_root: artifacts/tokenizers
+  output_root: artifacts/tokenizers/v4-formal-v1
   baseline: runs/minillm-87m/corpus/tokenizer.json
-  eval_asset: tests/fixtures/corpus_v4/tokenizer-eval.jsonl
+  eval_asset: configs/tokenizer-v4-evaluation.jsonl
   training:
     max_chars: 30000000
     seed: 42

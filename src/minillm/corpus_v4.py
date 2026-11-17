@@ -64,7 +64,7 @@ def implementation_sha256() -> str:
     """Code identity: a changed reader/cleaner/tokenizer must not reuse old stages."""
     names = ("corpus_v4.py", "corpus.py", "corpus_quality.py", "corpus_dedup.py",
              "corpus_contamination.py", "corpus_budget.py", "tokenizer_v4.py",
-             "data.py", "text_policy.py", "tokenizer.py")
+             "data.py", "text_policy.py", "tokenizer.py", "v4_sources.py", "v4_tokenizer_decision.py")
     return identity({name: sha256(Path(__file__).with_name(name)) for name in names})
 
 DEFAULT_RUNTIME = {"sqlite_cache_mib": 16, "commit_every": 1000, "buffer_bytes": 1048576}
@@ -296,7 +296,17 @@ def validate_config(raw: dict) -> dict:
 
 
 def load_config(path: str | Path) -> dict:
-    return validate_config(_load_raw(Path(path)))
+    raw = _load_raw(Path(path))
+    registry = raw.pop("source_registry", None)
+    if registry:
+        if raw.get("sources"):
+            raise CorpusError("use sources or source_registry, never two approval authorities")
+        from .v4_sources import reviewed_source_specs
+        registry_path = Path(registry)
+        if not registry_path.is_absolute():
+            registry_path = Path(path).resolve().parent / registry_path
+        raw["sources"] = reviewed_source_specs(registry_path)
+    return validate_config(raw)
 
 
 def _iso_date(value: str) -> bool:
@@ -433,10 +443,18 @@ def inventory(registry: dict, base: Path) -> list[dict]:
                               **file_info(path)})
     if not files:
         raise CorpusError("no JSONL/TXT source files found for the admitted sources")
+    for source in registry["sources"]:
+        review = next((entry["review"] for entry in reversed(source["transformation_history"])
+                       if isinstance(entry, dict) and entry.get("kind") == "source_review"), None)
+        if review is not None and source["license_status"] == "APPROVED":
+            observed = {str(Path(f["path"]).resolve()): {k: f[k] for k in ("sha256", "bytes")}
+                        for f in files if f["source_id"] == source["source_id"]}
+            if observed != review.get("local_inventory", {}).get("files"):
+                raise CorpusError("approved local source differs from reviewed file SHA256/size evidence")
     return sorted(files, key=lambda item: (item["source_id"], item["sha256"], item["path"]))
 
 
-def status_report(config: dict, base: Path, *, demo: bool = False) -> dict:
+def status_report(config: dict, base: Path, *, demo: bool = False, dataset_dir: Path | None = None) -> dict:
     """Pre-build readiness: no corpus is fabricated when no source is approved."""
     original_base = base
     sources = config["sources"]
@@ -454,15 +472,35 @@ def status_report(config: dict, base: Path, *, demo: bool = False) -> dict:
         blockers.append("NO_ADMISSIBLE_SOURCES")
     if not demo and registry["counts"].get("APPROVED", 0) == 0:
         blockers.append("NO_APPROVED_SOURCES")
-    if not demo and config["tokenizer"]["selected"] is None:
-        blockers.append("TOKENIZER_NOT_SELECTED")
+    if registry["sources"]:
+        try:
+            inventory(registry, base)
+        except CorpusError:
+            blockers.append("APPROVED_LOCAL_INPUT_MISSING")
     if not config["contamination"]["enabled"]:
         blockers.append("CONTAMINATION_AUDIT_DISABLED")
     if not all((original_base / asset["path"]).is_file() for asset in config["contamination"]["assets"]
                if asset.get("enabled", True)):
         blockers.append("CONTAMINATION_ASSET_MISSING")
-    status = "NOT_READY" if blockers else ("DEMO_READY" if demo else "READY_FOR_BUILD")
-    return {"schema_version": 1, "status": status, "blockers": sorted(set(blockers)),
+    status = "NOT_READY" if blockers else ("DEMO_READY" if demo else "READY_FOR_TOKENIZER_EVALUATION")
+    decision_status = "HUMAN_TOKENIZER_DECISION_REQUIRED"
+    if not demo and not blockers and dataset_dir and (dataset_dir / "tokenizer-selection.json").is_file():
+        try:
+            from .v4_tokenizer_decision import verify_selection
+            verify_selection(dataset_dir)
+            stored = json.loads((dataset_dir / ".v4/plan.json").read_text(encoding="utf-8"))
+            if stored["config_sha256"] != identity(config):
+                raise CorpusError("status configuration differs from immutable generation plan")
+            status, decision_status = "READY_FOR_FREEZE", "HUMAN_DECISION_VERIFIED"
+        except (OSError, ValueError, KeyError, CorpusError):
+            decision_status = "TOKENIZER_DECISION_INVALID"
+    return {"schema_version": 2, "status": status, "blockers": sorted(set(blockers)),
+            "stages": {"text_preparation": "BLOCKED" if blockers else "READY",
+                       "tokenizer_evaluation": "TOKENIZER_TRAINING_BLOCKED" if blockers else "READY_FOR_TOKENIZER_EVALUATION",
+                       "tokenizer_selection": decision_status,
+                       "freeze": "READY_FOR_FREEZE" if status == "READY_FOR_FREEZE" else "NOT_READY",
+                       "freeze_blockers": sorted(set(blockers +
+                           ([] if demo else ([decision_status] if decision_status != "HUMAN_DECISION_VERIFIED" else []) + ["FINAL_AUDIT_REQUIRED"])))},
             "demo": demo, "counts": registry["counts"],
             "sources": [{key: source[key] for key in (
                 "source_id", "source_name", "license", "license_status", "license_reviewer",
@@ -1520,6 +1558,8 @@ class CorpusV4Pipeline:
     # ------------------------------------------------------------------ tokenizers
 
     def train_tokenizers(self):
+        if not self.demo and self._license_status() != "APPROVED":
+            raise CorpusError("TOKENIZER_TRAINING_BLOCKED: approved sources with human licence evidence required")
         if "tokenizers" in self._done:
             return self.stats["tokenizers"]
         self.split()
@@ -1529,7 +1569,8 @@ class CorpusV4Pipeline:
         else:
             candidates = self.config["tokenizer"]["candidates"]
             output_root = (Path(self.config["tokenizer"]["output_root"])).resolve()
-        from .tokenizer_v4 import (build_selection, guard_train_only, train_candidate)
+        from .tokenizer_v4 import (build_selection, guard_train_only, train_candidate,
+                                   candidate_record, selection_digest)
         train_path = self.out / "train.text.jsonl"
         try:
             manifest = guard_train_only(train_path, self.out / "split-manifest.json")
@@ -1538,6 +1579,8 @@ class CorpusV4Pipeline:
         training = self.config["tokenizer"]["training"]
         selection = build_selection(train_path, category_weights=training["category_weights"],
                                     max_chars=training["max_chars"], seed=training["seed"])
+        if selection["selected_documents"] < training["min_documents"]:
+            raise CorpusError("TOKENIZER_TRAINING_BLOCKED: insufficient approved Train documents")
         key = self._key("tokenizers", {"split": self.keys["split"],
                                        "candidates": candidates,
                                        "selection": {k: selection[k] for k in (
@@ -1545,6 +1588,20 @@ class CorpusV4Pipeline:
         def producer():
             results = []
             for candidate in candidates:
+                directory = output_root / candidate["name"]
+                if (directory / "candidate-manifest.json").is_file():
+                    result = candidate_record(directory)
+                    metadata = result["metadata"]
+                    if (metadata["train_split_sha256"] != sha256(train_path)
+                            or metadata["split_manifest_sha256"] != sha256(self.out / "split-manifest.json")
+                            or metadata["text_policy"] != self.config["text_policy"]
+                            or metadata["demo_only"] != self.demo
+                            or metadata["training_selection"] != {k: selection[k] for k in metadata["training_selection"]}
+                            or metadata["training_corpus_sha256"] != selection_digest(selection, train_path, text_policy=self.config["text_policy"])
+                            or result["vocab_size"] != candidate["vocab_size"]):
+                        raise CorpusError("existing candidate has different training identity; choose a new version")
+                    results.append(result)
+                    continue
                 results.append(train_candidate(
                     selection, train_path, name=candidate["name"], vocab_size=candidate["vocab_size"],
                     out_root=output_root, text_policy=self.config["text_policy"],
@@ -1588,7 +1645,7 @@ class CorpusV4Pipeline:
         baseline_path = self._resolve_path(baseline) if baseline else None
         key = self._key("tokenizer_eval", {"tokenizers": self.keys["tokenizers"],
                                            "eval": file_info(eval_asset),
-                                           "baseline": str(baseline_path) if baseline_path else None})
+                                           "baseline": file_info(baseline_path) if baseline_path and baseline_path.is_file() else None})
         def producer():
             comparison = compare_candidates(
                 candidates, texts, baseline_path=baseline_path, text_policy=self.config["text_policy"],
@@ -1623,8 +1680,37 @@ class CorpusV4Pipeline:
             return {"name": match["name"], "path": match["path"],
                     "fingerprint": match["fingerprint"], "vocab_size": match["vocab_size"],
                     "mode": "EXPLICIT_CONFIG", "reason": "config tokenizer.selected"}
-        raise CorpusError("formal v4 build requires tokenizer.selected (or pass --tokenizer); "
-                          "the comparison is evidence for a human decision, not an automatic choice")
+        return None
+
+    def record_tokenizer_decision(self, path: str | Path):
+        if self.demo:
+            raise CorpusError("DEMO_ONLY candidates cannot receive a formal decision")
+        self.evaluate_tokenizers()
+        from .v4_tokenizer_decision import validate_decision
+        decision = json.loads(Path(path).read_text(encoding="utf-8"))
+        configured = self.config["tokenizer"]["selected"]
+        if configured and configured != decision.get("candidate"):
+            raise CorpusError("human decision differs from config tokenizer.selected; choose a new version")
+        selection = validate_decision(self.out, decision)
+        key = self._key("tokenizer_selection", {"evaluation": self.keys["tokenizer_eval"],
+                                                "decision": identity(decision)})
+        def producer():
+            target = self.out / "tokenizer-selection.json"
+            write_json(target, selection)
+            return selection, [target]
+        self._run("tokenizer_selection", key, producer)
+        return selection
+
+    def _reviewed_selection(self):
+        from .v4_tokenizer_decision import verify_selection
+        if not (self.out / "tokenizer-selection.json").is_file():
+            return None
+        selection = verify_selection(self.out)
+        key = self._key("tokenizer_selection", {"evaluation": self.keys["tokenizer_eval"],
+                                                "decision": selection["decision_sha256"]})
+        self._run("tokenizer_selection", key, lambda: (_ for _ in ()).throw(
+            CorpusError("missing tokenizer decision stage evidence")))
+        return selection
 
     # ------------------------------------------------------------------ tokenize
 
@@ -1635,12 +1721,18 @@ class CorpusV4Pipeline:
         if tokenizer_path is None:
             comparison = self.evaluate_tokenizers()
             if selected is None:
-                selected = comparison.get("selection")
+                selected = self._reviewed_selection() or comparison.get("selection")
             if not selected:
                 raise CorpusError("no tokenizer selected")
             tokenizer_path = selected["path"]
         tokenizer_path = self._resolve_path(tokenizer_path)
         tokenizer = MiniLLMTokenizer.load(tokenizer_path)
+        if not self.demo and (tokenizer.vocab_size >= 24576 or self.target_tokens >= 1_020_000):
+            self.evaluate_tokenizers()
+            reviewed = self._reviewed_selection()
+            if not reviewed or reviewed["fingerprint"] != tokenizer.fingerprint:
+                raise CorpusError("human tokenizer decision required before formal tokenize/freeze")
+            selected = reviewed
         tokenizer.text_policy = validate_policy(self.config["text_policy"])
         if not 264 <= tokenizer.vocab_size <= 65536:
             raise CorpusError("tokenizer vocabulary must fit the uint16 corpus format")
@@ -1892,7 +1984,7 @@ class CorpusV4Pipeline:
             if not path.is_file():
                 raise CorpusError(f"missing published artifact: {name}")
             files[name] = file_info(path)
-        for name in ("tokenizer-evaluation.json", "tokenizer-candidates.json"):
+        for name in ("tokenizer-evaluation.json", "tokenizer-candidates.json", "tokenizer-selection.json"):
             if (self.out / name).is_file():
                 files[name] = file_info(self.out / name)
         return files
@@ -2004,13 +2096,15 @@ class CorpusV4Pipeline:
         split_check = _split_isolation_check(self.out)
         check("split_isolation", split_check["status"], split_check["detail"])
 
-        selection = self.stats.get("tokenizer_eval", {}).get("selection") or self.external_selection
+        selection = self.external_selection or self.stats.get("tokenizer_eval", {}).get("selection")
         tokenization = self.stats["tokenized"]
         candidate_ok = bool(selection) and selection.get("fingerprint") == tokenization["tokenizer"]["fingerprint"]
         tokenizer_file = self.out / "tokenizer.json"
         loaded = MiniLLMTokenizer.load(tokenizer_file)
         tokenizer_ok = (candidate_ok and loaded.fingerprint == tokenization["tokenizer"]["fingerprint"]
                         and loaded.text_policy == self.config["text_policy"])
+        if not self.demo and (loaded.vocab_size >= 24576 or self.target_tokens >= 1_020_000):
+            tokenizer_ok = tokenizer_ok and self._reviewed_selection() == selection
         check("tokenizer_selection", "PASS" if tokenizer_ok else "FAIL",
               {"selection": selection, "tokenizer_fingerprint": loaded.fingerprint,
                "vocab_size": loaded.vocab_size, "text_policy": loaded.text_policy})
@@ -2174,6 +2268,18 @@ def verify_frozen(directory: str | Path) -> dict:
         recomputed[stage] = {"key": data.get("key"), "files": files}
     if recomputed != manifest["identity"].get("stage_hashes"):
         raise CorpusError("stage hashes do not match the frozen manifest")
+    if (manifest["tokenizer"]["vocab_size"] >= 24576
+            or manifest["budget"]["target_effective_train_tokens"] >= 1_020_000):
+        from .v4_tokenizer_decision import verify_selection
+        selection = verify_selection(directory)
+        plan = json.loads((directory / ".v4/plan.json").read_text(encoding="utf-8"))
+        expected = identity([V4_SCHEMA_VERSION, plan["plan_key"], "tokenizer_selection",
+                             {"evaluation": recomputed["tokenizer_eval"]["key"],
+                              "decision": selection["decision_sha256"]}])
+        if (recomputed.get("tokenizer_selection", {}).get("key") != expected
+                or selection["fingerprint"] != manifest["tokenizer"]["fingerprint"]
+                or "tokenizer-selection.json" not in manifest["files"]):
+            raise CorpusError("frozen dataset lacks hash-bound human tokenizer decision")
     split_check = _split_isolation_check(directory, verified_files=manifest["files"])
     split_info = manifest["files"].get("split-manifest.json", {})
     if split_check["status"] != "PASS" or not split_info \

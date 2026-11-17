@@ -31,7 +31,7 @@ from minillm.corpus_utils import CorpusError, write_json  # noqa: E402
 from minillm.corpus_v4 import (CorpusV4Pipeline, build_registry, inventory,  # noqa: E402
                                load_config, status_report, verify_frozen)
 
-STAGES = ("ingest", "quality", "dedup", "split", "tokenizers", "evaluate",
+STAGES = ("ingest", "quality", "dedup", "split", "tokenizers", "evaluate", "select",
           "tokenize", "contamination", "budget", "audit", "freeze", "all")
 
 
@@ -93,6 +93,7 @@ def main(argv=None) -> int:
                         help="explicitly use an existing train-only tokenizer instead of training candidates")
     parser.add_argument("--baseline", default=None,
                         help="override the tokenizer baseline path for the comparison report")
+    parser.add_argument("--decision", help="human-authored JSON decision; publishes a separate hash-bound selection stage")
     parser.add_argument("--verify", default=None,
                         help="verify a frozen dataset directory and exit")
     args = parser.parse_args(argv)
@@ -105,26 +106,30 @@ def main(argv=None) -> int:
         return 0
 
     config = load_config(Path(args.config))
-    report = status_report(config, Path.cwd(), demo=args.demo)
+    report = status_report(config, Path.cwd(), demo=args.demo,
+                           dataset_dir=Path(args.out) if args.out else None)
     if args.status_only:
         _print(report)
         return 0
-    if not args.demo and report["status"] != "READY_FOR_BUILD":
-        out = Path(args.out or "reports/corpus-v4")
-        out.mkdir(parents=True, exist_ok=True)
-        write_json(out / "status-report.json", report)
+    if not args.demo and report["status"] not in ("READY_FOR_TOKENIZER_EVALUATION", "READY_FOR_FREEZE"):
         _print(report)
-        print(f"\nNOT_READY: no corpus was fabricated. Status written to {out / 'status-report.json'}",
-              file=sys.stderr)
+        print("\nNOT_READY: no corpus was fabricated; no dataset output was written.", file=sys.stderr)
         return 2
 
-    out = Path(args.out or ("reports/corpus-v4-demo" if args.demo else "artifacts/corpus/v4"))
+    out = Path(args.out or ("reports/corpus-v4-demo" if args.demo else
+                           f"artifacts/corpus/{config['corpus_version']}"))
     registry, inputs = _registry(config, args.demo)
     pipeline = CorpusV4Pipeline(out, config, registry, inputs, demo=args.demo)
     write_json(out / "status-report.json", report)
 
     if args.stage != "all":
-        if args.stage == "tokenize" and args.tokenizer:
+        if args.stage == "select":
+            if not args.decision:
+                raise CorpusError("--stage select requires --decision; no automatic selection")
+            result = pipeline.record_tokenizer_decision(args.decision)
+        elif args.stage == "evaluate":
+            result = pipeline.evaluate_tokenizers(baseline=args.baseline)
+        elif args.stage == "tokenize" and args.tokenizer:
             result = pipeline.tokenize(Path(args.tokenizer))
         else:
             result = _stage_result(pipeline, args.stage)
@@ -140,6 +145,12 @@ def main(argv=None) -> int:
     else:
         pipeline.train_tokenizers()
         pipeline.evaluate_tokenizers(baseline=args.baseline)
+        if args.decision:
+            pipeline.record_tokenizer_decision(args.decision)
+        elif not args.demo and not config["tokenizer"]["selected"] and not (out / "tokenizer-selection.json").exists():
+            _print({"status": "READY_FOR_TOKENIZER_EVALUATION", "next": "HUMAN_TOKENIZER_DECISION_REQUIRED",
+                    "evaluation": str(out / "tokenizer-evaluation.json"), "freeze_status": "NOT_READY"})
+            return 2
         pipeline.tokenize()
     pipeline.contamination()
     pipeline.budget()

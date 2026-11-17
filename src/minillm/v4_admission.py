@@ -210,10 +210,13 @@ def audit_v4_dataset(directory, *, manifest=None, tokenizer_path=None,
                 or tok.vocab_size != manifest["tokenizer"]["vocab_size"]):
             raise CorpusError("tokenizer fingerprint/vocabulary mismatch")
         selection = read_json(directory / "tokenizer-evaluation.json")["selection"]
+        if (directory / "tokenizer-selection.json").is_file():
+            from .v4_tokenizer_decision import verify_selection
+            selection = verify_selection(directory)
         candidates = read_json(directory / "tokenizer-candidates.json")["candidates"]
         selected = next((c for c in candidates if c["fingerprint"] == tok.fingerprint
                          and c["name"] == selection["name"]), None)
-        if selected is None or selection.get("mode") != "EXPLICIT_CONFIG":
+        if selected is None or selection.get("mode") not in ("EXPLICIT_CONFIG", "HUMAN_REVIEWED"):
             raise CorpusError("V4 tokenizer has no explicit reviewed train-only selection")
         metadata = selected["metadata"]
         if (metadata.get("demo_only") is not False
