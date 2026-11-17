@@ -84,3 +84,10 @@ See [pilot-results.md](pilot-results.md) for the actual 611-update / 10,000,848-
 ## Reliability patch after the pilot
 
 See [pr5-reliability-fixes.md](pr5-reliability-fixes.md) for pre-update lineage persistence, strict legacy recovery, immutable first-launch identity, Resume history, and new CPU-only optimizer/RNG/continuation regressions. Historical87M measurements in pilot-evidence.json were not changed. Old workload proofs retain their implementation hashes and do not automatically approve patched code.
+
+## Independent V4 1M pilot
+
+The V4 workflow and its separate data/tokenizer/GPU gates are documented in
+[pilot-v4-1m-results.md](pilot-v4-1m-results.md). It starts with a saved random
+initialization and requires formally frozen V4 data. PR5 research-corpus
+permissions, checkpoints and workload measurements do not approve this new run.

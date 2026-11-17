@@ -26,6 +26,10 @@ def audit_dataset(directory: Path, *, manifest: dict | None = None, tokenizer_pa
     try:
         if manifest is None:
             manifest = json.loads((directory / "dataset-manifest.json").read_text())
+        if "v4" in manifest.get("identity", {}):
+            from .v4_admission import audit_v4_dataset
+            return audit_v4_dataset(directory, manifest=manifest, tokenizer_path=tokenizer_path,
+                                    retokenize=retokenize, verify_inputs=verify_inputs)
         if manifest["schema_version"] != 1 or manifest["identity"]["files"] != manifest["files"]:
             raise CorpusError("invalid dataset schema or inconsistent identity/files")
         if identity(manifest["identity"]) != manifest["content_id"]:
