@@ -1,0 +1,217 @@
+{
+  "schema_version": 1,
+  "scope": "87M_GPU_PILOT",
+  "status": "BLOCKED_DATA_NOT_READY",
+  "training_status": "NOT_RUN",
+  "gpu_training_status": "NOT_RUN",
+  "preflight": {
+    "schema_version": 1,
+    "status": "BLOCKED_DATA_NOT_READY",
+    "readiness": "BLOCKED",
+    "blockers": [
+      "BLOCKED_DATA_NOT_READY",
+      "BLOCKED_TOKENIZER_NOT_READY",
+      "BLOCKED_TOKEN_BUDGET",
+      "BLOCKED_WORKLOAD_NOT_READY"
+    ],
+    "blocker_details": {
+      "BLOCKED_DATA_NOT_READY": [
+        "[Errno 2] No such file or directory: 'artifacts/corpus/v4-pilot-1m-v1/dataset-manifest.json'"
+      ],
+      "BLOCKED_TOKENIZER_NOT_READY": [
+        "No such file or directory (os error 2)"
+      ],
+      "BLOCKED_TOKEN_BUDGET": [
+        "[Errno 2] No such file or directory: 'artifacts/corpus/v4-pilot-1m-v1/train.bin'"
+      ],
+      "BLOCKED_WORKLOAD_NOT_READY": [
+        "admission failed; workload evidence cannot approve this run"
+      ]
+    },
+    "scope": "87M_GPU_PILOT",
+    "dataset_audit": {
+      "ok": false,
+      "errors": [
+        "[Errno 2] No such file or directory: 'artifacts/corpus/v4-pilot-1m-v1/dataset-manifest.json'"
+      ],
+      "checks": {},
+      "splits": {}
+    },
+    "data": null,
+    "model": {
+      "parameters": 86528640,
+      "configuration": {
+        "vocab_size": 24576,
+        "hidden_size": 640,
+        "num_hidden_layers": 16,
+        "num_attention_heads": 10,
+        "num_key_value_heads": 2,
+        "head_dim": 64,
+        "intermediate_size": 1792,
+        "max_position_embeddings": 2048,
+        "rope_theta": 10000.0,
+        "rms_norm_eps": 1e-06,
+        "attention_dropout": 0.0,
+        "hidden_dropout": 0.0,
+        "tie_word_embeddings": true,
+        "attention_bias": false,
+        "mlp_bias": false,
+        "pad_token_id": 0,
+        "bos_token_id": 1,
+        "eos_token_id": 2,
+        "unk_token_id": 3,
+        "ignore_index": -100,
+        "model_type": "minillm",
+        "arch_version": 2
+      }
+    },
+    "tokenizer_fingerprint": null,
+    "budget": null,
+    "environment": {
+      "python_version": "3.11.17",
+      "torch_version": "2.14.1+cu126",
+      "platform": "Linux-6.8.0-149-generic-x86_64-with-glibc2.35",
+      "device": "cuda",
+      "device_name": "NVIDIA T1200 Laptop GPU",
+      "cuda_version": "12.6",
+      "threads": 8,
+      "numerical_scope": "same software/device; cross-GPU/version bitwise equality is not guaranteed",
+      "total_memory_bytes": 3895132160,
+      "capability": [
+        7,
+        5
+      ],
+      "uuid": "5e773842-5d12-25ad-eb67-f4788fb7f718",
+      "driver": "GPU-5e773842-5d12-25ad-eb67-f4788fb7f718, 580.178.04",
+      "requested_device": "cuda",
+      "cuda_available": true,
+      "free_memory_bytes": 3716087808
+    },
+    "disk": {
+      "free_bytes": 431843999744,
+      "required_bytes": 4568712192
+    },
+    "request": null,
+    "workload": {
+      "status": "NOT_RUN"
+    }
+  },
+  "initialization": null,
+  "training": null,
+  "evaluation": null,
+  "recovery": {
+    "status": "NOT_RUN"
+  },
+  "performance": null,
+  "stability": {
+    "status": "NOT_RUN",
+    "errors": null
+  },
+  "engineering": "NOT_RUN",
+  "convergence": "NOT_RUN",
+  "capability": "NOT_RUN",
+  "experiment": "V4 1M-token GPU pretraining pilot",
+  "observation_date": "2026-11-17",
+  "source_config_audit": {
+    "status": "NOT_READY",
+    "blockers": [
+      "NO_ADMISSIBLE_SOURCES",
+      "NO_APPROVED_SOURCES",
+      "TOKENIZER_NOT_SELECTED"
+    ],
+    "counts": {
+      "APPROVED": 0,
+      "REJECTED": 0,
+      "REVIEW_REQUIRED": 3,
+      "excluded": 3,
+      "included": 0
+    },
+    "configuration": {
+      "bytes": 5528,
+      "sha256": "890c611f843f66093391297496db305a57d7e196330f6f6c45e48a37eb0843fd"
+    }
+  },
+  "candidate_plan": {
+    "status": "UNVERIFIED_CANDIDATE",
+    "configuration": {
+      "out": "runs/pilot-v4-1m-t1200",
+      "seq_len": 1024,
+      "batch_size": 1,
+      "grad_accum": 8,
+      "max_steps": 123,
+      "target_tokens": 1000000,
+      "planned_effective_tokens": 1006632,
+      "allow_data_repetition": false,
+      "lr": 0.0003,
+      "min_lr": 3e-05,
+      "warmup_ratio": 0.02,
+      "weight_decay": 0.1,
+      "grad_clip": 1.0,
+      "seed": 42,
+      "precision": "fp32",
+      "device": "cuda",
+      "threads": 1,
+      "grad_checkpointing": true,
+      "log_every": 5,
+      "save_every": 20,
+      "val_every": 20,
+      "val_limit": 0,
+      "gpu_memory_limit_mib": 2971.75,
+      "disk_margin_factor": 1.2
+    },
+    "full_update_supervised_tokens": 8184,
+    "supervised_tokens_if_all_123_updates_are_full": 1006632,
+    "independent_effective_tokens": null,
+    "scope": "configuration arithmetic, not measured training or admitted data"
+  },
+  "baseline": {
+    "status": "NOT_RUN",
+    "validation_loss": null,
+    "validation_perplexity": null,
+    "capability_scores": null
+  },
+  "final": {
+    "status": "NOT_RUN",
+    "validation_loss": null,
+    "validation_perplexity": null,
+    "capability_scores": null
+  },
+  "note": "No admitted V4 data or tokenizer. No 87M GPU workload/training/evaluation/recovery was executed. CPU fixture verification is recorded separately.",
+  "code_acceptance": "PASS",
+  "gpu_acceptance": "NOT_RUN",
+  "code_validation": {
+    "full_pytest_passed": 631,
+    "new_regressions_passed": 29,
+    "cuda_isolated_cpu_end_to_end_passed": 3,
+    "smoke": "PASS",
+    "synthetic_smoke": "PASS",
+    "training_reliability": "PASS",
+    "scope": "CPU/offline engineering checks; not 87M GPU training acceptance",
+    "logs": {
+      "pytest-final.log": {
+        "bytes": 752,
+        "sha256": "3691791d5d48c4754117699da682d47640e8c812191d922f0685a4e879f27a4e"
+      },
+      "new-regressions-final.log": {
+        "bytes": 100,
+        "sha256": "0f390061ca123cf0c6ec571fe6ac2d9b8386e286d3010ccf364c19f68f723f6c"
+      },
+      "cpu-nano-final.log": {
+        "bytes": 99,
+        "sha256": "6d2d4212f50c93e93db37ca9dadb036197cd9dc8d93633b63daed92b989a37ae"
+      },
+      "smoke.log": {
+        "bytes": 9088,
+        "sha256": "f93b7397c4caec55bae6abfb0e2c98f8c15750089744a91bae7507a5080bd368"
+      },
+      "smoke-synthetic.log": {
+        "bytes": 7810,
+        "sha256": "1c7fdba90d96349bb33f29a3151cf5fb3722df75b38970438862ae4fc96030b2"
+      },
+      "reliability.log": {
+        "bytes": 1243,
+        "sha256": "2ec8eab112c517a4aaf1e2055136fd115e31276400d15ef21a611897169f9250"
+      }
+    }
+  }
+}
