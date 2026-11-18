@@ -1,0 +1,207 @@
+{
+  "schema": "v4-pilot-source-review-summary/1",
+  "corpus_version": "minillm-corpus-v4-pilot-1m-v1",
+  "repository_main_at_verification": "87acb7a37e14d94b03d3b1961411b33ac79825a5",
+  "reviewer": "wsz",
+  "reviewed_at": "2026-11-18",
+  "approved_scope": {
+    "model_training": "wsz 批准仅限 MiniLLM V4 1M Pilot 小规模研究和该范围内的模型训练。",
+    "commercial_use": "商业使用未纳入本次批准。",
+    "redistribution": "对外再分发及公开发布模型权重未纳入本次批准。",
+    "license_obligations": "保留出处、作者署名与相关溯源信息、适用许可和变更说明。按具体作品许可履行适用的 ShareAlike 等义务，并保留适用的第三方署名和附加条件。"
+  },
+  "sources": [
+    {
+      "source_id": "candidate-zh-wikipedia",
+      "category": "zh_encyclopedic",
+      "release": "zhwiki-20261101-pages-articles",
+      "upstream_snapshot_uri": "https://dumps.wikimedia.org/zhwiki/20261101/",
+      "license_status": "APPROVED",
+      "license": "Wikimedia contributors' CC BY-SA 4.0 text; page-level and imported-material terms may vary.",
+      "sample": {
+        "sha256": "9f79c4c102aa377b66ec766681652e14d6f2539c41ca834d7b27f3abe63bea49",
+        "bytes": 8122462,
+        "documents": 3916,
+        "characters": 3003999,
+        "algorithm": "sha256-family-basis-points-v1",
+        "seed": 42,
+        "basis_points": 25,
+        "manifest_content_sha256": "d6b9cbe63aea5ba3609a9cf0c97912dae2b0f1a8bf421bd33ebb9db460b09574",
+        "verification": "REPRODUCED"
+      },
+      "original_inputs": [
+        {
+          "converted_jsonl": {
+            "filename": "zhwiki-20261101-pages.jsonl",
+            "sha256": "46f63cef5be5cd3c0eaa14c268169b78046c93b2e4b4413bb3432904021dae58",
+            "bytes": 2977599196
+          },
+          "archive": {
+            "sha256": "190f5f03dbca26cf9e8f3b7f3027b3c43cb0b41d234f11242f21d4f19faf72a2",
+            "bytes": 3452366696,
+            "filename": "zhwiki-20261101-pages-articles.xml.bz2",
+            "verification": "FULL_ARCHIVE_MATCHES_LOCAL_WIKIMEDIA_CHECKSUM_LIST"
+          },
+          "conversion_manifest_sha256": "ead3e32ef22f85637e2d59b62598d976ecb15e30de2ea35891dbd124eec63c17"
+        }
+      ],
+      "public_license_references": [
+        "https://foundation.wikimedia.org/w/index.php?title=Policy:Terms_of_Use&oldid=598588#7._Licensing_of_Content",
+        "https://creativecommons.org/licenses/by-sa/4.0/legalcode.en"
+      ]
+    },
+    {
+      "source_id": "candidate-zh-wikisource",
+      "category": "zh_general",
+      "release": "zhwikisource-20261101-pages-articles-multistream#sampled-20x10MiB",
+      "upstream_snapshot_uri": "https://dumps.wikimedia.org/zhwikisource/20261101/",
+      "license_status": "APPROVED",
+      "license": "Work-specific terms and jurisdiction. Wikimedia contribution terms and work-level rights are recorded separately.",
+      "sample": {
+        "sha256": "eae0513d59ae1e4b90768e77c4f0e035cd3f11f31e8deaea71721f235fe677e1",
+        "bytes": 7915382,
+        "documents": 905,
+        "characters": 2746526,
+        "algorithm": "sha256-family-basis-points-v1",
+        "seed": 42,
+        "basis_points": 100,
+        "manifest_content_sha256": "377034211f2ea4b1cf8f3040e78be2eaecaa76092519202f882ccd3f84350e21",
+        "verification": "REPRODUCED"
+      },
+      "original_inputs": [
+        {
+          "converted_jsonl": {
+            "filename": "zhwikisource-20261101-pages.jsonl",
+            "sha256": "0d8f002641b5a42a9d6f40eb6e9f80ea8eff2413435bd18d79ede345ef024f8d",
+            "bytes": 871416063
+          },
+          "archive": {
+            "sha256": "b5b85abeccb236e9f050a456c3504404e471fdc61e6edad60cabce5ceb59313a",
+            "bytes": 212532674,
+            "filename": "zhwikisource-20261101-pages-articles-multistream-sampled.xml.bz2",
+            "verification": "DERIVED_MULTISTREAM_SLICE"
+          },
+          "conversion_manifest_sha256": "661fa20b623236ae842a42ce8b7709d63e289c411bcc8533fb9f8b4f4c6dafea"
+        }
+      ],
+      "public_license_references": [
+        "https://foundation.wikimedia.org/w/index.php?title=Policy:Terms_of_Use&oldid=598588#7._Licensing_of_Content",
+        "https://creativecommons.org/licenses/by-sa/4.0/legalcode.en",
+        "https://zh.wikisource.org/w/index.php?title=Wikisource:%E7%89%88%E6%9D%83%E4%BF%A1%E6%81%AF/%E5%85%A8%E6%96%87&oldid=12832920"
+      ]
+    },
+    {
+      "source_id": "candidate-zh-wikibooks",
+      "category": "zh_education",
+      "release": "zhwikibooks-20261101-pages-articles",
+      "upstream_snapshot_uri": "https://dumps.wikimedia.org/zhwikibooks/20261101/",
+      "license_status": "APPROVED",
+      "license": "Wikibooks CC BY-SA 4.0 contributor text; page-level and third-party terms may vary.",
+      "sample": {
+        "sha256": "4abe24742faf52cee2e0370730fe98f7200ae914f39df9114734433f6fe1b7eb",
+        "bytes": 9988174,
+        "documents": 1891,
+        "characters": 4133832,
+        "algorithm": "sha256-family-basis-points-v1",
+        "seed": 42,
+        "basis_points": 2500,
+        "manifest_content_sha256": "819cfd2d0a98c5dc38ec723fcd97fa40be25692a546593c1ff608b6cbce9220f",
+        "verification": "REPRODUCED"
+      },
+      "original_inputs": [
+        {
+          "converted_jsonl": {
+            "filename": "zhwikibooks-20261101-pages.jsonl",
+            "sha256": "492c9fff68fa854fbbbf5470e45c0985b769ef5b4f2adc8e40257b7050ac5849",
+            "bytes": 43106014
+          },
+          "archive": {
+            "sha256": "1db3e7ab78deff32f2f5061889febd05acb0c062799201d016de0e47013964ed",
+            "bytes": 20019071,
+            "filename": "zhwikibooks-20261101-pages-articles.xml.bz2",
+            "verification": "FULL_ARCHIVE_MATCHES_LOCAL_WIKIMEDIA_CHECKSUM_LIST"
+          },
+          "conversion_manifest_sha256": "0bebf66e6447c1ea4bc86a5fc078635348a24db86a09ac096c0acccbe929dcab"
+        }
+      ],
+      "public_license_references": [
+        "https://foundation.wikimedia.org/w/index.php?title=Policy:Terms_of_Use&oldid=598588#7._Licensing_of_Content",
+        "https://creativecommons.org/licenses/by-sa/4.0/legalcode.en",
+        "https://zh.wikibooks.org/w/index.php?oldid=185687"
+      ]
+    },
+    {
+      "source_id": "candidate-en-wikisource",
+      "category": "en_general",
+      "release": "enwikisource-20261101-pages-articles",
+      "upstream_snapshot_uri": "https://dumps.wikimedia.org/enwikisource/20261101/",
+      "license_status": "APPROVED",
+      "license": "Work-specific terms and jurisdiction. Wikimedia contribution terms and work-level rights are recorded separately.",
+      "sample": {
+        "sha256": "24662a6796081356e6935866290e3a493a618c7f4c4ca2190660d690e9a11111",
+        "bytes": 22718156,
+        "documents": 1836,
+        "characters": 22087379,
+        "algorithm": "sha256-family-basis-points-v1",
+        "seed": 42,
+        "basis_points": 100,
+        "manifest_content_sha256": "62139bd1383c6421c7cd9f4419d2f41ae4ca642690c329b29bd1e140beca1a66",
+        "verification": "REPRODUCED"
+      },
+      "original_inputs": [
+        {
+          "converted_jsonl": {
+            "filename": "enwikisource-20261101-pages.jsonl",
+            "sha256": "89de7544153da2b70e931ef65cc33fc6cf1391fdf00891879504e6597ec7f623",
+            "bytes": 1998203187
+          },
+          "archive": {
+            "sha256": "bb9318dd1045cd0e0f0e5ea9329b1d61a639590758427fd4275a2926fa6a5272",
+            "bytes": 3438896364,
+            "filename": "enwikisource-20261101-pages-articles.xml.bz2",
+            "verification": "FULL_ARCHIVE_MATCHES_LOCAL_WIKIMEDIA_CHECKSUM_LIST"
+          },
+          "conversion_manifest_sha256": "52aee4ee0fbfdba01c6770f530748bb0978d822fc58212b00580498de20a0c9c"
+        }
+      ],
+      "public_license_references": [
+        "https://foundation.wikimedia.org/w/index.php?title=Policy:Terms_of_Use&oldid=598588#7._Licensing_of_Content",
+        "https://creativecommons.org/licenses/by-sa/4.0/legalcode.en",
+        "https://en.wikisource.org/w/index.php?title=Wikisource:Copyright_policy&oldid=15195841"
+      ]
+    }
+  ],
+  "pending_sources": [
+    {
+      "source_id": "candidate-zh-education",
+      "status": "REVIEW_REQUIRED"
+    },
+    {
+      "source_id": "candidate-math-code",
+      "status": "REVIEW_REQUIRED"
+    },
+    {
+      "source_id": "candidate-python-docs",
+      "status": "REVIEW_REQUIRED"
+    }
+  ],
+  "readiness": {
+    "status": "DATA_NOT_READY",
+    "source_evidence_status": "VERIFIED",
+    "approved_source_count": 4,
+    "admitted_source_count": 4,
+    "insufficient_categories": [
+      "math_logic_code"
+    ],
+    "split_status": "NOT_RUN",
+    "tokenizer_status": "TOKENIZER_NOT_FINALIZED",
+    "effective_train_tokens": null,
+    "blockers": [
+      "CATEGORY_DATA_INSUFFICIENT",
+      "SOURCE_FILES_MISSING",
+      "SPLIT_NOT_VERIFIED",
+      "TOKENIZER_NOT_FINALIZED"
+    ],
+    "sample_documents": 8548
+  }
+}
