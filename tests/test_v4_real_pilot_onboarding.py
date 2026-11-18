@@ -289,9 +289,11 @@ def test_exact_readiness_budget_recomputes_only_supervised_train_positions(tmp_p
     # Stage hash enforcement is exercised by the V4 Split/resume integration test.
     monkeypatch.setattr(v4_pilot_readiness, "_stage", lambda *_: None)
     _write_rows(tmp_path / "train.token-index.jsonl", [
-        {"category": "zh_general", "tokens": 1024}, {"category": "en_general", "tokens": 3}])
+        {"source_id": "test-source", "category": "zh_general", "tokens": 1024},
+        {"source_id": "test-source", "category": "en_general", "tokens": 3}])
     for split in ("val", "test"):
-        _write_rows(tmp_path / f"{split}.token-index.jsonl", [{"category": "math_logic_code", "tokens": 2_000_000}])
+        _write_rows(tmp_path / f"{split}.token-index.jsonl", [
+            {"source_id": "test-source", "category": "math_logic_code", "tokens": 2_000_000}])
     (tmp_path / "train.bin").write_bytes(bytes(2 * 1027))
     packing = supervision_by_category([("zh_general", 1024), ("en_general", 3)], 1024)
     write_json(tmp_path / "tokenization-report.json", {
@@ -303,6 +305,11 @@ def test_exact_readiness_budget_recomputes_only_supervised_train_positions(tmp_p
     assert report["effective_train_tokens"] == 1023
     assert coverage["math_logic_code"]["effective_train_tokens"] == 0
     assert coverage["zh_general"]["effective_train_tokens"] == 1023
+    evidence = report["tokenization_evidence"]
+    assert evidence["status"] == "VERIFIED" and evidence["measured"] is True
+    assert evidence["by_source"] == {"test-source": 1023}
+    assert evidence["by_category"]["zh_general"] == 1023
+    assert evidence["by_category"]["en_general"] == 0
     assert report["budget_gap"]["measured_category_gap_total"] == 1_020_000 - 1023
 
 
@@ -625,7 +632,7 @@ def test_reproduction_cleans_up_scratch_after_success_and_failure(tmp_path, samp
 # PR #14 read-only Pilot supply accounting and gap analysis
 # ---------------------------------------------------------------------------
 from minillm.corpus_budget import supervision_by_category, supervision_by_field  # noqa: E402
-from minillm.v4_pilot_supply import analyze_supply, render_markdown  # noqa: E402
+from minillm.v4_pilot_supply import _math_supply_status, analyze_supply, render_markdown  # noqa: E402
 
 FOUR_CATEGORIES = ("zh_general", "zh_encyclopedic", "zh_education", "en_general")
 FIVE_CATEGORIES = FOUR_CATEGORIES + ("math_logic_code",)
@@ -661,6 +668,42 @@ def _supply_fixture(tmp_path, categories=FOUR_CATEGORIES, *, stage="split", name
     return config, ledger, pipeline.out
 
 
+def _write_fake_tokenization(out, config, monkeypatch, *, fingerprint="f" * 64,
+                              report_fingerprint=None):
+    """Write a tokenized fixture whose formal verifier is stubbed for this test."""
+    from minillm import v4_pilot_readiness, v4_tokenizer_decision
+
+    tokenizer = out / "tokenizer.json"
+    tokenizer.write_bytes(b"original software-test tokenizer identity")
+    (out / "tokenizer-selection.json").write_text("{}", encoding="utf-8")
+    (out / ".v4").mkdir(exist_ok=True)
+    (out / ".v4/tokenized.stage.json").touch()
+    rows = _rows(out / "train.text.jsonl")
+    index_rows = [{"document_id": row["document_id"], "source_id": row["source_id"],
+                   "category": row["category"], "tokens": 200 + number}
+                  for number, row in enumerate(rows)]
+    _write_rows(out / "train.token-index.jsonl", index_rows)
+    packing = supervision_by_category(((row["category"], row["tokens"]) for row in index_rows),
+                                      config["targets"]["seq_len"])
+    by_source = supervision_by_field(index_rows, config["targets"]["seq_len"], "source_id")
+    (out / "train.bin").write_bytes(bytes(2 * packing["raw_tokens"]))
+    write_json(out / "tokenization-report.json", {
+        "packing": packing, "seq_len": config["targets"]["seq_len"],
+        "tokenizer": {"fingerprint": report_fingerprint or fingerprint},
+        "effective_train_tokens": packing["effective_tokens"]})
+    monkeypatch.setattr(v4_tokenizer_decision, "verify_selection",
+                        lambda _: {"fingerprint": fingerprint, "path": str(tokenizer)})
+    real_stage = v4_pilot_readiness._stage
+
+    def fake_stage(directory, plan, name, required, extra):
+        if name in ("tokenized", "tokenizer-file"):
+            return f"{name}-key"
+        return real_stage(directory, plan, name, required, extra)
+
+    monkeypatch.setattr(v4_pilot_readiness, "_stage", fake_stage)
+    return packing, by_source
+
+
 def test_supply_analysis_four_categories_reports_missing_math_and_no_fake_measurement(tmp_path):
     config, _, out = _supply_fixture(tmp_path, FOUR_CATEGORIES)
     report = analyze_supply(config, ROOT, out, run_id="four-category")
@@ -689,11 +732,14 @@ def test_supply_analysis_five_categories_has_math_source_but_still_reports_token
     config, _, out = _supply_fixture(tmp_path, FIVE_CATEGORIES)
     report = analyze_supply(config, ROOT, out, run_id="five-category")
     assert report["consistency"]["status"] == "PASS"
-    assert report["math_logic_code"]["status"] == "MATH_CODE_READY"
+    assert report["math_logic_code"]["status"] == "MATH_CODE_ESTIMATED_SHORTFALL"
+    assert report["math_logic_code"]["status"] != "MATH_CODE_READY"
     assert "MATH_CODE_SOURCE_REQUIRED" not in report["blockers"]
+    assert "MATH_CODE_SUPPLY_SHORTFALL" in report["blockers"]
     assert report["math_logic_code"]["admitted_sources"] == ["software-fixture-math_logic_code"]
     assert report["categories"]["math_logic_code"]["approved_source_documents"] > 0
-    assert report["categories"]["math_logic_code"]["estimated_gap_tokens"] > 0
+    assert report["math_logic_code"]["estimated_gap_tokens"] > 0
+    assert report["math_logic_code"]["measured_train_tokens"] is None
     assert "ESTIMATED_TRAIN_SUPPLY_SHORTFALL" in report["blockers"]
 
 
@@ -844,3 +890,227 @@ def test_supervision_by_field_uses_the_exact_packed_rule():
     assert by_source["by_field"] == {"alpha": 993, "beta": 912}
     assert supervision_by_field([{"source_id": "one", "tokens": 1001}], 128,
                                 "source_id")["effective_tokens"] == 889
+
+
+# --- PR #14 P1: only the formal tokenized Stage may publish measured tokens ---
+
+def test_split_pass_without_human_decision_leaves_measurement_null(tmp_path):
+    config, _, out = _supply_fixture(tmp_path, FOUR_CATEGORIES)
+    report = analyze_supply(config, ROOT, out, run_id="no-decision")
+    assert report["dataset"]["split_status"] == "PASS"
+    assert report["dataset"]["tokenization_evidence_status"] == "TOKENIZER_NOT_SELECTED"
+    assert report["totals"]["measurement_status"] == "NOT_MEASURED_TOKENIZER_NOT_FINALIZED"
+    assert report["totals"]["effective_train_tokens"] is None
+    assert report["totals"]["measurement_basis"] == "NOT_MEASURED: tokenizer not formally selected"
+    assert all(row["effective_train_tokens"] is None for row in report["categories"].values())
+
+
+def test_token_index_without_tokenized_stage_is_invalid(tmp_path):
+    config, _, out = _supply_fixture(tmp_path, FOUR_CATEGORIES)
+    rows = _rows(out / "train.text.jsonl")
+    _write_rows(out / "train.token-index.jsonl", [
+        {"document_id": row["document_id"], "source_id": row["source_id"],
+         "category": row["category"], "tokens": 50_000} for row in rows])
+    report = analyze_supply(config, ROOT, out, run_id="unbacked-index")
+    assert report["totals"]["effective_train_tokens"] is None
+    assert report["totals"]["measurement_status"] == "TOKENIZED_EVIDENCE_INVALID"
+    assert report["tokenizer"]["tokenization_status"] == "INVALID"
+    assert report["pipeline_status"]["tokenization"] == "INVALID"
+    assert "TOKENIZED_EVIDENCE_INVALID" in report["blockers"]
+
+
+def test_forged_token_index_and_stage_without_decision_are_invalid(tmp_path):
+    config, _, out = _supply_fixture(tmp_path, FOUR_CATEGORIES)
+    rows = _rows(out / "train.text.jsonl")
+    _write_rows(out / "train.token-index.jsonl", [
+        {"document_id": row["document_id"], "source_id": row["source_id"],
+         "category": row["category"], "tokens": 4096} for row in rows])
+    (out / "tokenizer-selection.json").write_text("{}", encoding="utf-8")
+    (out / ".v4/tokenized.stage.json").touch()
+    report = analyze_supply(config, ROOT, out, run_id="forged")
+    assert report["totals"]["measurement_status"] == "TOKENIZED_EVIDENCE_INVALID"
+    assert report["totals"]["effective_train_tokens"] is None
+    assert report["tokenizer"]["evidence_status"] == "INVALID"
+    assert "TOKENIZED_EVIDENCE_INVALID" in report["blockers"]
+    assert all(row["effective_train_tokens"] is None for row in report["categories"].values())
+
+
+def test_selection_file_without_valid_human_evidence_is_invalid(tmp_path):
+    config, _, out = _supply_fixture(tmp_path, FOUR_CATEGORIES)
+    (out / "tokenizer-selection.json").write_text(
+        '{"decision": "yes", "reviewer": "nobody"}', encoding="utf-8")
+    (out / ".v4/tokenized.stage.json").touch()
+    report = analyze_supply(config, ROOT, out, run_id="bad-selection")
+    assert report["tokenizer"]["selection_status"] == "TOKENIZER_EVIDENCE_INVALID"
+    assert report["tokenizer"]["evidence_status"] == "INVALID"
+    assert report["status"] != "READY_FOR_FREEZE"
+    assert report["totals"]["effective_train_tokens"] is None
+
+
+def test_verified_decision_without_tokenized_stage_requires_tokenization(tmp_path, monkeypatch):
+    config, _, out = _supply_fixture(tmp_path, FOUR_CATEGORIES)
+    _write_fake_tokenization(out, config, monkeypatch)
+    for name in ("train.token-index.jsonl", "train.bin", "tokenization-report.json"):
+        (out / name).unlink()
+    (out / ".v4/tokenized.stage.json").unlink()
+    report = analyze_supply(config, ROOT, out, run_id="decision-no-tokenized")
+    assert report["totals"]["measurement_status"] == "NOT_MEASURED_TOKENIZED_STAGE_NOT_RUN"
+    assert report["totals"]["effective_train_tokens"] is None
+    assert report["tokenizer"]["selection_status"] == "HUMAN_DECISION_VERIFIED"
+    assert report["tokenizer"]["tokenization_status"] == "NOT_RUN"
+    assert "TOKENIZED_EVIDENCE_REQUIRED" in report["blockers"]
+
+
+def test_fingerprint_mismatch_blocks_measured_tokens(tmp_path, monkeypatch):
+    config, _, out = _supply_fixture(tmp_path, FOUR_CATEGORIES)
+    _write_fake_tokenization(out, config, monkeypatch, report_fingerprint="e" * 64)
+    report = analyze_supply(config, ROOT, out, run_id="fingerprint-mismatch")
+    assert report["totals"]["measurement_status"] == "TOKENIZED_EVIDENCE_INVALID"
+    assert report["totals"]["effective_train_tokens"] is None
+    assert "TOKENIZED_EVIDENCE_INVALID" in report["blockers"]
+
+
+def test_modified_evaluation_artifact_is_not_formal_evidence(tmp_path):
+    config, _, out = _supply_fixture(tmp_path, FOUR_CATEGORIES)
+    evaluation = out / "tokenizer-evaluation.json"
+    write_json(evaluation, {"status": "COMPARED", "comparison": {}})
+    marker = {"key": "tokenizer-eval-key",
+              "files": {str(evaluation.resolve()): file_info(evaluation)}}
+    write_json(out / ".v4/tokenizer_eval.stage.json", marker)
+    evaluation.write_text('{"status": "TAMPERED"}', encoding="utf-8")
+    report = analyze_supply(config, ROOT, out, run_id="modified-eval")
+    assert report["tokenizer"]["evaluation_status"] == "INVALID"
+    assert report["tokenizer"]["evidence_status"] == "INVALID"
+    assert "TOKENIZED_EVIDENCE_INVALID" in report["blockers"]
+    assert report["totals"]["effective_train_tokens"] is None
+
+
+def test_candidate_report_not_bound_to_current_split_is_invalid(tmp_path):
+    config, _, out = _supply_fixture(tmp_path, FOUR_CATEGORIES)
+    candidates = out / "tokenizer-candidates.json"
+    write_json(candidates, {"split_manifest_sha256": "0" * 64,
+                            "training_split_sha256": file_info(out / "train.text.jsonl")["sha256"],
+                            "candidates": []})
+    write_json(out / ".v4/tokenizers.stage.json", {
+        "key": "tokenizer-candidates-key",
+        "files": {str(candidates.resolve()): file_info(candidates)}})
+    report = analyze_supply(config, ROOT, out, run_id="wrong-candidate-split")
+    assert report["tokenizer"]["candidate_evidence_status"] == "INVALID"
+    assert report["tokenizer"]["evidence_status"] == "INVALID"
+    assert report["tokenizer"]["candidate_error"]
+    assert report["totals"]["effective_train_tokens"] is None
+
+
+def test_selection_bound_to_another_split_is_invalid(tmp_path):
+    config, _, out = _supply_fixture(tmp_path, FOUR_CATEGORIES)
+    write_json(out / "tokenizer-selection.json", {
+        "train_split_sha256": "0" * 64, "evaluation_report_sha256": "1" * 64,
+        "candidate": {"name": "v4-24576", "fingerprint": "f" * 64}})
+    (out / ".v4/tokenized.stage.json").touch()
+    report = analyze_supply(config, ROOT, out, run_id="wrong-split")
+    assert report["totals"]["measurement_status"] == "TOKENIZED_EVIDENCE_INVALID"
+    assert report["tokenizer"]["selection_status"] == "TOKENIZER_EVIDENCE_INVALID"
+    assert report["totals"]["effective_train_tokens"] is None
+
+
+def test_complete_legal_tokenized_stage_publishes_source_and_category_measurements(tmp_path, monkeypatch):
+    config, _, out = _supply_fixture(tmp_path, FOUR_CATEGORIES)
+    packing, by_source = _write_fake_tokenization(out, config, monkeypatch)
+    report = analyze_supply(config, ROOT, out, run_id="verified-tokenized")
+    assert report["consistency"]["status"] == "PASS"
+    assert report["totals"]["measurement_status"] == "MEASURED_VERIFIED"
+    assert report["totals"]["effective_train_tokens"] == packing["effective_tokens"]
+    assert report["tokenizer"]["tokenization_status"] == "VERIFIED"
+    assert report["pipeline_status"]["tokenization"] == "VERIFIED"
+    assert report["pipeline_status"]["budget"] == "NOT_RUN"
+    for category, row in report["categories"].items():
+        assert row["effective_train_tokens"] == packing["by_category"].get(category, 0)
+        assert row["measurement_status"] == "MEASURED_VERIFIED"
+    for source_id, row in report["sources"].items():
+        if row["train"] is None:
+            continue
+        assert row["train"]["effective_train_tokens"] == by_source["by_field"].get(source_id, 0)
+        assert row["train"]["effective_basis"] == "exact packed supervision"
+
+
+def test_measured_source_category_and_total_are_consistent(tmp_path, monkeypatch):
+    config, _, out = _supply_fixture(tmp_path, FOUR_CATEGORIES)
+    packing, by_source = _write_fake_tokenization(out, config, monkeypatch)
+    report = analyze_supply(config, ROOT, out, run_id="measured-consistency")
+    total = report["totals"]["effective_train_tokens"]
+    assert total == packing["effective_tokens"]
+    assert total == sum(row["effective_train_tokens"] for row in report["categories"].values())
+    assert total == sum(row["train"]["effective_train_tokens"] for row in report["sources"].values()
+                        if row["train"] is not None)
+    assert total == sum(by_source["by_field"].values())
+
+
+def test_invalid_tokenized_evidence_cannot_be_freeze_ready(tmp_path, monkeypatch):
+    config, _, out = _supply_fixture(tmp_path, FOUR_CATEGORIES)
+    _write_fake_tokenization(out, config, monkeypatch, report_fingerprint="e" * 64)
+    (out / "FROZEN").touch()
+    report = analyze_supply(config, ROOT, out, run_id="invalid-freeze")
+    assert report["status"] not in ("READY_FOR_FREEZE", "FROZEN_VERIFIED")
+    assert report["pipeline_status"]["freeze"] == "INVALID"
+    assert report["totals"]["effective_train_tokens"] is None
+    assert "TOKENIZED_EVIDENCE_INVALID" in report["blockers"]
+
+
+# --- PR #14 P2-1: math/code source and supply statuses are independent ---
+
+@pytest.mark.parametrize(("admitted", "split_assessed", "estimated", "measured", "expected"), [
+    (False, True, 0, None, "MATH_CODE_SOURCE_REQUIRED"),
+    (True, False, None, None, "MATH_CODE_SUPPLY_NOT_ASSESSED"),
+    (True, True, 100, None, "MATH_CODE_ESTIMATED_SHORTFALL"),
+    (True, True, 200, None, "MATH_CODE_MEASUREMENT_REQUIRED"),
+    (True, True, 200, 100, "MATH_CODE_MEASURED_SHORTFALL"),
+    (True, True, 100, 200, "MATH_CODE_SUPPLY_VERIFIED"),
+])
+def test_math_supply_status_separates_source_from_supply(admitted, split_assessed, estimated,
+                                                         measured, expected):
+    assert _math_supply_status(admitted, split_assessed, estimated, measured, 200) == expected
+
+
+# --- PR #14 P2-2: Markdown derives stage statuses instead of asserting non-execution ---
+
+def _status_report():
+    return {
+        "run_id": "status", "status": "DATA_NOT_READY", "corpus_version": "v1",
+        "dataset": {"name": "fixture", "plan": {}, "stage_identity": {}},
+        "source_evidence_status": "VERIFIED", "source_counts": {"approved": 1, "admitted": 1},
+        "targets": {"effective_train_tokens": 200}, "totals": {
+            "approved_input_documents": 0, "ingest_success_documents": None,
+            "quality": None, "dedup": None, "split": None,
+            "estimated_train_tokens": 100, "effective_train_tokens": None,
+            "estimated_category_gap_total": 100, "measured_category_gap_total": None,
+            "measurement_basis": "NOT_MEASURED", "split_estimated_tokens": None},
+        "blockers": [], "sources": {}, "categories": {}, "pipeline_status": {},
+        "tokenizer": {"evaluation_status": "NOT_RUN", "selection_status": "TOKENIZER_NOT_READY",
+                      "evidence_status": "UNVERIFIED", "tokenization_status": "BLOCKED",
+                      "candidates": [], "fixed_eval_categories": []},
+        "math_logic_code": {"status": "MATH_CODE_SOURCE_REQUIRED",
+                            "target_effective_train_tokens": 20,
+                            "estimated_gap_tokens": 20, "measured_train_tokens": None,
+                            "measured_gap_tokens": None, "candidate_sources": []},
+        "consistency": {"status": "PASS", "failed_checks": [], "checks": []},
+        "next_actions": [], "limitations": [],
+        "targets": {"effective_train_tokens": 200},
+    }
+
+
+@pytest.mark.parametrize(("pipeline", "expected"), [
+    ({"tokenizer_selection": "NOT_RUN", "tokenization": "BLOCKED", "contamination": "NOT_RUN",
+      "budget": "BLOCKED", "audit": "NOT_RUN", "freeze": "NOT_RUN"}, "`BLOCKED`"),
+    ({"tokenizer_selection": "VERIFIED", "tokenization": "VERIFIED", "contamination": "NOT_RUN",
+      "budget": "VERIFIED", "audit": "NOT_RUN", "freeze": "NOT_RUN"}, "`VERIFIED`"),
+    ({"tokenizer_selection": "VERIFIED", "tokenization": "VERIFIED", "contamination": "REVIEWED",
+      "budget": "VERIFIED", "audit": "VERIFIED", "freeze": "VERIFIED"}, "`VERIFIED`"),
+    ({"tokenizer_selection": "INVALID", "tokenization": "INVALID", "contamination": "INVALID",
+      "budget": "INVALID", "audit": "INVALID", "freeze": "INVALID"}, "`INVALID`"),
+])
+def test_markdown_uses_derived_stage_statuses(pipeline, expected):
+    report = _status_report()
+    report["pipeline_status"] = pipeline
+    text = render_markdown(report)
+    assert "| Tokenize | " + expected + " |" in text
+    assert "正式选择、tokenize、contamination、budget、audit 和 freeze 均未执行" not in text

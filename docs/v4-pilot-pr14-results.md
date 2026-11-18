@@ -6,7 +6,7 @@ Ingest → Quality → Dedup → Split → Tokenizer 候选评估的结果。报
 
 - 分析报告：[supply-analysis.md](../reports/v4-pilot-pr14-20261118/supply-analysis.md) /
   [supply-analysis.json](../reports/v4-pilot-pr14-20261118/supply-analysis.json)
-- 报告 `content_id`：`40619548c7e06570430fcd699d39058456c8efa0d24301fe145179ff3cfc4ffb`
+- 报告 `content_id`：`56fb1b11a6259a9e6e45685ed8da50edef83073803555af07cf2f585f7b2ad9c`
 - 最终结论：`DATA_NOT_READY`；估算缺口 102,000 有效 Token；实测 Token 为 `null`。
 
 ## 输入与身份
@@ -107,6 +107,44 @@ Split 估算：
 `HUMAN_TOKENIZER_DECISION_REQUIRED`，并确认 `FROZEN` 不存在。这符合“不自动选择、不自动 Freeze”
 的要求。
 
+## 修复后的证据与状态语义（P1/P2）
+
+本次修复只收紧报告的证据门禁，没有改变真实计数、阈值、Tokenizer 评估结果或
+`DATA_NOT_READY` 结论。实测 Token 不再从报告侧直接读取 `train.token-index.jsonl`，而是只使用
+Readiness `_token_budget()` 已完成的正式验证链：人工决策 `verify_selection()`、Tokenizer
+文件指纹、Tokenized Stage Key（Split/Tokenizer/SeqLen/TextPolicy）、Token Index 与阶段
+Manifest 的 SHA256/字节数、`tokenization-report.json` 的 packed supervision，以及
+`train.bin` 大小。
+
+当前真实数据没有人工 Tokenizer 选择和 Tokenized Stage，因此
+`effective_train_tokens`、所有来源/类别的实测字段仍为 `null`；任何未验证的 Token Index 或
+Tokenized Stage 会得到 `TOKENIZED_EVIDENCE_INVALID`，不会参与缺口计算。报告整体状态不会因此
+从未验证数据升级为 `READY_FOR_FREEZE` 或 `FROZEN_VERIFIED`。
+
+阶段状态由真实 Readiness/Stage 证据推导，文件存在不等于阶段成功。当前报告为：
+
+| 阶段 | 状态 | 依据 |
+|---|---|---|
+| Tokenizer 选择 | `BLOCKED` | 评估已完成，`HUMAN_TOKENIZER_DECISION_REQUIRED` |
+| Tokenize | `BLOCKED` | 没有人工选择，未执行 Tokenized Stage |
+| Contamination | `NOT_RUN` | 没有污染报告 |
+| Budget | `BLOCKED` | 没有正式实测 Token/预算阶段 |
+| Audit | `NOT_RUN` | 未进入最终审计 |
+| Freeze | `NOT_RUN` | `FROZEN` 不存在 |
+
+数学/代码状态现在区分来源与供给，不再用“存在已准入来源”直接推出
+`MATH_CODE_READY`：
+
+- `MATH_CODE_SOURCE_REQUIRED`：没有已准入来源；
+- `MATH_CODE_SUPPLY_NOT_ASSESSED`：有来源但尚未完成 Split/估算；
+- `MATH_CODE_ESTIMATED_SHORTFALL`：估算低于配置的类别目标；
+- `MATH_CODE_MEASUREMENT_REQUIRED`：估算达标但缺少正式实测；
+- `MATH_CODE_MEASURED_SHORTFALL`：正式实测低于目标；
+- `MATH_CODE_SUPPLY_VERIFIED`：正式实测达到目标。
+
+本次真实结果为 `MATH_CODE_SOURCE_REQUIRED`。报告中的类别目标来自配置比例，未硬编码
+102,000。
+
 ## 数学/代码候选核查
 
 本机不存在 `data/raw/candidate-math-code` 或 `data/raw/candidate-python-docs`，也没有对应的
@@ -150,11 +188,13 @@ Split 估算：
 
 ## 测试与环境
 
-- 新增测试：`tests/test_v4_real_pilot_onboarding.py` 中的 10 个 PR14 场景，`10 passed`；完整
-  onboarding 文件 `68 passed`；全量回归 `966 passed in 599.22s`（`-o addopts=''`）。
-- 覆盖：四类存在/数学缺失、五类存在、Quality 大量拒绝、Dedup 大量重复、Split 家族隔离、
-  估算 vs 实测、Val/Test 排除、无批准来源阻断、未批准来源不能 Ingest、原始输入变化导致阶段
-  身份失败、只读报告可重复、未完成数据不能 Freeze。
+- 本轮修复新增 P1 证据门禁 12 个场景、P2-1 数学/代码状态 6 个参数化用例 + 五类场景、P2-2
+  四个 Markdown 阶段状态场景；`tests/test_v4_real_pilot_onboarding.py` 共 `90 passed`。
+- 全量回归 `988 passed in 580.10s`（`-o addopts=''`）。
+- 覆盖：四类存在/数学缺失、五类存在但供给不足、Quality 大量拒绝、Dedup 大量重复、Split
+  家族隔离、估算 vs 实测、Val/Test 排除、无批准来源阻断、未批准来源不能 Ingest、原始输入变化
+  导致阶段身份失败、只读报告可重复、未完成数据不能 Freeze，以及无人工决策/无 Tokenized Stage/
+  伪造 Token Index/错误指纹/被修改评估文件/来源绑定失败时实测 Token 必须为 `null`。
 - 全部夹具均为原创软件测试数据，不包含受版权保护的语料。
 - CPU smoke：`SYNTHETIC=1 ./scripts/smoke_test.sh` 通过；`./scripts/smoke_test.sh`（本地语料，
   默认 CPU）也通过。

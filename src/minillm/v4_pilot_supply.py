@@ -224,66 +224,157 @@ def _split_estimates(dataset, chars_per_token):
     return result
 
 
-def _measured_by_category(dataset, seq_len):
-    index_path = Path(dataset) / "train.token-index.jsonl"
-    if not index_path.is_file():
-        return None, None
-    records = []
-    for number, line in enumerate(index_path.open(encoding="utf-8"), 1):
-        if not line.strip():
-            continue
-        row = _json_loads(line, f"{index_path}:{number}")
-        if not isinstance(row, dict) or row.get("category") not in V4_CATEGORIES \
-                or type(row.get("tokens")) is not int or row["tokens"] <= 0 \
-                or not isinstance(row.get("source_id"), str):
-            raise CorpusError(f"{index_path}:{number}: invalid token index row")
-        records.append(row)
-    if not records:
-        raise CorpusError("empty Train token index")
-    by_category = supervision_by_category(((row["category"], row["tokens"]) for row in records), seq_len)
-    by_source = supervision_by_field(records, seq_len, "source_id")
-    return by_category, by_source
+def _stage_artifact(dataset, stage, filename):
+    """Verify one published artifact against its Stage manifest.
+
+    This proves the artifact hash/size binding; the formal generation identity
+    still comes from ``verify_selection``/readiness.  It never treats mere file
+    existence as stage success.
+    """
+    marker_path = Path(dataset) / ".v4" / f"{stage}.stage.json"
+    if not marker_path.is_file():
+        return {"status": "NOT_RUN", "reason": f"{stage} Stage is absent"}
+    try:
+        marker = _read(marker_path)
+        path = (Path(dataset) / filename).resolve()
+        info = (marker.get("files") or {}).get(str(path))
+        if info is None:
+            return {"status": "INVALID", "reason": f"{filename} absent from {stage} Stage evidence"}
+        verify_file(path, info)
+    except (CorpusError, OSError, ValueError, KeyError, TypeError):
+        return {"status": "INVALID", "reason": f"artifact evidence invalid for {filename}"}
+    return {"status": "VERIFIED", "stage_key": marker.get("key"),
+            "sha256": info["sha256"], "bytes": info["bytes"]}
+
+
+def _candidate_evidence(dataset, report, config):
+    """Reuse the tokenizer candidate-record contract for source binding."""
+    if report is None:
+        return {"status": "NOT_RUN", "reason": "no tokenizer candidate report"}
+    from .tokenizer_v4 import candidate_record
+
+    dataset = Path(dataset)
+    try:
+        split_sha = file_info(dataset / "split-manifest.json")["sha256"]
+        train_sha = file_info(dataset / "train.text.jsonl")["sha256"]
+        if (report.get("split_manifest_sha256") != split_sha
+                or report.get("training_split_sha256") != train_sha):
+            raise CorpusError("candidate report is not bound to the current Split")
+        for candidate in report.get("candidates", []):
+            verified = candidate_record(Path(candidate["directory"]))
+            if verified != candidate:
+                raise CorpusError("candidate report differs from verified candidate artifact")
+            metadata = verified.get("metadata", {})
+            if (metadata.get("split_manifest_sha256") != split_sha
+                    or metadata.get("train_split_sha256") != train_sha
+                    or metadata.get("text_policy") != config["text_policy"]
+                    or metadata.get("demo_only") is not False):
+                raise CorpusError("candidate metadata is not bound to this formal Pilot")
+    except (CorpusError, OSError, ValueError, KeyError, TypeError):
+        return {"status": "INVALID", "reason": "candidate evidence is not bound to this formal Pilot"}
+    return {"status": "VERIFIED", "reason": "candidate records and Split/train binding verified"}
 
 
 def _tokenizer_report(dataset, base, readiness, config):
     dataset, base = Path(dataset), Path(base)
-    evaluation = _maybe_read(dataset / "tokenizer-evaluation.json")
-    candidates = _maybe_read(dataset / "tokenizer-candidates.json")
-    selection = _maybe_read(dataset / "tokenizer-selection.json")
-    run_status = "TOKENIZER_NOT_FINALIZED"
-    if selection is not None:
-        run_status = "TOKENIZER_SELECTED"
+
+    def safe_read(path):
+        try:
+            return _maybe_read(path), None
+        except (CorpusError, OSError, ValueError, KeyError, TypeError):
+            return None, f"unreadable evidence: {Path(path).name}"
+
+    evaluation, evaluation_error = safe_read(dataset / "tokenizer-evaluation.json")
+    candidates, candidates_error = safe_read(dataset / "tokenizer-candidates.json")
+    selection, selection_error = safe_read(dataset / "tokenizer-selection.json")
+    evidence = readiness.get("tokenization_evidence") or {}
+    evidence_status = evidence.get("status", "TOKENIZER_NOT_SELECTED")
+    evaluation_artifact = _stage_artifact(dataset, "tokenizer_eval", "tokenizer-evaluation.json")
+    candidate_artifact = _stage_artifact(dataset, "tokenizers", "tokenizer-candidates.json")
+    candidate_check = _candidate_evidence(dataset, candidates, config)
+    unverified_tokenized = bool(
+        (dataset / "train.token-index.jsonl").is_file()
+        or (dataset / ".v4/tokenized.stage.json").is_file()) and evidence_status != "VERIFIED"
+    invalid = bool(evaluation_error or candidates_error or selection_error
+                   or evidence_status == "INVALID"
+                   or evaluation_artifact["status"] == "INVALID"
+                   or candidate_artifact["status"] == "INVALID"
+                   or candidate_check["status"] == "INVALID"
+                   or unverified_tokenized)
+    selection_verified = evidence_status in ("VERIFIED", "SELECTED_NOT_TOKENIZED")
+    if invalid:
+        evaluation_status = "INVALID"
+    elif evaluation is None:
+        evaluation_status = "NOT_RUN"
+    elif evaluation_artifact["status"] == "VERIFIED" and candidate_check["status"] in ("VERIFIED", "NOT_RUN"):
+        evaluation_status = evaluation.get("status", "COMPARED")
+    else:
+        evaluation_status = "UNVERIFIED"
+    if invalid:
+        selection_status = "TOKENIZER_EVIDENCE_INVALID"
+        run_status = "TOKENIZER_EVIDENCE_INVALID"
+    elif selection_verified:
         selection_status = "HUMAN_DECISION_VERIFIED"
-    elif evaluation is not None:
-        run_status = "TOKENIZER_EVALUATED"
+        run_status = "TOKENIZER_SELECTED"
+    elif evaluation_status == "COMPARED":
         selection_status = "HUMAN_TOKENIZER_DECISION_REQUIRED"
+        run_status = "TOKENIZER_EVALUATED"
     elif readiness.get("split_status") == "PASS":
-        run_status = "TOKENIZER_EVALUATION_REQUIRED"
         selection_status = "TOKENIZER_EVALUATION_REQUIRED"
+        run_status = "TOKENIZER_EVALUATION_REQUIRED"
     else:
         selection_status = "TOKENIZER_NOT_READY"
+        run_status = "TOKENIZER_NOT_FINALIZED"
+    if evidence_status == "VERIFIED":
+        tokenization_status = "VERIFIED"
+    elif evidence_status == "SELECTED_NOT_TOKENIZED" and not unverified_tokenized:
+        tokenization_status = "NOT_RUN"
+    elif evidence_status == "INVALID" or unverified_tokenized:
+        tokenization_status = "INVALID"
+    else:
+        tokenization_status = "BLOCKED"
     result = {
         "status": readiness.get("tokenizer_status", "TOKENIZER_NOT_FINALIZED"),
-        "evaluation_status": "NOT_RUN" if evaluation is None else evaluation.get("status"),
+        "run_status": run_status,
+        "evaluation_status": evaluation_status,
         "selection_status": selection_status,
+        "tokenization_status": tokenization_status,
+        "evidence_status": "INVALID" if invalid else ("VERIFIED" if selection_verified else "UNVERIFIED"),
+        "evaluation_evidence_status": evaluation_artifact["status"],
+        "candidate_evidence_status": candidate_check["status"],
+        "candidate_artifact_status": candidate_artifact["status"],
         "eval_file": None if evaluation is None else {
             "path": _relative(dataset / "tokenizer-evaluation.json", base),
-            "sha256": file_info(dataset / "tokenizer-evaluation.json")["sha256"]},
-        "selection_file": None if selection is None else {
-            "path": _relative(dataset / "tokenizer-selection.json", base),
-            "sha256": file_info(dataset / "tokenizer-selection.json")["sha256"],
-            "candidate": selection.get("name"),
-            "fingerprint": selection.get("fingerprint"),
-            "mode": selection.get("mode")},
+            "sha256": file_info(dataset / "tokenizer-evaluation.json")["sha256"],
+            "artifact_status": evaluation_artifact["status"],
+            "stage_key": evaluation_artifact.get("stage_key")},
+        "selection_file": None,
         "candidates": [],
         "baseline": None,
         "recommendation": None,
         "parameter_budget": None,
         "fixed_eval_categories": [],
+        "selection_error": selection_error,
+        "evaluation_error": evaluation_error,
+        "candidate_error": candidate_check.get("reason") if candidate_check["status"] == "INVALID" else None,
         "limitation": ("candidate comparison does not select a tokenizer and is not a formal decision; "
-                       "effective Train supervision remains null until a human decision is recorded"),
+                       "effective Train supervision remains null until a human decision and a verified "
+                       "tokenized Stage exist"),
     }
-    if candidates is not None:
+    if selection is not None:
+        result["selection_file"] = {
+            "path": _relative(dataset / "tokenizer-selection.json", base),
+            "sha256": file_info(dataset / "tokenizer-selection.json")["sha256"]}
+        if selection_verified:
+            result["selection_file"].update({
+                "candidate": selection.get("name"),
+                "fingerprint": selection.get("fingerprint"),
+                "mode": selection.get("mode")})
+        elif invalid:
+            result["selection_file"]["error"] = "formal tokenizer decision verification failed"
+    if invalid or evaluation is None:
+        return result
+    if candidates is not None and candidate_check["status"] != "INVALID":
         for candidate in candidates.get("candidates", []):
             metadata = candidate.get("metadata", {})
             result["candidates"].append({
@@ -297,8 +388,6 @@ def _tokenizer_report(dataset, base, readiness, config):
                 "selected_chars": metadata.get("training_selection", {}).get("selected_chars"),
                 "demo_only": metadata.get("demo_only"),
             })
-    if evaluation is None:
-        return result
     comparison = evaluation.get("comparison", {})
     for candidate in result["candidates"]:
         row = comparison.get(candidate["name"])
@@ -400,6 +489,84 @@ def _stage_identity(dataset):
     return stages
 
 
+def _measurement(readiness, dataset):
+    """Only the readiness-verified tokenized Stage may publish measured tokens."""
+    evidence = readiness.get("tokenization_evidence") or {}
+    verified = (evidence.get("status") == "VERIFIED"
+                and evidence.get("measured") is True
+                and readiness.get("tokenizer_status") == "HUMAN_DECISION_VERIFIED"
+                and readiness.get("effective_train_tokens") is not None)
+    if verified:
+        return evidence, "MEASURED_VERIFIED"
+    unverified_artifact = ((Path(dataset) / "train.token-index.jsonl").is_file()
+                           or (Path(dataset) / ".v4/tokenized.stage.json").is_file())
+    if evidence.get("status") == "INVALID" or unverified_artifact:
+        return evidence, "TOKENIZED_EVIDENCE_INVALID"
+    if evidence.get("status") == "SELECTED_NOT_TOKENIZED":
+        return evidence, "NOT_MEASURED_TOKENIZED_STAGE_NOT_RUN"
+    return evidence, "NOT_MEASURED_TOKENIZER_NOT_FINALIZED"
+
+
+def _math_supply_status(admitted, split_assessed, estimated, measured, target):
+    if not admitted:
+        return "MATH_CODE_SOURCE_REQUIRED"
+    if not split_assessed or estimated is None:
+        return "MATH_CODE_SUPPLY_NOT_ASSESSED"
+    if measured is not None:
+        return "MATH_CODE_SUPPLY_VERIFIED" if measured >= target else "MATH_CODE_MEASURED_SHORTFALL"
+    if estimated < target:
+        return "MATH_CODE_ESTIMATED_SHORTFALL"
+    return "MATH_CODE_MEASUREMENT_REQUIRED"
+
+
+def _pipeline_status(readiness, evidence, dataset, blockers=()):
+    blockers = set(blockers or readiness.get("blockers", []))
+    stage_error = "STAGE_EVIDENCE_INVALID" in blockers
+    tokenization = evidence.get("status", "TOKENIZER_NOT_SELECTED")
+    unverified_artifact = ((Path(dataset) / "train.token-index.jsonl").is_file()
+                           or (Path(dataset) / ".v4/tokenized.stage.json").is_file())         and evidence.get("status") != "VERIFIED"
+    if evidence.get("status") == "VERIFIED":
+        selection = "VERIFIED"
+        tokenized = "VERIFIED"
+    elif evidence.get("status") == "SELECTED_NOT_TOKENIZED":
+        selection = "VERIFIED"
+        tokenized = "NOT_RUN"
+    elif evidence.get("status") == "INVALID" or stage_error or unverified_artifact:
+        selection = "INVALID"
+        tokenized = "INVALID"
+    elif "HUMAN_TOKENIZER_DECISION_REQUIRED" in blockers:
+        selection = "BLOCKED"
+        tokenized = "BLOCKED"
+    else:
+        selection = "NOT_RUN"
+        tokenized = "BLOCKED"
+    budget_artifact = _stage_artifact(dataset, "budget", "budget-report.json")
+    if tokenized == "VERIFIED" and readiness.get("budget_gap", {}).get("measured_category_gap_total") is not None:
+        budget = ("VERIFIED" if budget_artifact["status"] == "VERIFIED" else
+                  "INVALID" if budget_artifact["status"] == "INVALID" else "NOT_RUN")
+    elif tokenized in ("INVALID", "BLOCKED"):
+        budget = tokenized
+    else:
+        budget = "NOT_RUN"
+    contamination = readiness.get("contamination_status", "NOT_RUN")
+    if contamination not in ("CHECKED_NO_HITS", "REVIEWED"):
+        contamination = "INVALID" if stage_error else contamination
+    frozen = (Path(dataset) / "FROZEN").is_file()
+    if tokenization == "INVALID" and frozen:
+        freeze, audit = "INVALID", "INVALID"
+    elif readiness.get("status") == "FROZEN_VERIFIED":
+        freeze, audit = "VERIFIED", "VERIFIED"
+    elif frozen:
+        freeze = "INVALID"
+        audit = "INVALID" if readiness.get("frozen_integrity_status") == "FAIL" else "NOT_RUN"
+    else:
+        freeze = "NOT_RUN"
+        audit = "INVALID" if stage_error else "NOT_RUN"
+    return {"tokenizer_selection": selection, "tokenization": tokenized,
+            "contamination": contamination, "budget": budget,
+            "audit": audit, "freeze": freeze}
+
+
 def analyze_supply(config, base, dataset, *, sample_manifests=(), run_id=None):
     """Return a deterministic, sanitized supply report for one built dataset."""
     base, dataset = Path(base).resolve(), Path(dataset).resolve()
@@ -421,7 +588,10 @@ def analyze_supply(config, base, dataset, *, sample_manifests=(), run_id=None):
     train_by_source, train_by_category = _train_rows(dataset, chars_per_token) if split_pass else (None, None)
     split_estimates = _split_estimates(dataset, chars_per_token) if split_pass else None
     dedup_source, dedup_exact_near = _dedup_by_source(dataset) if dedup_verified else (None, None)
-    measured_category, measured_source = _measured_by_category(dataset, seq_len) if split_pass else (None, None)
+    measured_evidence, measurement_status = _measurement(readiness, dataset)
+    measured_category = (measured_evidence.get("by_category")
+                         if measurement_status == "MEASURED_VERIFIED" else None)
+    measured_source = measured_evidence if measurement_status == "MEASURED_VERIFIED" else None
 
     sources = {}
     for source_id, original in readiness["source_status"].items():
@@ -448,9 +618,9 @@ def analyze_supply(config, base, dataset, *, sample_manifests=(), run_id=None):
         row["train"] = None if train is None else {
             **train,
             "effective_train_tokens": None if measured_source is None else
-            measured_source["by_field"].get(source_id, 0),
-            "effective_basis": ("NOT_MEASURED: tokenizer not formally selected"
-                                if measured_source is None else "exact packed supervision")}
+            measured_source.get("by_source", {}).get(source_id, 0),
+            "effective_basis": ("exact packed supervision" if measured_source is not None
+                                else measurement_status)}
         sources[source_id] = row
 
     categories = {}
@@ -488,8 +658,8 @@ def analyze_supply(config, base, dataset, *, sample_manifests=(), run_id=None):
             "train": None if train_category is None else {
                 **train_category,
                 "effective_train_tokens": None if effective is None else effective,
-                "effective_basis": ("NOT_MEASURED: tokenizer not formally selected"
-                                    if effective is None else "exact packed supervision"),
+                "effective_basis": ("exact packed supervision" if effective is not None
+                                    else measurement_status),
             },
             "estimated_train_tokens": estimated,
             "estimated_gap_tokens": None if estimated is None else max(0, target_tokens - estimated),
@@ -497,8 +667,7 @@ def analyze_supply(config, base, dataset, *, sample_manifests=(), run_id=None):
             "effective_train_tokens": effective,
             "effective_gap_tokens": None if effective is None else max(0, target_tokens - effective),
             "effective_coverage": None if effective is None else effective / target_tokens,
-            "measurement_status": ("NOT_MEASURED_TOKENIZER_NOT_FINALIZED" if effective is None
-                                   else "MEASURED_PACKED_SUPERVISION"),
+            "measurement_status": measurement_status,
         }
 
     accounting = _Accounting()
@@ -586,7 +755,7 @@ def analyze_supply(config, base, dataset, *, sample_manifests=(), run_id=None):
                          if dedup_report else None, True,
                          "Train can only contain deduplicated KEEP documents")
     if measured_category is not None:
-        measured_total = measured_category["effective_tokens"]
+        measured_total = sum(measured_category.values())
         accounting.check("effective tokens vs readiness", readiness.get("effective_train_tokens"),
                          measured_total, "packed supervision is recomputed from the token index")
         accounting.check("effective tokens vs category rows", measured_total,
@@ -620,9 +789,26 @@ def analyze_supply(config, base, dataset, *, sample_manifests=(), run_id=None):
     blockers = set(readiness.get("blockers", []))
     math_sources = [row for row in sources.values() if row["category"] == "math_logic_code"]
     math_admitted = [row for row in math_sources if row["admitted"]]
-    if not math_admitted:
-        blockers.add("MATH_CODE_SOURCE_REQUIRED")
+    math_category = categories["math_logic_code"]
+    math_target = math_category["target_effective_train_tokens"]
+    math_supply = math_category["estimated_train_tokens"]
+    math_measured = math_category["effective_train_tokens"]
+    math_status = _math_supply_status(bool(math_admitted), split_pass, math_supply,
+                                      math_measured, math_target)
+    math_blockers = {
+        "MATH_CODE_SOURCE_REQUIRED": "MATH_CODE_SOURCE_REQUIRED",
+        "MATH_CODE_SUPPLY_NOT_ASSESSED": "MATH_CODE_SUPPLY_NOT_ASSESSED",
+        "MATH_CODE_ESTIMATED_SHORTFALL": "MATH_CODE_SUPPLY_SHORTFALL",
+        "MATH_CODE_MEASURED_SHORTFALL": "MATH_CODE_SUPPLY_SHORTFALL",
+        "MATH_CODE_MEASUREMENT_REQUIRED": "MATH_CODE_MEASUREMENT_REQUIRED",
+    }
+    if math_status in math_blockers:
+        blockers.add(math_blockers[math_status])
     tokenizer = _tokenizer_report(dataset, base, readiness, config)
+    if measurement_status == "TOKENIZED_EVIDENCE_INVALID" or tokenizer["evidence_status"] == "INVALID":
+        blockers.add("TOKENIZED_EVIDENCE_INVALID")
+    elif measurement_status == "NOT_MEASURED_TOKENIZED_STAGE_NOT_RUN":
+        blockers.add("TOKENIZED_EVIDENCE_REQUIRED")
     if tokenizer["evaluation_status"] == "COMPARED" and tokenizer["selection_status"] == "HUMAN_TOKENIZER_DECISION_REQUIRED":
         blockers.add("HUMAN_TOKENIZER_DECISION_REQUIRED")
     elif tokenizer["evaluation_status"] in (None, "NOT_RUN") and split_pass:
@@ -633,17 +819,23 @@ def analyze_supply(config, base, dataset, *, sample_manifests=(), run_id=None):
     status = readiness.get("status", "DATA_NOT_READY")
     if consistency["status"] == "FAIL" and status in ("READY_FOR_FREEZE", "FROZEN_VERIFIED"):
         status = "DATA_NOT_READY"
+    if measurement_status != "MEASURED_VERIFIED" and status in ("READY_FOR_FREEZE", "FROZEN_VERIFIED"):
+        status = "DATA_NOT_READY"
+    if tokenizer["evidence_status"] == "INVALID" and status in ("READY_FOR_FREEZE", "FROZEN_VERIFIED"):
+        status = "DATA_NOT_READY"
     if status == "READY_FOR_FREEZE" and blockers - {"FINAL_AUDIT_REQUIRED"}:
         status = "DATA_NOT_READY"
+    pipeline_status = _pipeline_status(readiness, measured_evidence, dataset, blockers)
 
-    math_supply = categories["math_logic_code"]["estimated_train_tokens"]
     math_section = {
-        "status": "MATH_CODE_READY" if math_admitted else "MATH_CODE_SOURCE_REQUIRED",
-        "target_effective_train_tokens": categories["math_logic_code"]["target_effective_train_tokens"],
+        "status": math_status,
+        "target_effective_train_tokens": math_target,
         "estimated_train_tokens": math_supply,
-        "estimated_gap_tokens": (max(0, categories["math_logic_code"]["target_effective_train_tokens"]
-                                     - math_supply) if math_supply is not None else
-                                 categories["math_logic_code"]["target_effective_train_tokens"]),
+        "measured_train_tokens": math_measured,
+        "estimated_gap_tokens": (max(0, math_target - math_supply)
+                                 if math_supply is not None else math_target),
+        "measured_gap_tokens": (max(0, math_target - math_measured)
+                                if math_measured is not None else None),
         "admitted_sources": [row["source_id"] for row in math_admitted],
         "candidate_sources": [{
             "source_id": row["source_id"], "license_status": row["license_status"],
@@ -661,7 +853,8 @@ def analyze_supply(config, base, dataset, *, sample_manifests=(), run_id=None):
                         "downloaded without confirmed permission."),
     }
 
-    measured_category_tokens = readiness.get("effective_train_tokens")
+    measured_category_tokens = (readiness.get("effective_train_tokens")
+                                if measurement_status == "MEASURED_VERIFIED" else None)
     report = {
         "schema": "v4-pilot-supply/1",
         "run_id": run_id or dataset.name,
@@ -674,6 +867,7 @@ def analyze_supply(config, base, dataset, *, sample_manifests=(), run_id=None):
             "dedup_status": readiness.get("dedup_status"),
             "split_status": readiness.get("split_status"),
             "tokenizer_status": readiness.get("tokenizer_status"),
+            "tokenization_evidence_status": measured_evidence.get("status"),
             "dataset_frozen": (dataset / "FROZEN").is_file(),
             "plan": _plan_identity(dataset),
             "stage_identity": _stage_identity(dataset),
@@ -717,8 +911,14 @@ def analyze_supply(config, base, dataset, *, sample_manifests=(), run_id=None):
             "effective_train_tokens": measured_category_tokens,
             "measured_category_gap_total": measured_gap_total,
             "unverified_target_tokens": readiness.get("budget_gap", {}).get("unverified_target_tokens"),
-            "measurement_basis": ("exact packed supervised positions" if measured_category_tokens is not None
-                                  else "NOT_MEASURED: tokenizer not formally selected"),
+            "measurement_status": measurement_status,
+            "measurement_basis": ("exact packed supervised positions from a verified tokenized Stage"
+                                  if measured_category_tokens is not None
+                                  else ("NOT_MEASURED: tokenizer not formally selected"
+                                        if measurement_status == "NOT_MEASURED_TOKENIZER_NOT_FINALIZED"
+                                        else ("TOKENIZED_EVIDENCE_INVALID: formal tokenization verification failed"
+                                              if measurement_status == "TOKENIZED_EVIDENCE_INVALID"
+                                              else measured_evidence.get("reason", measurement_status)))),
             "val_test_in_train_budget": False,
         },
         "supply_status": {
@@ -729,6 +929,7 @@ def analyze_supply(config, base, dataset, *, sample_manifests=(), run_id=None):
                          "MEASURED_SUPPLY_SHORTFALL" if measured_gap_total is not None else
                          "NOT_ASSESSED"),
         },
+        "pipeline_status": pipeline_status,
         "tokenizer": tokenizer,
         "math_logic_code": math_section,
         "consistency": consistency,
@@ -743,7 +944,7 @@ def analyze_supply(config, base, dataset, *, sample_manifests=(), run_id=None):
     report["next_actions"] = _next_actions(report)
     report["content_id"] = identity({key: report[key] for key in (
         "corpus_version", "status", "targets", "totals", "categories", "sources",
-        "tokenizer", "math_logic_code", "consistency", "dataset")})
+        "pipeline_status", "tokenizer", "math_logic_code", "consistency", "dataset")})
     return report
 
 
@@ -751,16 +952,32 @@ def _next_actions(report):
     actions = []
     if report["consistency"]["status"] != "PASS":
         actions.append("先修正来源/类别计数不一致，再使用本报告。")
-    if report["math_logic_code"]["status"] != "MATH_CODE_READY":
+    math = report["math_logic_code"]
+    gap = math["estimated_gap_tokens"]
+    if math["status"] == "MATH_CODE_SOURCE_REQUIRED":
         actions.append(
             "获取已批准的数学/代码来源，固定发布版本，完成许可审核、转换和样本证据；"
-            f"剩余目标为 {report['math_logic_code']['estimated_gap_tokens']:,} 个有效 Token。")
+            f"剩余目标为 {gap:,} 个有效 Token。")
+    elif math["status"] == "MATH_CODE_SUPPLY_NOT_ASSESSED":
+        actions.append("对已准入数学/代码来源执行 Split，再评估供给。")
+    elif math["status"] == "MATH_CODE_ESTIMATED_SHORTFALL":
+        actions.append(f"数学/代码估算供给不足，缺口 {gap:,} 个有效 Token；请增加已批准数据。")
+    elif math["status"] == "MATH_CODE_MEASUREMENT_REQUIRED":
+        actions.append("数学/代码估算已达到类别目标，但仍需人工选定 Tokenizer 并完成 tokenize 实测确认。")
+    elif math["status"] == "MATH_CODE_MEASURED_SHORTFALL":
+        actions.append(f"数学/代码实测供给不足，缺口 {math['measured_gap_tokens']:,} 个有效 Token。")
     tokenizer = report["tokenizer"]
-    if tokenizer.get("evaluation_status") in (None, "NOT_RUN"):
+    if tokenizer.get("evidence_status") == "INVALID":
+        actions.append("修复 Tokenizer 选择/评估/候选证据；在正式证据恢复前不得进入 Freeze。")
+    elif tokenizer.get("evaluation_status") in (None, "NOT_RUN"):
         actions.append("运行现有 Train-only Tokenizer 候选评估（24,576 与 32,768）。")
     elif tokenizer.get("selection_status") == "HUMAN_TOKENIZER_DECISION_REQUIRED":
         actions.append("由人工审核者签署 Tokenizer 选择；不允许自动选择。")
-    if report["totals"]["effective_train_tokens"] is None:
+    if report["totals"]["measurement_status"] == "TOKENIZED_EVIDENCE_INVALID":
+        actions.append("修复 Tokenized Stage/Token Index 证据；本报告不会发布任何实测 Token。")
+    elif report["totals"]["measurement_status"] == "NOT_MEASURED_TOKENIZED_STAGE_NOT_RUN":
+        actions.append("人工选择已确认，但 Tokenized Stage 尚未运行；执行 tokenize 后再评估实测供给。")
+    elif report["totals"]["effective_train_tokens"] is None:
         actions.append("人工选定 Tokenizer 后，执行 tokenize、contamination、budget、audit，再评估 Freeze。")
     if report["totals"]["estimated_category_gap_total"] not in (None, 0):
         short = [category for category, row in report["categories"].items()
@@ -887,7 +1104,9 @@ def render_markdown(report):
         "## Tokenizer 评估",
         "",
         f"- 评估状态：`{report['tokenizer']['evaluation_status']}`；"
-        f"选择状态：`{report['tokenizer']['selection_status']}`。",
+        f"选择状态：`{report['tokenizer']['selection_status']}`；"
+        f"证据状态：`{report['tokenizer'].get('evidence_status')}`；"
+        f"Tokenization：`{report['tokenizer'].get('tokenization_status')}`。",
     ]
     recommendation = report["tokenizer"].get("recommendation")
     if recommendation:
@@ -907,13 +1126,28 @@ def render_markdown(report):
     lines += [
         "",
         "- 固定评估文本类别：`" + ", ".join(report["tokenizer"].get("fixed_eval_categories") or []) + "`。",
-        "- 未自动选择 Tokenizer；正式选择、tokenize、contamination、budget、audit 和 freeze 均未执行。",
+        "",
+        "### 流水线阶段状态",
+        "",
+        "文件存在不等于阶段成功；以下状态来自 Readiness 的正式验证结果。",
+        "",
+        "| 阶段 | 状态 |",
+        "|---|---|",
+    ]
+    stage_names = (("tokenizer_selection", "Tokenizer 选择"), ("tokenization", "Tokenize"),
+                   ("contamination", "Contamination"), ("budget", "Budget"),
+                   ("audit", "Audit"), ("freeze", "Freeze"))
+    for key, label in stage_names:
+        lines.append(f"| {label} | `{report.get('pipeline_status', {}).get(key, 'NOT_RUN')}` |")
+    lines += [
         "",
         "## 数学／代码类别",
         "",
         f"- 状态：`{report['math_logic_code']['status']}`；目标 "
         f"{number(report['math_logic_code']['target_effective_train_tokens'])}，估算缺口 "
-        f"{number(report['math_logic_code']['estimated_gap_tokens'])}。",
+        f"{number(report['math_logic_code']['estimated_gap_tokens'])}，实测 "
+        f"{number(report['math_logic_code'].get('measured_train_tokens'))}，实测缺口 "
+        f"{number(report['math_logic_code'].get('measured_gap_tokens'))}。",
     ]
     for row in report["math_logic_code"]["candidate_sources"]:
         lines.append(f"- 候选 `{row['source_id']}`：许可 `{row['license_status']}`，文件 `{row['file_status']}`，"

@@ -66,7 +66,7 @@
 
 ## Tokenizer 评估
 
-- 评估状态：`COMPARED`；选择状态：`HUMAN_TOKENIZER_DECISION_REQUIRED`。
+- 评估状态：`COMPARED`；选择状态：`HUMAN_TOKENIZER_DECISION_REQUIRED`；证据状态：`UNVERIFIED`；Tokenization：`BLOCKED`。
 - 建议：`HUMAN_DECISION_REQUIRED` / 低成本候选 `None`；仅为建议，仍需人工签署。
 
 | 候选 | 词表 | 中文 chars/token | 英文 tokens/word | 代码 chars/token | 参数量 | INT4 < 50M |
@@ -75,11 +75,23 @@
 | `v4-32768` | 32768 | 1.5755 | 1.2222 | 2.3103 | 91,771,520 | true |
 
 - 固定评估文本类别：`cpp, en, math, python, special, zh_education, zh_knowledge, zh_prose`。
-- 未自动选择 Tokenizer；正式选择、tokenize、contamination、budget、audit 和 freeze 均未执行。
+
+### 流水线阶段状态
+
+文件存在不等于阶段成功；以下状态来自 Readiness 的正式验证结果。
+
+| 阶段 | 状态 |
+|---|---|
+| Tokenizer 选择 | `BLOCKED` |
+| Tokenize | `BLOCKED` |
+| Contamination | `NOT_RUN` |
+| Budget | `BLOCKED` |
+| Audit | `NOT_RUN` |
+| Freeze | `NOT_RUN` |
 
 ## 数学／代码类别
 
-- 状态：`MATH_CODE_SOURCE_REQUIRED`；目标 102,000，估算缺口 102,000。
+- 状态：`MATH_CODE_SOURCE_REQUIRED`；目标 102,000，估算缺口 102,000，实测 null，实测缺口 null。
 - 候选 `candidate-math-code`：许可 `REVIEW_REQUIRED`，文件 `SOURCE_FILES_MISSING`，已批准输入 0。
 - 候选 `candidate-python-docs`：许可 `REVIEW_REQUIRED`，文件 `SOURCE_FILES_MISSING`，已批准输入 0。
 - 未伪造数学题、代码文档、许可结论或人工审核记录；不从网络自动下载未确认授权的数据。
