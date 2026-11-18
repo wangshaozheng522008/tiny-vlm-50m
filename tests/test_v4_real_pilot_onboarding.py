@@ -101,6 +101,8 @@ def test_wiki_extraction_sample_and_human_registry_reach_v4_ingest(tmp_path, wik
     assert source["source_evidence_status"] == "VERIFIED"
     assert source["preview_sample"]["scope"] == "RAW_INPUTS"
     assert source["preview_sample"]["verification"] == "INTEGRITY_CHECKED"
+    assert source["available_documents"] == manifest["counts"]["documents"]
+    assert source["available_characters"] == manifest["counts"]["characters"]
     reviewed = _sample_entry(entry, out)
     pipeline = _pipeline(tmp_path, _ledger(tmp_path / "reviewed.json", [reviewed]))
     assert pipeline.ingest()["documents"] == 1
@@ -429,11 +431,42 @@ def test_sample_output_preview_uses_selected_counts_and_existing_approval(tmp_pa
     assert source["file_status"] == "SOURCE_FILES_VERIFIED"
     assert source["available_files"][0]["sha256"] == manifest["output"]["sha256"]
     assert source["available_documents"] == selected < manifest["counts"]["documents"]
+    assert source["available_characters"] == manifest["counts"]["selected_characters"]
     assert source["preview_sample"]["counts"]["documents"] == manifest["counts"]["documents"]
     assert source["preview_sample"]["scope"] == "SAMPLE_OUTPUT"
     assert source["preview_sample"]["verification"] == ("REPRODUCED" if approved else "INTEGRITY_CHECKED")
     assert source["admitted"] is approved
     assert report["category_coverage"][manifest["category"]]["admitted_documents"] == (selected if approved else 0)
+
+
+@pytest.mark.parametrize("extra_kind", ["jsonl", "txt", "original"])
+def test_sample_output_preview_rejects_additional_files(tmp_path, sampled_families, extra_kind):
+    raw, out, entry, manifest = sampled_families
+    extra = raw if extra_kind == "original" else tmp_path / f"extra.{extra_kind}"
+    if extra_kind == "jsonl":
+        _write_rows(extra, [{"id": "extra", "text": "原创测试夹具中的额外文档。"}])
+    elif extra_kind == "txt":
+        extra.write_text("原创测试夹具中的额外文档。\n", encoding="utf-8")
+    reviewed = _sample_entry(entry, out)
+    reviewed["v4_source"]["paths"].append(str(extra))
+    reviewed["local_inventory"]["files"][str(extra)] = file_info(extra)
+    ledger = _ledger(tmp_path / "sample-register.json", [reviewed])
+    config = load_config(CONFIG, source_registry=ledger)
+
+    # Both files have review evidence, so rejection must come from preview scope.
+    registry = build_registry(config["sources"], demo=False, license_policy=config["license_policy"])
+    assert {item["path"] for item in inventory(registry, ROOT, config=config)} == {
+        str(out / SAMPLE_FILE), str(extra),
+    }
+
+    report = pilot_readiness(config, ROOT, tmp_path / "no-build", sample_manifests=[out / SAMPLE_MANIFEST])
+    source = report["source_status"][manifest["source_id"]]
+    assert source["file_status"] == "SOURCE_FILES_INVALID"
+    assert source["input_error"] == "sample preview requires an exact output file set"
+    assert source["admitted"] is False
+    assert report["admitted_source_count"] == 0
+    assert source["available_documents"] == source["available_characters"] == 0
+    assert source["available_files"] == []
 
 
 @pytest.mark.parametrize(("change", "reason"), [

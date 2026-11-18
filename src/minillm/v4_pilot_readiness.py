@@ -123,9 +123,9 @@ def _inspect(source, base, max_record_bytes, preview):
             configured = {str(path) for path in paths}
             output = str((manifest_path.parent / SAMPLE_FILE).resolve())
             if output in configured:
+                if configured != {output}:
+                    raise CorpusError("sample preview requires an exact output file set")
                 verify_sample_binding(manifest_path, manifest, entry, PILOT_VERSION)
-                if configured.intersection(manifest["inputs"]):
-                    raise CorpusError("configured source contains both a sample and its original inputs")
                 sample_output = output
                 result.update(available_documents=manifest["counts"]["selected_documents"],
                               available_characters=manifest["counts"]["selected_characters"])
