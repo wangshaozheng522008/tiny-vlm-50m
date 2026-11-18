@@ -83,9 +83,10 @@ Manifest 对照。可读文档数按 V4 的 1 MiB 单记录上限统计，原始
 [英文维基文库版权政策](https://en.wikisource.org/wiki/Wikisource:Copyright_policy) ·
 [Python 文档许可](https://docs.python.org/3/license.html)
 
-真实数据的 V4 Quality、Dedup、Split、候选评估及污染检查尚未运行。训练有效 Token 的实测值和差额
-待正式 Tokenizer 定版和编码，当前完整的 1,020,000 Token 目标尚无测量证据。PR #12 的原创夹具经
-常规 V4 入口验证已审核来源、拒绝与审核队列、去重、家族切分和阶段身份绑定。
+PR #14 已用真实样本运行 Quality、Dedup、Split 和 Tokenizer 候选评估；尚未人工选择 Tokenizer，也未
+tokenize、跑污染/预算/审计或 Freeze。实测有效 Token 和差额待正式 Tokenizer 定版和编码，当前完整的
+1,020,000 Token 目标尚无测量证据。PR #12 的原创夹具经常规 V4 入口验证已审核来源、拒绝与审核队列、
+去重、家族切分和阶段身份绑定。
 
 ## 2026-11-18 来源审核登记
 
@@ -101,7 +102,11 @@ Manifest 对照。可读文档数按 V4 的 1 MiB 单记录上限统计，原始
 | 中文维基教科书 | zh_education | 1,891 |
 | 英文维基文库 | en_general | 1,836 |
 
-四份样本均通过严格复现和来源准入复核。Pilot 整体仍为 `DATA_NOT_READY`，`math_logic_code` 缺少可准入数据，
-Split 和 Tokenizer 验证尚未完成。[结构化审核记录](../reports/v4-pilot-source-review-20261118.json)记录发布版、
-样本与上游文件的指纹及复核结果。正式运行通过 `--source-registry` 读取本地审核清单，校验实际文件路径、
-哈希和证据引用。
+四份样本均通过严格复现和来源准入复核。Pilot 整体仍为 `DATA_NOT_READY`，`math_logic_code` 缺少可准入数据。
+PR #14 已完成真实 Ingest → Quality → Dedup → Split，Split 为 `PASS`（家族隔离 0 违规），并完成 24,576/32,768
+两个 Tokenizer 候选的 Train-only 评估；评估结果为 `HUMAN_TOKENIZER_DECISION_REQUIRED`，未自动选择或 Freeze。
+详见 [PR #14 真实构建与缺口分析](v4-pilot-pr14-results.md) 和
+[供给分析报告](../reports/v4-pilot-pr14-20261118/supply-analysis.md)。
+
+[结构化审核记录](../reports/v4-pilot-source-review-20261118.json)记录发布版、样本与上游文件的指纹及复核结果。
+正式运行通过 `--source-registry` 读取本地审核清单，校验实际文件路径、哈希和证据引用。

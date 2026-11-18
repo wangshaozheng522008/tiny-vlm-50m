@@ -77,6 +77,46 @@ def supervision_by_category(documents, seq_len: int) -> dict:
             "by_category": counts, "documents_by_category": documents_by_category}
 
 
+def supervision_by_field(documents, seq_len: int, field: str) -> dict:
+    """Exact per-field packed supervision for dict rows with ``tokens``/``field``.
+
+    This is the same position rule as :func:`supervision_by_category`; it exists
+    so read-only reports can attribute exact supervision to a source without
+    inventing a second definition.  The order of ``documents`` must be packed
+    stream order.
+    """
+    if type(seq_len) is not int or seq_len < 2:
+        raise ValueError("seq_len must be an integer >= 2")
+    if not isinstance(field, str) or not field:
+        raise ValueError("field must be a nonempty string")
+    pending, total = [], 0
+    for row in documents:
+        if not isinstance(row, dict):
+            raise ValueError("supervision records must be mappings")
+        label, tokens = row.get(field), row.get("tokens")
+        if not isinstance(label, str) or not label:
+            raise ValueError(f"supervision records require a nonempty {field}")
+        if type(tokens) is not int or tokens <= 0:
+            raise ValueError("document token counts must be positive integers")
+        pending.append((label, tokens))
+        total += tokens
+    windows = (total - 1) // seq_len
+    limit = windows * seq_len
+    by_field, documents_by_field = {}, {}
+    cursor = 0
+    for label, tokens in pending:
+        start, end = cursor, cursor + tokens
+        a, b = max(start, 1), min(end, limit + 1)
+        if b > a:
+            by_field[label] = by_field.get(label, 0) + (b - a) - _multiples_in_range(a, b, seq_len)
+        documents_by_field[label] = documents_by_field.get(label, 0) + 1
+        cursor = end
+    return {"raw_tokens": total, "windows": windows,
+            "effective_tokens": windows * (seq_len - 1),
+            "unsupervised_tail_tokens": total - limit,
+            "by_field": by_field, "documents_by_field": documents_by_field}
+
+
 def read_token_index(paths: list[str | Path]) -> dict:
     """Read one or more ``*.token-index.jsonl`` files in file order."""
     records = []

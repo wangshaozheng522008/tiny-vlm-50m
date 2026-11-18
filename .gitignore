@@ -9,6 +9,7 @@ venv/
 .pytest_cache/
 
 # Training artefacts
+artifacts/
 runs/
 checkpoints/
 reports/

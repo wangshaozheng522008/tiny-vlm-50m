@@ -619,3 +619,228 @@ def test_reproduction_cleans_up_scratch_after_success_and_failure(tmp_path, samp
     with pytest.raises(CorpusError, match="statistics differ"):
         verify_sample(out / SAMPLE_MANIFEST, reproduce=True)
     assert not list(scratch.iterdir())
+
+
+# ---------------------------------------------------------------------------
+# PR #14 read-only Pilot supply accounting and gap analysis
+# ---------------------------------------------------------------------------
+from minillm.corpus_budget import supervision_by_category, supervision_by_field  # noqa: E402
+from minillm.v4_pilot_supply import analyze_supply, render_markdown  # noqa: E402
+
+FOUR_CATEGORIES = ("zh_general", "zh_encyclopedic", "zh_education", "en_general")
+FIVE_CATEGORIES = FOUR_CATEGORIES + ("math_logic_code",)
+SPLIT_NAMES = ("train", "val", "test")
+LONG_ORIGINAL = _rows(FIXTURES / "zh_general.jsonl")[0]["text"]
+
+
+def _category_rows(category):
+    language, filename = CATEGORIES[category]
+    rows = []
+    for index, row in enumerate(_rows(FIXTURES / f"{filename}.jsonl")):
+        rows.append({**row, "id": f"{category}-{index}",
+                     "parent_id": f"{category}-family-{index // 2}"})
+    return rows
+
+
+def _supply_fixture(tmp_path, categories=FOUR_CATEGORIES, *, stage="split", name="supply"):
+    entries = []
+    for category in categories:
+        language, _ = CATEGORIES[category]
+        path = tmp_path / f"{category}.jsonl"
+        _write_rows(path, _category_rows(category))
+        entries.append(_entry(path, category, language))
+    ledger = _ledger(tmp_path / "reviewed.json", entries)
+    config = load_config(CONFIG, source_registry=ledger)
+    pipeline = _pipeline(tmp_path, ledger, out=tmp_path / name)
+    if stage == "quality":
+        pipeline.quality()
+    elif stage == "deduplicate":
+        pipeline.deduplicate()
+    else:
+        pipeline.split()
+    return config, ledger, pipeline.out
+
+
+def test_supply_analysis_four_categories_reports_missing_math_and_no_fake_measurement(tmp_path):
+    config, _, out = _supply_fixture(tmp_path, FOUR_CATEGORIES)
+    report = analyze_supply(config, ROOT, out, run_id="four-category")
+    assert report["consistency"]["status"] == "PASS"
+    assert report["status"] == "DATA_NOT_READY"
+    assert report["dataset"]["split_status"] == "PASS"
+    assert report["dataset"]["plan"]["plan_key"]
+    assert report["dataset"]["stage_identity"]["split"]["key"]
+    assert report["math_logic_code"]["status"] == "MATH_CODE_SOURCE_REQUIRED"
+    assert "MATH_CODE_SOURCE_REQUIRED" in report["blockers"]
+    assert report["categories"]["math_logic_code"]["approved_source_documents"] == 0
+    assert report["categories"]["math_logic_code"]["estimated_train_tokens"] == 0
+    assert report["categories"]["math_logic_code"]["estimated_gap_tokens"] == 102000
+    assert report["totals"]["effective_train_tokens"] is None
+    assert report["totals"]["measurement_basis"] == "NOT_MEASURED: tokenizer not formally selected"
+    assert all(row["measurement_status"] == "NOT_MEASURED_TOKENIZER_NOT_FINALIZED"
+               for row in report["categories"].values())
+    assert report["totals"]["estimated_train_tokens"] > 0
+    assert report["tokenizer"]["selection_status"] == "TOKENIZER_EVALUATION_REQUIRED"
+    assert not (out / "FROZEN").exists()
+    with pytest.raises(FileNotFoundError):
+        verify_frozen(out)
+
+
+def test_supply_analysis_five_categories_has_math_source_but_still_reports_token_gap(tmp_path):
+    config, _, out = _supply_fixture(tmp_path, FIVE_CATEGORIES)
+    report = analyze_supply(config, ROOT, out, run_id="five-category")
+    assert report["consistency"]["status"] == "PASS"
+    assert report["math_logic_code"]["status"] == "MATH_CODE_READY"
+    assert "MATH_CODE_SOURCE_REQUIRED" not in report["blockers"]
+    assert report["math_logic_code"]["admitted_sources"] == ["software-fixture-math_logic_code"]
+    assert report["categories"]["math_logic_code"]["approved_source_documents"] > 0
+    assert report["categories"]["math_logic_code"]["estimated_gap_tokens"] > 0
+    assert "ESTIMATED_TRAIN_SUPPLY_SHORTFALL" in report["blockers"]
+
+
+def test_quality_rejects_almost_all_documents_and_analysis_keeps_them_out_of_supply(tmp_path):
+    path = tmp_path / "mostly-rejected.jsonl"
+    rows = [{"id": f"short-{index}", "parent_id": f"short-family-{index}", "text": "太短"}
+            for index in range(10)]
+    rows += [{"id": f"keep-{index}", "parent_id": f"keep-family-{index}",
+              "text": LONG_ORIGINAL + str(index)} for index in range(2)]
+    _write_rows(path, rows)
+    ledger = _ledger(tmp_path / "reviewed.json", [_entry(path, "zh_general", "zh")])
+    config = load_config(CONFIG, source_registry=ledger)
+    pipeline = _pipeline(tmp_path, ledger, out=tmp_path / "quality-only")
+    pipeline.quality()
+    report = analyze_supply(config, ROOT, pipeline.out, run_id="mostly-rejected")
+    quality = report["sources"]["software-fixture-zh_general"]["quality"]
+    assert quality["documents"] == 12
+    assert quality["reject"] == 10
+    assert quality["keep"] == 2
+    assert report["categories"]["zh_general"]["quality"]["reject"] == 10
+    assert report["dataset"]["split_status"] == "NOT_RUN"
+    assert report["totals"]["split"] is None
+    assert report["totals"]["estimated_train_tokens"] is None
+    assert report["consistency"]["status"] == "PASS"
+    assert report["status"] == "DATA_NOT_READY"
+
+
+def test_dedup_deletes_large_duplicate_set_and_accounting_stays_consistent(tmp_path):
+    path = tmp_path / "duplicate-heavy.jsonl"
+    rows = [{"id": f"dup-{index}", "parent_id": f"dup-family-{index}", "text": LONG_ORIGINAL}
+            for index in range(20)]
+    rows += [{"id": f"unique-{index}", "parent_id": f"unique-family-{index}",
+              "text": LONG_ORIGINAL + f"唯一尾部 {index}"} for index in range(4)]
+    _write_rows(path, rows)
+    ledger = _ledger(tmp_path / "reviewed.json", [_entry(path, "zh_general", "zh")])
+    config = load_config(CONFIG, source_registry=ledger)
+    pipeline = _pipeline(tmp_path, ledger, out=tmp_path / "dedup-only")
+    pipeline.deduplicate()
+    report = analyze_supply(config, ROOT, pipeline.out, run_id="dedup-heavy")
+    assert report["consistency"]["status"] == "PASS"
+    assert report["totals"]["dedup"]["deleted"] >= 19
+    assert report["totals"]["dedup"]["exact_deleted"] == 19
+    assert report["categories"]["zh_general"]["dedup"]["deleted"] >= 19
+    assert report["sources"]["software-fixture-zh_general"]["dedup"]["exact_deleted"] == 19
+    assert report["totals"]["split"] is None
+
+
+def test_split_family_isolation_and_train_budget_excludes_val_test(tmp_path):
+    config, _, out = _supply_fixture(tmp_path, FIVE_CATEGORIES)
+    report = analyze_supply(config, ROOT, out, run_id="split-isolation")
+    assert report["dataset"]["split_status"] == "PASS"
+    assert report["split_isolation"]["leakage"]["family_cluster_violations"] == 0
+    families = {}
+    for name in SPLIT_NAMES:
+        rows = _rows(out / f"{name}.text.jsonl")
+        assert rows
+        for row in rows:
+            assert families.setdefault(row["document_family_id"], name) == name
+    estimates = report["totals"]["split_estimated_tokens"]
+    assert estimates["train"]["included_in_train_budget"] is True
+    assert estimates["val"]["included_in_train_budget"] is False
+    assert estimates["test"]["included_in_train_budget"] is False
+    assert report["totals"]["estimated_train_tokens"] == estimates["train"]["estimated_tokens"]
+    assert report["totals"]["estimated_train_tokens"] != sum(
+        row["estimated_tokens"] for row in estimates.values())
+    assert report["totals"]["val_test_in_train_budget"] is False
+
+
+def test_supply_analysis_is_deterministic_and_never_selects_a_tokenizer(tmp_path):
+    config, _, out = _supply_fixture(tmp_path, FOUR_CATEGORIES)
+    first = analyze_supply(config, ROOT, out, run_id="repeatable")
+    second = analyze_supply(config, ROOT, out, run_id="repeatable")
+    assert first == second
+    assert render_markdown(first) == render_markdown(second)
+    assert first["tokenizer"]["selection_status"] == "TOKENIZER_EVALUATION_REQUIRED"
+    assert first["totals"]["effective_train_tokens"] is None
+    assert str(tmp_path) not in json.dumps(first, ensure_ascii=False)
+    assert "/home/" not in json.dumps(first, ensure_ascii=False)
+    assert "NOT_MEASURED" in render_markdown(first)
+    assert "Val/Test 不计入 Train 预算" in render_markdown(first)
+
+
+def test_supply_analysis_without_approved_sources_blocks_instead_of_fabricating(tmp_path):
+    config = load_config(CONFIG)
+    report = analyze_supply(config, ROOT, tmp_path / "never-built", run_id="no-sources")
+    assert report["status"] == "DATA_NOT_READY"
+    assert report["source_counts"]["approved"] == 0
+    assert report["source_counts"]["admitted"] == 0
+    assert report["math_logic_code"]["status"] == "MATH_CODE_SOURCE_REQUIRED"
+    assert report["totals"]["estimated_train_tokens"] is None
+    assert report["totals"]["effective_train_tokens"] is None
+    assert report["consistency"]["status"] == "PASS"
+    assert "NO_APPROVED_SOURCES" in report["blockers"]
+
+
+def test_unapproved_source_never_enters_ingest(tmp_path):
+    approved_path = tmp_path / "approved.jsonl"
+    unapproved_path = tmp_path / "unapproved.jsonl"
+    _write_rows(approved_path, [{"id": "a", "parent_id": "a", "text": LONG_ORIGINAL}])
+    _write_rows(unapproved_path, [{"id": "b", "parent_id": "b", "text": LONG_ORIGINAL + "未批准"}])
+    approved = _entry(approved_path, "zh_general", "zh")
+    unapproved = _entry(unapproved_path, "zh_encyclopedic", "zh")
+    source = unapproved["v4_source"]
+    source["license_status"] = "REVIEW_REQUIRED"
+    source["license_evidence"] = ""
+    source["license_reviewer"] = ""
+    source["license_reviewed_at"] = ""
+    unapproved["model_training"] = "PENDING"
+    unapproved["license_obligations"] = "PENDING"
+    unapproved["commercial_use"] = "PENDING"
+    unapproved["redistribution"] = "PENDING"
+    ledger = _ledger(tmp_path / "reviewed.json", [approved, unapproved])
+    pipeline = _pipeline(tmp_path, ledger, out=tmp_path / "ingest-only")
+    pipeline.ingest()
+    stage = json.loads((pipeline.out / ".v4/ingested.stage.json").read_text(encoding="utf-8"))
+    ingested = {row["source_id"] for row in stage["stats"]["by_source_reason"]}
+    assert "software-fixture-zh_general" in ingested
+    assert "software-fixture-zh_encyclopedic" not in ingested
+    excluded = {row["source_id"]: row["reason"] for row in pipeline.registry["excluded"]}
+    assert excluded["software-fixture-zh_encyclopedic"] == "license_review_required"
+
+
+def test_changed_raw_input_fails_stage_identity_without_damaging_output(tmp_path):
+    config, _, out = _supply_fixture(tmp_path, FOUR_CATEGORIES)
+    before = file_info(out / "train.text.jsonl")
+    raw = tmp_path / "zh_general.jsonl"
+    raw.write_bytes(raw.read_bytes() + b"\n")
+    with pytest.raises(CorpusError, match="SHA256/size evidence|SHA256/size mismatch"):
+        _pipeline(tmp_path, tmp_path / "reviewed.json", out=out)
+    assert file_info(out / "train.text.jsonl") == before
+    with pytest.raises(FileNotFoundError):
+        verify_frozen(out)
+
+
+def test_supervision_by_field_uses_the_exact_packed_rule():
+    documents = [
+        {"source_id": "alpha", "category": "zh_general", "tokens": 700},
+        {"source_id": "alpha", "category": "zh_general", "tokens": 301},
+        {"source_id": "beta", "category": "en_general", "tokens": 1024},
+        {"source_id": "beta", "category": "en_general", "tokens": 3},
+    ]
+    by_category = supervision_by_category(
+        ((row["category"], row["tokens"]) for row in documents), 128)
+    by_source = supervision_by_field(documents, 128, "source_id")
+    assert by_source["raw_tokens"] == by_category["raw_tokens"] == 2028
+    assert by_source["effective_tokens"] == by_category["effective_tokens"]
+    assert sum(by_source["by_field"].values()) == by_source["effective_tokens"]
+    assert by_source["by_field"] == {"alpha": 993, "beta": 912}
+    assert supervision_by_field([{"source_id": "one", "tokens": 1001}], 128,
+                                "source_id")["effective_tokens"] == 889
