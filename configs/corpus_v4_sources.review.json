@@ -8,7 +8,7 @@
       "license_references": [
         {
           "uri": "https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use",
-          "verification": "public terms reference read; dataset/release NOT verified"
+          "verification": "Public reference for human review; release-specific permission pending."
         }
       ],
       "commercial_use": "PENDING",
@@ -37,13 +37,14 @@
         "language": "zh",
         "provenance_status": "UNVERIFIED",
         "paths": [
-          "data/raw/candidate-zh-wikipedia"
+          "data/raw/candidate-zh-wikipedia/zhwiki-20261101-pages.jsonl"
         ],
         "family_policy": "document"
       },
       "model_training": "PENDING",
       "license_obligations": "PENDING",
-      "corpus_versions": []
+      "corpus_versions": [],
+      "upstream_snapshot_uri": "https://dumps.wikimedia.org/zhwiki/20261101/"
     },
     {
       "publisher": "PENDING",
@@ -127,7 +128,7 @@
       "license_references": [
         {
           "uri": "https://zh.wikisource.org/wiki/Wikisource:版权信息/全文",
-          "verification": "candidate reference only; no dataset downloaded or approved"
+          "verification": "Public reference for human review; release-specific permission pending."
         }
       ],
       "commercial_use": "PENDING",
@@ -155,14 +156,15 @@
         "language": "zh",
         "provenance_status": "UNVERIFIED",
         "paths": [
-          "data/raw/candidate-zh-wikisource"
+          "data/raw/candidate-zh-wikisource/zhwikisource-20261101-pages.jsonl"
         ],
         "family_policy": "document",
         "notes": "Derived subset: 20 equally spaced ~10 MiB byte ranges of the 20261101 multistream dump (1.86% of 10.60 GiB). Byte ranges and hashes are recorded in the local sample manifest; the sample does not match any official checksum."
       },
       "model_training": "PENDING",
       "license_obligations": "PENDING",
-      "corpus_versions": []
+      "corpus_versions": [],
+      "upstream_snapshot_uri": "https://dumps.wikimedia.org/zhwikisource/20261101/"
     },
     {
       "publisher": "Wikibooks contributors",
@@ -170,7 +172,11 @@
       "license_references": [
         {
           "uri": "https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use",
-          "verification": "candidate reference only; no dataset downloaded or approved"
+          "verification": "Public reference for human review; release-specific permission pending."
+        },
+        {
+          "uri": "https://zh.wikibooks.org/wiki/Wikibooks:版权信息",
+          "verification": "Public reference for human review; release-specific permission pending."
         }
       ],
       "commercial_use": "PENDING",
@@ -198,13 +204,14 @@
         "language": "zh",
         "provenance_status": "UNVERIFIED",
         "paths": [
-          "data/raw/candidate-zh-wikibooks"
+          "data/raw/candidate-zh-wikibooks/zhwikibooks-20261101-pages.jsonl"
         ],
         "family_policy": "document"
       },
       "model_training": "PENDING",
       "license_obligations": "PENDING",
-      "corpus_versions": []
+      "corpus_versions": [],
+      "upstream_snapshot_uri": "https://dumps.wikimedia.org/zhwikibooks/20261101/"
     },
     {
       "publisher": "Work authors and Wikisource contributors",
@@ -212,7 +219,11 @@
       "license_references": [
         {
           "uri": "https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use",
-          "verification": "candidate reference only; no dataset downloaded or approved"
+          "verification": "Public reference for human review; release-specific permission pending."
+        },
+        {
+          "uri": "https://en.wikisource.org/wiki/Wikisource:Copyright_policy",
+          "verification": "Public reference for human review; release-specific permission pending."
         }
       ],
       "commercial_use": "PENDING",
@@ -240,13 +251,14 @@
         "language": "en",
         "provenance_status": "UNVERIFIED",
         "paths": [
-          "data/raw/candidate-en-wikisource"
+          "data/raw/candidate-en-wikisource/enwikisource-20261101-pages.jsonl"
         ],
         "family_policy": "document"
       },
       "model_training": "PENDING",
       "license_obligations": "PENDING",
-      "corpus_versions": []
+      "corpus_versions": [],
+      "upstream_snapshot_uri": "https://dumps.wikimedia.org/enwikisource/20261101/"
     },
     {
       "publisher": "Python Software Foundation and individual contributors",

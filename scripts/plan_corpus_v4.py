@@ -83,6 +83,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__
                                       , formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--config", default="configs/corpus_v4.yaml")
+    parser.add_argument("--source-registry", help="local reviewed registry for this configuration")
     parser.add_argument("--demo", action="store_true",
                         help="run the synthetic fixture demonstration and mark every artifact DEMO_ONLY")
     parser.add_argument("--out", default=None,
@@ -105,7 +106,7 @@ def main(argv=None) -> int:
                 "effective_train_tokens": manifest["effective_train_tokens"]})
         return 0
 
-    config = load_config(Path(args.config))
+    config = load_config(Path(args.config), source_registry=args.source_registry)
     report = status_report(config, Path.cwd(), demo=args.demo,
                            dataset_dir=Path(args.out) if args.out else None)
     if args.status_only:
@@ -120,6 +121,7 @@ def main(argv=None) -> int:
                            f"artifacts/corpus/{config['corpus_version']}"))
     registry, inputs = _registry(config, args.demo)
     pipeline = CorpusV4Pipeline(out, config, registry, inputs, demo=args.demo)
+    pipeline._assert_writable()
     write_json(out / "status-report.json", report)
 
     if args.stage != "all":

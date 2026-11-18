@@ -201,6 +201,8 @@ def validate_reviewed_source(source, observed_inputs=None, *, corpus_version=Non
     if verify_inputs:
         for filename, info in expected.items():
             verify_file(Path(filename), info)
+        from .v4_pilot_sampling import verify_reviewed_samples
+        verify_reviewed_samples(entry, version)
     return record["sha256"]
 
 
