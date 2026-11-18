@@ -10,7 +10,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from minillm.wiki_dump import DEFAULT_NAMESPACES, extract_dump, write_manifest
+from minillm.corpus_utils import CorpusError
+from minillm.wiki_dump import DEFAULT_NAMESPACES, extract_dump
 
 
 def main():
@@ -21,13 +22,19 @@ def main():
     parser.add_argument("--source-id", required=True, help="V4 source_id this dump belongs to")
     parser.add_argument("--namespaces", default=",".join(str(n) for n in DEFAULT_NAMESPACES),
                         help="comma separated namespace ids to keep (default: 0)")
-    parser.add_argument("--max-pages", type=int, default=None, help="stop after N kept pages")
+    parser.add_argument("--max-pages", type=int, default=None,
+                        help="stop after N kept pages and mark the extraction partial if reached")
     parser.add_argument("--manifest", default=None, help="manifest path (default: <out>.manifest.json)")
     args = parser.parse_args()
-    namespaces = tuple(sorted({int(part) for part in args.namespaces.split(",") if part.strip()}))
-    manifest = extract_dump(args.dump, args.out, source_id=args.source_id,
-                            namespaces=namespaces, max_pages=args.max_pages)
-    write_manifest(manifest, Path(args.manifest or (args.out + ".manifest.json")))
+    try:
+        namespaces = tuple(sorted({int(part) for part in args.namespaces.split(",") if part.strip()}))
+        manifest = extract_dump(args.dump, args.out, source_id=args.source_id,
+                                namespaces=namespaces, max_pages=args.max_pages,
+                                manifest_path=args.manifest or (args.out + ".manifest.json"))
+    except (CorpusError, OSError, ValueError) as exc:
+        parser.exit(1, f"{parser.prog}: {exc}\n")
+    except KeyboardInterrupt:
+        parser.exit(130, f"{parser.prog}: extraction interrupted\n")
     print(json.dumps(manifest, ensure_ascii=False, indent=2))
 
 

@@ -56,6 +56,32 @@ CC-BY-NC、署名、ShareAlike、引用内容和具体来源限制都必须形�
 `LICENSE_UNVERIFIED` 永不准入；REVIEW_REQUIRED/REJECTED 不进入正式 Ingest。
 不能把历史 MiniMind 混合语料直接批准，也不能用测试中的合成许可记录代替真实审批。
 
+## Wikimedia Dump 抽取
+
+```bash
+python scripts/extract_wiki_dump.py /read-only/pages-articles.xml.bz2 \
+  --source-id YOUR_SOURCE_ID --out /staging/NEW_VERSION/pages.jsonl
+```
+
+抽取支持带命名空间的 Wikimedia XML 及无根 multistream 页面片段。解析按页释放 XML 节点，
+保留单页内容直至提取完毕。文本超过 8 MiB 时按 `oversized_page` 记账，大小检查在清洗前完成。
+保留页数为零时，命令报错并显示扫描和跳过计数。抽取前后校验输入文件的完整 SHA256 和字节数，
+并核对读取句柄与输入路径的文件标识。抽取期间请保持原始 dump 稳定。
+
+`--out` 和 `--manifest` 需要指向新的文件路径。Manifest 默认写入 `<out>.manifest.json`。
+抽取在各目标所在目录独占创建随机命名的 `.partial` 文件，写完并验证后用 `os.link()` 原子创建正式文件。
+目标文件系统须支持同目录硬链接，例如常见的 Linux 文件系统及 Windows NTFS。不支持硬链接时，
+命令报错退出。普通异常和 Ctrl-C 会清理本次创建的暂存文件。进程被强制终止可能留下隐藏的 `.partial` 文件，
+确认所属进程退出后可清理。
+
+CLI 先发布已验证的 JSONL，再发布 Manifest。若第二步失败，命令返回非零，已验证的 JSONL 保留，
+可选择一对新路径重新抽取。用于来源审核的转换证据应包含成对产物，并核对 Manifest 记录的 JSONL 摘要。
+
+`--max-pages N` 在保留第 N 页时停止解析，Manifest 记录 `PARTIAL`、`complete_input_scan: false`
+及该上限。即使第 N 页恰好是最后一页，达到上限仍标记为部分抽取。完整文件的 SHA256 和字节数仍会复验。
+`COMPLETE` 表示扫描完传入文件。若传入的是从上游 dump 切出的样本，审核时仍需记录其抽样来源与范围。
+正式准入继续按 V4 的人工许可和文件审核规则执行。
+
 ## 本地暂存
 
 ```bash
