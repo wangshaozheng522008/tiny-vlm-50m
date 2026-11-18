@@ -35,8 +35,8 @@ SHA256 和字节数。已有输出目录应换新路径，变更输入后重新�
 `minillm-corpus-v4-pilot-1m-v1` 填写适用版本。其他版本需要各自的人工许可范围。
 
 审核完整后由人将对应条目标记为 `APPROVED`。PR #10 的审核校验继续检查完整批准条目、发布版本和实际 Ingest
-文件。包含抽样溯源的条目还会重验抽样 Manifest、选样结果和原始 JSONL。保留这些证据以便重跑、
-冻结和 Pilot 再准入。未经审核的真实样本可以用于文件盘点和审阅，Split 仍依赖正式来源门禁。
+文件。正式审核的样本还会使用 Manifest 参数从原始 JSONL 重跑家族选样，逐条比较样本，并复核家族和文档统计。
+重跑使用临时 SQLite 保持内存有界。保留 Manifest、样本和原始 JSONL，以便重跑、冻结和 Pilot 再准入。
 
 ## 运行和验证
 
@@ -50,14 +50,17 @@ python scripts/report_v4_readiness.py --pilot-only \
 ```
 
 对于只需做文件盘点的本地来源，可附 `--base` 指定项目数据根目录，或用 `--sample` 逐项提供已验证的样本
-Manifest。正式报告区分可读来源、获批来源和适用版本已验证的来源。当五类 Train 数据和 Split 隔离
+Manifest。Registry 指向原始 JSONL 时，报告按输入统计，预览标记为 `RAW_INPUTS`。指向审核样本时，报告按
+`SAMPLE_OUTPUT` 统计选中记录，复核审核条目中的 Manifest 和输出身份。文件盘点标记
+`INTEGRITY_CHECKED`，已批准样本通过严格重跑后标记 `REPRODUCED`。当五类 Train 数据和 Split 隔离
 有证据时报告是否具备候选评估条件。预算判断以正式人工选定的 Tokenizer 和 Train packing 为依据。
 实际不足的类别保持缺口，选定的中文百科、教科书和维基文库分别保留各自类别。
 
 来源、配置和阶段文件仍由 V4 Plan、阶段 SHA256 及冻结机制绑定。阶段失败后用相同输入与配置重试，
 损坏的阶段或变更的输入用新输出目录重建。候选比较继续用 Train-only 的 24,576 和 32,768，
 评估资产绑定哈希。24,576 的正式选择由人工单独签署，完成预算和污染证据后仍须通过 V4 最终审计。
-已有冻结数据需经 `verify_frozen` 复验方可报告 `FROZEN_VERIFIED`。
+已有冻结数据需通过 `verify_frozen`，与实测有效 Token 数一致，并通过正式 Pilot Policy 才会报告
+`FROZEN_VERIFIED`。报告分别记录产物验证、预算一致性和原始 Policy 返回值。
 
 ## PR #12 本地验证快照
 

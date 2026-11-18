@@ -15,7 +15,8 @@ from .corpus_utils import CorpusError, file_info, identity, verify_file
 from .corpus_v4 import (V4_SCHEMA_VERSION, _split_isolation_check, build_registry,
                         implementation_sha256, status_report, verify_frozen)
 from .data import stream_corpus_records
-from .v4_pilot_sampling import PILOT_VERSION, SAMPLE_KIND, scan_jsonl, verify_sample
+from .v4_pilot_sampling import (PILOT_VERSION, SAMPLE_FILE, load_sample_manifest, scan_jsonl,
+                                verify_sample, verify_sample_binding)
 from .v4_sources import PLACEHOLDERS, validate_reviewed_source, validate_source_plan
 
 _READ_ERRORS = (CorpusError, OSError, ValueError, KeyError, TypeError, sqlite3.Error)
@@ -109,22 +110,49 @@ def _inspect(source, base, max_record_bytes, preview):
         result["file_status"] = "SOURCE_FILES_MISSING"
         return result
     result["file_status"] = "SOURCE_FILES_VERIFIED"
+    approved = source["license_status"] == "APPROVED"
+    sample_output = None
+    preview_inputs = {}
     try:
         if preview:
-            expected = {str(path) for path in paths}
-            if (preview["source_id"] != source_id or preview["release"] != entry["release"]
-                    or preview["max_record_bytes"] != max_record_bytes
-                    or preview["corpus_version"] != PILOT_VERSION or set(preview["inputs"]) != expected):
-                raise CorpusError("preview differs from the configured source input set, version or record bound")
-            result.update(available_documents=preview["counts"]["documents"],
-                          available_characters=preview["counts"]["characters"])
+            manifest_path, manifest = preview
+            if (manifest["source_id"] != source_id or manifest["release"] != entry["release"]
+                    or manifest["category"] != source["category"] or manifest["corpus_version"] != PILOT_VERSION
+                    or manifest["max_record_bytes"] != max_record_bytes):
+                raise CorpusError("preview differs from the configured source scope or record bound")
+            configured = {str(path) for path in paths}
+            output = str((manifest_path.parent / SAMPLE_FILE).resolve())
+            if output in configured:
+                verify_sample_binding(manifest_path, manifest, entry, PILOT_VERSION)
+                if configured.intersection(manifest["inputs"]):
+                    raise CorpusError("configured source contains both a sample and its original inputs")
+                sample_output = output
+                result.update(available_documents=manifest["counts"]["selected_documents"],
+                              available_characters=manifest["counts"]["selected_characters"])
+            elif set(manifest["inputs"]) == configured:
+                preview_inputs = manifest["inputs"]
+                result.update(available_documents=manifest["counts"]["documents"],
+                              available_characters=manifest["counts"]["characters"])
+            else:
+                raise CorpusError("preview differs from the configured source input set")
+            # The approved-sample branch delegates to the strict source verifier below.
+            if not (sample_output and approved):
+                if verify_sample(manifest_path) != manifest:
+                    raise CorpusError("Pilot sample manifest changed during preview verification")
             result["preview_sample"] = {
-                k: preview[k] for k in ("sha256", "algorithm", "seed", "basis_points", "counts",
-                                        "output", "complete_input_scan", "partial_extraction")}
+                k: manifest[k] for k in ("sha256", "algorithm", "seed", "basis_points", "counts",
+                                         "output", "complete_input_scan", "partial_extraction")}
+            result["preview_sample"].update(
+                scope="SAMPLE_OUTPUT" if sample_output else "RAW_INPUTS",
+                verification="PENDING" if sample_output and approved else "INTEGRITY_CHECKED")
         observed = []
         for path in paths:
-            info = preview["inputs"][str(path)] if preview else file_info(path)
-            if not preview:
+            if str(path) == sample_output:
+                info = manifest["output"]
+            elif str(path) in preview_inputs:
+                info = preview_inputs[str(path)]
+            else:
+                info = file_info(path)
                 counts = Counter()
                 if path.suffix.lower() == ".jsonl":
                     for _ in scan_jsonl(path, source_id, max_record_bytes, counts):
@@ -151,13 +179,18 @@ def _inspect(source, base, max_record_bytes, preview):
         result.update(file_status="SOURCE_FILES_INVALID", input_error=str(exc))
         return result
 
-    if source["license_status"] == "APPROVED":
+    if approved:
         try:
             validate_reviewed_source(source, observed, corpus_version=PILOT_VERSION, verify_inputs=True)
             result["source_evidence_status"] = "VERIFIED"
             result["admitted"] = source.get("enabled", True)
+            if sample_output:
+                result["preview_sample"]["verification"] = "REPRODUCED"
         except _READ_ERRORS as exc:
             result.update(source_evidence_status="INVALID", evidence_error=str(exc))
+            if sample_output:
+                result["file_status"] = "SOURCE_FILES_INVALID"
+                result["preview_sample"]["verification"] = "FAILED"
     return result
 
 
@@ -308,11 +341,12 @@ def pilot_readiness(config, base, directory, *, sample_manifests=()):
     base, directory = Path(base).resolve(), Path(directory).resolve()
     previews = {}
     for path in sample_manifests:
-        preview = verify_sample(path)
+        path = Path(path).resolve()
+        preview = load_sample_manifest(path)
         source_id = preview["source_id"]
         if source_id in previews:
             raise CorpusError(f"duplicate sample for source {source_id}")
-        previews[source_id] = preview
+        previews[source_id] = (path, preview)
     if previews.keys() - {source["source_id"] for source in config["sources"]}:
         raise CorpusError("sample source absent from the review registry")
     by_source = {source["source_id"]: _inspect(source, base, config["quality"]["max_record_bytes"],
@@ -355,7 +389,9 @@ def pilot_readiness(config, base, directory, *, sample_manifests=()):
               "estimated_train_tokens": None, "effective_train_tokens": None,
               "target_effective_train_tokens": target,
               "budget_gap": {"unverified_target_tokens": target, "measured_category_gap_total": None},
-              "contamination_status": "NOT_RUN", "pilot_preflight_status": "BLOCKED_DATA_NOT_READY"}
+              "contamination_status": "NOT_RUN", "pilot_preflight_status": "BLOCKED_DATA_NOT_READY",
+              "frozen_integrity_status": "NOT_RUN", "frozen_budget_match": None,
+              "pilot_policy_validation": None}
     if evidence != "VERIFIED":
         blockers.add("SOURCE_EVIDENCE_INCOMPLETE")
     try:
@@ -404,17 +440,38 @@ def pilot_readiness(config, base, directory, *, sample_manifests=()):
             result["status"] = "READY_FOR_FREEZE"
             blockers.add("FINAL_AUDIT_REQUIRED")
     if result["status"] == "READY_FOR_FREEZE" and (directory / "FROZEN").is_file():
-        try:
-            from .v4_admission import validate_v4_pilot_policy
-            manifest = verify_frozen(directory)
-            if manifest["effective_train_tokens"] != effective:
-                raise CorpusError("frozen dataset differs from measured Pilot budget")
-            result["status"] = "FROZEN_VERIFIED"
-            blockers.discard("FINAL_AUDIT_REQUIRED")
-            result["pilot_preflight_status"] = validate_v4_pilot_policy(directory)["status"]
-        except _READ_ERRORS as exc:
-            result["status"] = "DATA_NOT_READY"
-            blockers.add("FROZEN_VERIFICATION_FAILED")
-            result["frozen_error"] = str(exc)
+        _check_frozen_readiness(directory, effective, result, blockers)
     result["blockers"] = sorted(blockers)
     return result
+
+
+def _check_frozen_readiness(directory, effective, result, blockers):
+    from .v4_admission import validate_v4_pilot_policy
+
+    result["status"] = "DATA_NOT_READY"
+    try:
+        manifest = verify_frozen(directory)
+        frozen_tokens = manifest["effective_train_tokens"]
+    except _READ_ERRORS as exc:
+        result["frozen_integrity_status"] = "FAIL"
+        result["frozen_error"] = str(exc)
+        blockers.add("FROZEN_VERIFICATION_FAILED")
+        return
+    result["frozen_integrity_status"] = "VERIFIED"
+    result["frozen_budget_match"] = type(frozen_tokens) is int and frozen_tokens == effective
+    if not result["frozen_budget_match"]:
+        result["frozen_error"] = "frozen dataset differs from measured Pilot budget"
+        blockers.add("FROZEN_VERIFICATION_FAILED")
+        return
+
+    try:
+        policy = validate_v4_pilot_policy(directory)
+    except _READ_ERRORS as exc:
+        policy = {"ok": False, "status": "BLOCKED_POLICY_EVIDENCE_MISSING", "errors": [str(exc)]}
+    result["pilot_policy_validation"] = policy
+    result["pilot_preflight_status"] = policy.get("status", "BLOCKED_POLICY_EVIDENCE_MISSING")
+    if policy.get("ok") is True and policy.get("status") == "POLICY_MATCH":
+        result["status"] = "FROZEN_VERIFIED"
+        blockers.discard("FINAL_AUDIT_REQUIRED")
+    else:
+        blockers.add("FROZEN_POLICY_INVALID")

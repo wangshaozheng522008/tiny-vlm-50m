@@ -1,15 +1,19 @@
 """Deterministic family sampling of local V4 JSONL before human review."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
 import sqlite3
 from collections import Counter
-from contextlib import closing
+from contextlib import closing, contextmanager
 from copy import deepcopy
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from .assessment_io import report_directory
+from .corpus_quality import V4_CATEGORIES
 from .corpus_utils import CorpusError, file_info, identity, json_bytes, verify_file, write_json
 from .data import stream_corpus_records
 
@@ -19,6 +23,11 @@ SAMPLE_FILE = "documents.jsonl"
 SAMPLE_KIND = "v4_pilot_sample"
 ALGORITHM = "sha256-family-basis-points-v1"
 _BASIS = 10_000
+_MAX_RECORD_BYTES = 8 * 1048576  # V4 quality policy upper bound
+_FAMILY_POLICIES = ("document", "file")
+_REQUIRED_COUNTS = {"rows_seen", "documents", "characters", "selected_documents",
+                    "selected_characters", "selected_families"}
+_OPTIONAL_COUNTS = {"record_too_large", "empty_text", "canonical_record_too_large", "duplicate_documents"}
 
 
 def input_paths(paths):
@@ -112,6 +121,24 @@ def _select(scratch, inputs, source, seed, basis_points, max_record_bytes):
     return dict(counts)
 
 
+@contextmanager
+def _selection_db(path):
+    with closing(sqlite3.connect(path)) as scratch:
+        scratch.execute("PRAGMA temp_store=FILE")
+        scratch.execute("PRAGMA cache_size=-8192")
+        yield scratch
+
+
+def _selected_rows(scratch):
+    for row, in scratch.execute("SELECT row FROM selected ORDER BY id"):
+        yield row
+
+
+def _sample_limit(seed, basis_points, max_record_bytes):
+    return (type(seed) is int and type(basis_points) is int and 1 <= basis_points <= _BASIS
+            and type(max_record_bytes) is int and 1 <= max_record_bytes <= _MAX_RECORD_BYTES)
+
+
 def _review_draft(entry, out, manifest, manifest_info):
     draft = deepcopy(entry)
     source = draft["v4_source"]
@@ -133,8 +160,8 @@ def _review_draft(entry, out, manifest, manifest_info):
 
 def prepare_sample(paths, out, *, entry, seed, basis_points, max_record_bytes=1048576):
     """Publish one immutable sample and a draft entry for the existing registry."""
-    if type(seed) is not int or type(basis_points) is not int or not 1 <= basis_points <= _BASIS:
-        raise CorpusError("sample requires integer seed and basis_points in [1, 10000]")
+    if not _sample_limit(seed, basis_points, max_record_bytes):
+        raise CorpusError("sample requires integer seed, basis_points in [1, 10000], and max_record_bytes in [1, 8 MiB]")
     paths = input_paths(paths)
     destination = Path(out)
     if os.path.lexists(destination):
@@ -143,16 +170,17 @@ def prepare_sample(paths, out, *, entry, seed, basis_points, max_record_bytes=10
     if any(destination == path or destination in path.parents for path in paths):
         raise CorpusError("sample output cannot contain inputs")
     source = entry["v4_source"]
+    family_policy = source.get("family_policy", "document")
+    if family_policy not in _FAMILY_POLICIES:
+        raise CorpusError("invalid sample family policy")
     stamps = {path: _stamp(path) for path in paths}
     inputs = {str(path): file_info(path) for path in paths}
     with report_directory(destination) as temp:
         database = temp / "selection.sqlite"
-        with closing(sqlite3.connect(database)) as scratch:
-            scratch.execute("PRAGMA temp_store=FILE")
-            scratch.execute("PRAGMA cache_size=-8192")
+        with _selection_db(database) as scratch:
             counts = _select(scratch, inputs, source, seed, basis_points, max_record_bytes)
             with (temp / SAMPLE_FILE).open("wb") as output:
-                for row, in scratch.execute("SELECT row FROM selected ORDER BY id"):
+                for row in _selected_rows(scratch):
                     output.write(row)
         database.unlink()
         for path in paths:
@@ -167,6 +195,8 @@ def prepare_sample(paths, out, *, entry, seed, basis_points, max_record_bytes=10
             "complete_input_scan": True, "partial_extraction": basis_points != _BASIS,
             "inputs": inputs, "counts": counts, "output": file_info(temp / SAMPLE_FILE),
         }
+        if family_policy != "document":
+            manifest["family_policy"] = family_policy
         manifest["sha256"] = identity(manifest)
         write_json(temp / SAMPLE_MANIFEST, manifest)
         draft = _review_draft(entry, destination, manifest, file_info(temp / SAMPLE_MANIFEST))
@@ -174,41 +204,150 @@ def prepare_sample(paths, out, *, entry, seed, basis_points, max_record_bytes=10
     return manifest
 
 
-def verify_sample(path, *, verify_inputs=True):
+def _file_identity(info):
+    return (isinstance(info, dict) and set(info) == {"sha256", "bytes"}
+            and type(info["bytes"]) is int and info["bytes"] > 0
+            and isinstance(info["sha256"], str) and re.fullmatch(r"[0-9a-f]{64}", info["sha256"]))
+
+
+def load_sample_manifest(path):
+    """Read and validate the manifest fields without accessing its data files."""
     path = Path(path)
-    manifest = json.loads(path.read_text(encoding="utf-8"))
-    if (manifest.get("schema") != "v4-pilot-sample/1" or manifest.get("algorithm") != ALGORITHM
-            or manifest.get("complete_input_scan") is not True
-            or manifest.get("sha256") != identity({k: v for k, v in manifest.items() if k != "sha256"})
-            or not manifest.get("inputs")):
-        raise CorpusError(f"invalid Pilot sample manifest: {path}")
-    verify_file(path.parent / SAMPLE_FILE, manifest["output"])
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(manifest, dict):
+            raise ValueError("expected a manifest object")
+        required = {"schema", "algorithm", "seed", "basis_points", "max_record_bytes",
+                    "corpus_version", "source_id", "release", "category", "complete_input_scan",
+                    "partial_extraction", "inputs", "counts", "output", "sha256"}
+        if not required <= manifest.keys() or manifest.keys() - required - {"family_policy"}:
+            raise ValueError("unexpected or missing manifest fields")
+        if manifest["schema"] != "v4-pilot-sample/1" or manifest["algorithm"] != ALGORITHM:
+            raise ValueError("unsupported sample schema or algorithm")
+        if not _sample_limit(manifest["seed"], manifest["basis_points"], manifest["max_record_bytes"]):
+            raise ValueError("invalid seed, basis_points or max_record_bytes")
+        if (not isinstance(manifest["source_id"], str) or not re.fullmatch(r"[A-Za-z0-9._:-]{2,80}", manifest["source_id"])
+                or not isinstance(manifest["release"], str) or not manifest["release"].strip()
+                or manifest["category"] not in (*V4_CATEGORIES, "auto")
+                or manifest["corpus_version"] != PILOT_VERSION
+                or manifest.get("family_policy", "document") not in _FAMILY_POLICIES):
+            raise ValueError("invalid sample source, release, category, version or family policy")
+        if (manifest["complete_input_scan"] is not True
+                or manifest["partial_extraction"] is not (manifest["basis_points"] != _BASIS)):
+            raise ValueError("invalid input scan or partial extraction status")
+        inputs, counts = manifest["inputs"], manifest["counts"]
+        if not isinstance(inputs, dict) or not inputs or not _file_identity(manifest["output"]):
+            raise ValueError("invalid sample input or output identity")
+        for filename, info in inputs.items():
+            if not Path(filename).is_absolute() or Path(filename).suffix.lower() != ".jsonl":
+                raise ValueError("sample input paths must be absolute JSONL paths")
+            if not _file_identity(info):
+                raise ValueError("invalid sample input file identity")
+        if (not isinstance(counts, dict) or not _REQUIRED_COUNTS <= counts.keys()
+                or counts.keys() - _REQUIRED_COUNTS - _OPTIONAL_COUNTS
+                or any(type(value) is not int or value < 0 for value in counts.values())
+                or not counts["selected_documents"] or not counts["selected_families"]):
+            raise ValueError("invalid sample statistics")
+        if manifest["sha256"] != identity({k: v for k, v in manifest.items() if k != "sha256"}):
+            raise ValueError("sample manifest SHA256 mismatch")
+    except (OSError, ValueError, RecursionError) as exc:
+        raise CorpusError(f"invalid Pilot sample manifest {path}: {exc}") from exc
+    return manifest
+
+
+def _verify_reproduction(output, manifest, family_policy):
+    source = {"source_id": manifest["source_id"], "family_policy": family_policy}
+    digest = hashlib.sha256()
+    size = 0
+    bound = manifest["max_record_bytes"]
+    with TemporaryDirectory(prefix="v4-pilot-verify-") as directory:
+        with _selection_db(Path(directory) / "selection.sqlite") as scratch:
+            counts = _select(scratch, manifest["inputs"], source, manifest["seed"], manifest["basis_points"], bound)
+            with output.open("rb") as published:
+                for line, expected in enumerate(_selected_rows(scratch), 1):
+                    row = published.readline(bound + 1)
+                    if not row:
+                        raise CorpusError(f"Pilot sample missing selected record {line}: {output}")
+                    if row != expected:
+                        raise CorpusError(f"Pilot sample record {line} differs from deterministic selection: {output}")
+                    digest.update(row)
+                    size += len(row)
+                if published.read(1):
+                    raise CorpusError(f"Pilot sample has extra records after deterministic selection: {output}")
+    if {"sha256": digest.hexdigest(), "bytes": size} != manifest["output"]:
+        raise CorpusError(f"Pilot sample output SHA256/size mismatch: {output}")
+    if counts != manifest["counts"]:
+        raise CorpusError(f"Pilot sample statistics differ from deterministic selection: {output}")
+
+
+def verify_sample(path, *, verify_inputs=True, reproduce=False, family_policy=None):
+    """Verify file identities and optionally replay the recorded family selection."""
+    path = Path(path)
+    manifest = load_sample_manifest(path)
+    declared_policy = manifest.get("family_policy", family_policy or "document")
+    if (declared_policy not in _FAMILY_POLICIES
+            or (family_policy is not None and declared_policy != family_policy)):
+        raise CorpusError("Pilot sample family policy differs from the reviewed source")
+    if reproduce and not verify_inputs:
+        raise CorpusError("Pilot sample reproduction requires input verification")
+    output = path.parent / SAMPLE_FILE
+    if not output.is_file():
+        raise CorpusError(f"file missing or SHA256/size mismatch: {output}")
+    output_stamp = _stamp(output)
+    stamps = {output: output_stamp}
     if verify_inputs:
         for filename, info in manifest["inputs"].items():
-            if not Path(filename).is_absolute():
-                raise CorpusError("Pilot sample input path must be absolute")
-            verify_file(Path(filename), info)
+            raw = Path(filename)
+            if not raw.is_file():
+                raise CorpusError(f"file missing or SHA256/size mismatch: {raw}")
+            stamp = _stamp(raw)
+            if stamp[:2] == output_stamp[:2]:
+                raise CorpusError("Pilot sample output cannot also be an original input")
+            stamps[raw] = stamp
+            verify_file(raw, info)
+    if reproduce:
+        _verify_reproduction(output, manifest, declared_policy)
+    else:
+        verify_file(output, manifest["output"])
+    for file, stamp in stamps.items():
+        if not file.is_file() or _stamp(file) != stamp:
+            raise CorpusError(f"Pilot sample file changed during verification: {file}")
     return manifest
+
+
+def verify_sample_binding(path, manifest, entry, version):
+    """Bind one manifest and output to the existing source review entry."""
+    path = Path(path)
+    source = entry["v4_source"]
+    links = [item for item in source.get("transformation_history", [])
+             if isinstance(item, dict) and item.get("kind") == SAMPLE_KIND and item.get("manifest") == str(path)]
+    if not path.is_absolute() or path.name != SAMPLE_MANIFEST or len(links) != 1:
+        raise CorpusError("Pilot sample requires a unique transformation_history manifest binding")
+    verify_file(path, {key: links[0][key] for key in ("bytes", "sha256")})
+    output = str((path.parent / SAMPLE_FILE).resolve())
+    if (entry["local_inventory"]["files"].get(output) != manifest["output"]
+            or manifest["source_id"] != source["source_id"] or manifest["release"] != entry["release"]
+            or manifest["category"] != source["category"] or manifest["corpus_version"] != version):
+        raise CorpusError("Pilot sample differs from reviewed scope or file identity")
+    return output
 
 
 def verify_reviewed_samples(entry, version):
     source = entry["v4_source"]
-    reviewed_files = entry["local_inventory"]["files"]
     seen = set()
     for item in source.get("transformation_history", []):
         if not isinstance(item, dict) or item.get("kind") != SAMPLE_KIND:
             continue
         try:
             path = Path(item["manifest"])
-            if not path.is_absolute() or path.name != SAMPLE_MANIFEST:
-                raise CorpusError("invalid Pilot sample manifest path")
-            verify_file(path, {key: item[key] for key in ("bytes", "sha256")})
-            sample = verify_sample(path)
-            output = str((path.parent / SAMPLE_FILE).resolve())
-            if (output in seen or reviewed_files.get(output) != sample["output"]
-                    or sample["source_id"] != source["source_id"] or sample["release"] != entry["release"]
-                    or sample["category"] != source["category"] or sample["corpus_version"] != version):
-                raise CorpusError("Pilot sample differs from reviewed scope or file identity")
+            sample = load_sample_manifest(path)
+            output = verify_sample_binding(path, sample, entry, version)
+            if output in seen:
+                raise CorpusError("Pilot sample output has multiple review bindings")
             seen.add(output)
-        except (OSError, ValueError, KeyError, TypeError) as exc:
+            reproduced = verify_sample(path, reproduce=True, family_policy=source.get("family_policy", "document"))
+            if reproduced != sample:
+                raise CorpusError("Pilot sample manifest changed during verification")
+            verify_file(path, {key: item[key] for key in ("bytes", "sha256")})
+        except (OSError, ValueError, KeyError, TypeError, sqlite3.Error) as exc:
             raise CorpusError(f"invalid Pilot sample lineage: {exc}") from exc

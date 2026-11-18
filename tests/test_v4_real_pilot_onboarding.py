@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from minillm.corpus_utils import CorpusError, file_info, json_bytes, write_json
+from minillm.corpus_utils import CorpusError, file_info, identity, json_bytes, write_json
 from minillm.corpus_v4 import CorpusV4Pipeline, build_registry, inventory, load_config, verify_frozen
 from minillm.v4_pilot_readiness import pilot_readiness
 from minillm.v4_pilot_sampling import (PILOT_VERSION, SAMPLE_FILE, SAMPLE_MANIFEST,
@@ -99,6 +99,8 @@ def test_wiki_extraction_sample_and_human_registry_reach_v4_ingest(tmp_path, wik
     source = audit["source_status"][entry["v4_source"]["source_id"]]
     assert source["available_files"][0]["wiki_conversion"]["pages_kept"] == 1
     assert source["source_evidence_status"] == "VERIFIED"
+    assert source["preview_sample"]["scope"] == "RAW_INPUTS"
+    assert source["preview_sample"]["verification"] == "INTEGRITY_CHECKED"
     reviewed = _sample_entry(entry, out)
     pipeline = _pipeline(tmp_path, _ledger(tmp_path / "reviewed.json", [reviewed]))
     assert pipeline.ingest()["documents"] == 1
@@ -136,6 +138,7 @@ def test_sample_determinism_family_identity_and_duplicate_accounting(tmp_path):
     second = prepare_sample([raw], tmp_path / "second", entry=entry, seed=42, basis_points=5000)
     selected = _rows(tmp_path / "first" / SAMPLE_FILE)
     assert manifest == second
+    assert verify_sample(tmp_path / "first" / SAMPLE_MANIFEST, reproduce=True) == manifest
     assert manifest["complete_input_scan"] and manifest["partial_extraction"]
     assert manifest["counts"]["selected_documents"] == manifest["counts"]["duplicate_documents"] == len(selected)
     assert 0 < len(selected) < len(rows)
@@ -313,3 +316,273 @@ def test_staged_fallback_excludes_conversion_sidecars(tmp_path):
     assert source["file_status"] == "SOURCE_FILES_VERIFIED"
     assert source["available_documents"] == 1 and len(source["available_files"]) == 1
     assert source["license_status"] == "REVIEW_REQUIRED" and source["admitted"] is False
+
+
+@pytest.fixture
+def sampled_families(tmp_path):
+    raw = tmp_path / "original.jsonl"
+    rows = [{"id": f"{n:02}-{part}", "parent_id": f"family:{n}",
+             "text": f"原创新夹具家庭 {n} 的第 {part} 项测试正文。"}
+            for n in range(40) for part in range(2)]
+    _write_rows(raw, rows)
+    entry = _entry(raw)
+    out = tmp_path / "sample"
+    manifest = prepare_sample([raw], out, entry=entry, seed=42, basis_points=5000)
+    assert 1 < manifest["counts"]["selected_documents"] < len(rows)
+    return raw, out, entry, manifest
+
+
+def _rewrite_manifest(out, manifest):
+    manifest["sha256"] = identity({k: v for k, v in manifest.items() if k != "sha256"})
+    write_json(out / SAMPLE_MANIFEST, manifest)
+
+
+@pytest.mark.parametrize("change", ["seed", "basis-points", "statistics", "delete", "add", "edit"])
+def test_reproduction_rejects_self_consistent_but_wrong_sample(sampled_families, change):
+    raw, out, _, manifest = sampled_families
+    sample_file = out / SAMPLE_FILE
+    if change == "seed":
+        manifest["seed"] = 43
+    elif change == "basis-points":
+        manifest.update(basis_points=10000, partial_extraction=False)
+    elif change == "statistics":
+        manifest["counts"]["selected_families"] += 1
+    else:
+        selected = _rows(sample_file)
+        if change == "delete":
+            selected.pop()
+        elif change == "add":
+            selected_ids = {row["id"] for row in selected}
+            excluded = next(row for row in _rows(raw) if row["id"] not in selected_ids)
+            selected.append({**excluded, "source": manifest["source_id"]})
+        else:
+            selected[0]["text"] += "修改的测试内容。"
+        _write_rows(sample_file, selected)
+        manifest["output"] = file_info(sample_file)
+
+    _rewrite_manifest(out, manifest)
+    assert verify_sample(out / SAMPLE_MANIFEST) == manifest
+    with pytest.raises(CorpusError, match="deterministic selection|missing selected record"):
+        verify_sample(out / SAMPLE_MANIFEST, reproduce=True)
+    assert file_info(sample_file) == manifest["output"]
+
+
+@pytest.mark.parametrize(("key", "value"), [
+    ("seed", True), ("basis_points", 0), ("basis_points", 10001), ("basis_points", 5000.0),
+    ("max_record_bytes", False), ("max_record_bytes", 8 * 1048576 + 1), ("max_record_bytes", -1),
+    ("algorithm", "future-algorithm"), ("complete_input_scan", 1), ("partial_extraction", False),
+    ("family_policy", "page-without-parent"), ("corpus_version", "different-corpus"),
+])
+def test_sample_rejects_invalid_manifest_parameters(sampled_families, key, value):
+    _, out, _, manifest = sampled_families
+    manifest[key] = value
+    _rewrite_manifest(out, manifest)
+    with pytest.raises(CorpusError, match="invalid Pilot sample manifest"):
+        verify_sample(out / SAMPLE_MANIFEST, reproduce=True)
+
+
+def test_reproduction_rejects_conflicting_original_ids_even_after_rehash(sampled_families):
+    raw, out, _, manifest = sampled_families
+    rows = _rows(raw)
+    selected, *_ = _rows(out / SAMPLE_FILE)
+    _write_rows(raw, [*rows, {**selected, "text": "和已选文档身份冲突的原创内容。"}])
+    manifest["inputs"][str(raw)] = file_info(raw)
+    _rewrite_manifest(out, manifest)
+    with pytest.raises(CorpusError, match="conflicting selected records"):
+        verify_sample(out / SAMPLE_MANIFEST, reproduce=True)
+
+
+def test_reproduction_rejects_changed_original_identity(sampled_families):
+    raw, out, _, _ = sampled_families
+    with raw.open("ab") as handle:
+        handle.write(b"\n")
+    with pytest.raises(CorpusError, match="SHA256/size mismatch"):
+        verify_sample(out / SAMPLE_MANIFEST, reproduce=True)
+
+
+def test_legacy_file_family_manifest_replays_in_reviewed_scope(tmp_path):
+    raw = tmp_path / "original.jsonl"
+    _write_rows(raw, [{"id": "11", "text": "第一段原创软件夹具。"}, {"id": "12", "text": "第二段原创软件夹具。"}])
+    entry = _entry(raw)
+    entry["v4_source"]["family_policy"] = "file"
+    out = tmp_path / "sample"
+    manifest = prepare_sample([raw], out, entry=entry, seed=42, basis_points=10000)
+    assert manifest["family_policy"] == "file"
+    assert verify_sample(out / SAMPLE_MANIFEST, reproduce=True) == manifest
+    reviewed = _sample_entry(entry, out)
+    manifest.pop("family_policy")
+    _rewrite_manifest(out, manifest)
+    reviewed["v4_source"]["transformation_history"][0].update(file_info(out / SAMPLE_MANIFEST))
+    assert verify_sample(out / SAMPLE_MANIFEST, reproduce=True, family_policy="file") == manifest
+    assert _pipeline(tmp_path, _ledger(tmp_path / "reviewed.json", [reviewed])).ingest()["documents"] == 2
+
+
+@pytest.mark.parametrize("approved", [False, True])
+def test_sample_output_preview_uses_selected_counts_and_existing_approval(tmp_path, sampled_families, approved):
+    _, out, entry, manifest = sampled_families
+    reviewed = _sample_entry(entry, out) if approved else _rows(out / "review-entry.json")[0]
+    ledger = _ledger(tmp_path / "sample-register.json", [reviewed])
+    report = pilot_readiness(load_config(CONFIG, source_registry=ledger), ROOT, tmp_path / "no-build",
+                             sample_manifests=[out / SAMPLE_MANIFEST])
+    source = report["source_status"][manifest["source_id"]]
+    selected = manifest["counts"]["selected_documents"]
+    assert source["file_status"] == "SOURCE_FILES_VERIFIED"
+    assert source["available_files"][0]["sha256"] == manifest["output"]["sha256"]
+    assert source["available_documents"] == selected < manifest["counts"]["documents"]
+    assert source["preview_sample"]["counts"]["documents"] == manifest["counts"]["documents"]
+    assert source["preview_sample"]["scope"] == "SAMPLE_OUTPUT"
+    assert source["preview_sample"]["verification"] == ("REPRODUCED" if approved else "INTEGRITY_CHECKED")
+    assert source["admitted"] is approved
+    assert report["category_coverage"][manifest["category"]]["admitted_documents"] == (selected if approved else 0)
+
+
+@pytest.mark.parametrize(("change", "reason"), [
+    ("raw-missing", "SHA256/size mismatch"),
+    ("raw-changed", "SHA256/size mismatch"),
+    ("wrong-release", "configured source scope"),
+    ("wrong-output-hash", "reviewed scope or file identity"),
+    ("unbound", "transformation_history"),
+    ("selection-rehashed", "deterministic selection"),
+])
+def test_formal_sample_preview_fails_closed(tmp_path, sampled_families, change, reason):
+    raw, out, entry, manifest = sampled_families
+    reviewed = _sample_entry(entry, out)
+    source = reviewed["v4_source"]
+    if change == "raw-missing":
+        raw.unlink()
+    elif change == "raw-changed":
+        with raw.open("ab") as handle:
+            handle.write(b"\n")
+    elif change == "wrong-release":
+        reviewed["release"] = "different-release"
+    elif change == "unbound":
+        source["transformation_history"].clear()
+    else:
+        if change == "wrong-output-hash":
+            manifest["output"]["sha256"] = "0" * 64
+        else:
+            rows = _rows(out / SAMPLE_FILE)
+            rows[0]["text"] = "伪造并重新计算身份的原创测试数据。"
+            _write_rows(out / SAMPLE_FILE, rows)
+            manifest["output"] = file_info(out / SAMPLE_FILE)
+            reviewed["local_inventory"]["files"][str(out / SAMPLE_FILE)] = manifest["output"]
+        _rewrite_manifest(out, manifest)
+        source["transformation_history"][0].update(file_info(out / SAMPLE_MANIFEST))
+    ledger = _ledger(tmp_path / "sample-register.json", [reviewed])
+    report = pilot_readiness(load_config(CONFIG, source_registry=ledger), ROOT, tmp_path / "no-build",
+                             sample_manifests=[out / SAMPLE_MANIFEST])
+    verdict = report["source_status"][source["source_id"]]
+    assert verdict["file_status"] == "SOURCE_FILES_INVALID"
+    assert not verdict["admitted"] and verdict["source_evidence_status"] != "VERIFIED"
+    assert reason in (verdict.get("input_error") or verdict["evidence_error"])
+    if change == "selection-rehashed":
+        with pytest.raises(CorpusError, match="deterministic selection"):
+            _pipeline(tmp_path, ledger)
+
+
+def test_preview_rejects_a_manifest_for_another_source(tmp_path, sampled_families):
+    _, out, entry, manifest = sampled_families
+    reviewed = _sample_entry(entry, out)
+    manifest["source_id"] = "other-reviewed-source"
+    _rewrite_manifest(out, manifest)
+    ledger = _ledger(tmp_path / "sample-register.json", [reviewed])
+    with pytest.raises(CorpusError, match="sample source absent from the review registry"):
+        pilot_readiness(load_config(CONFIG, source_registry=ledger), ROOT, tmp_path / "no-build",
+                        sample_manifests=[out / SAMPLE_MANIFEST])
+
+
+@pytest.mark.parametrize(("policy_ok", "policy_status", "frozen_problem", "expected_blocker"), [
+    (True, "POLICY_MATCH", None, None),
+    (False, "BLOCKED_POLICY_MISMATCH", None, "FROZEN_POLICY_INVALID"),
+    (False, "BLOCKED_POLICY_EVIDENCE_MISSING", None, "FROZEN_POLICY_INVALID"),
+    (True, "BLOCKED_POLICY_MISMATCH", None, "FROZEN_POLICY_INVALID"),
+    (1, "POLICY_MATCH", None, "FROZEN_POLICY_INVALID"),
+    (True, "POLICY_MATCH", "identity", "FROZEN_VERIFICATION_FAILED"),
+    (True, "POLICY_MATCH", "budget", "FROZEN_VERIFICATION_FAILED"),
+])
+def test_frozen_reporting_requires_integrity_budget_and_policy(
+        tmp_path, monkeypatch, policy_ok, policy_status, frozen_problem, expected_blocker):
+    from minillm import v4_admission, v4_pilot_readiness
+
+    reviewed = []
+    for category, (language, _) in CATEGORIES.items():
+        path = tmp_path / (category + ".jsonl")
+        _write_rows(path, [{"id": "1", "text": "审批路径的独立软件夹具。"}])
+        reviewed.append(_entry(path, category, language))
+    ledger = _ledger(tmp_path / "registry.json", reviewed)
+    config = load_config(CONFIG, source_registry=ledger)
+    target = config["targets"]["effective_train_tokens"]
+    out = tmp_path / "frozen"
+    out.mkdir()
+    (out / "FROZEN").touch()
+    (out / "contamination-report.json").touch()
+
+    def stages(config, registry, directory, result, by_source, coverage):
+        result.update(split_status="PASS", dedup_status="VERIFIED", quality_status="VERIFIED")
+        for row in coverage.values():
+            row["train_documents"] = 1
+        return object()
+
+    def token_budget(config, directory, stages, result, coverage):
+        result.update(tokenizer_status="HUMAN_DECISION_VERIFIED", effective_train_tokens=target)
+
+    def frozen(_):
+        if frozen_problem == "identity":
+            raise CorpusError("frozen input file SHA256/size mismatch")
+        return {"effective_train_tokens": target - 1 if frozen_problem == "budget" else target}
+
+    calls = []
+    policy = {"ok": policy_ok, "status": policy_status, "errors": [] if not expected_blocker else ["fixture policy error"]}
+
+    def validate(directory):
+        calls.append(directory)
+        return policy
+
+    monkeypatch.setattr(v4_pilot_readiness, "_stages", stages)
+    monkeypatch.setattr(v4_pilot_readiness, "_token_budget", token_budget)
+    monkeypatch.setattr(v4_pilot_readiness, "_contamination", lambda *_: "CHECKED_NO_HITS")
+    monkeypatch.setattr(v4_pilot_readiness, "verify_frozen", frozen)
+    monkeypatch.setattr(v4_admission, "validate_v4_pilot_policy", validate)
+    report = pilot_readiness(config, ROOT, out)
+
+    if expected_blocker:
+        assert report["status"] == "DATA_NOT_READY"
+        assert {expected_blocker, "FINAL_AUDIT_REQUIRED"} <= set(report["blockers"])
+    else:
+        assert report["status"] == "FROZEN_VERIFIED"
+        assert "FINAL_AUDIT_REQUIRED" not in report["blockers"]
+    assert report["frozen_integrity_status"] == ("FAIL" if frozen_problem == "identity" else "VERIFIED")
+    if frozen_problem:
+        assert report["frozen_budget_match"] is (False if frozen_problem == "budget" else None)
+        assert report["pilot_policy_validation"] is None and not calls
+        assert report["frozen_error"]
+    else:
+        assert report["frozen_budget_match"] is True
+        assert report["pilot_preflight_status"] == policy_status
+        assert report["pilot_policy_validation"] == policy
+        assert calls == [out]
+
+
+def test_sample_cannot_claim_itself_as_an_original_input(sampled_families):
+    _, out, _, manifest = sampled_families
+    manifest["inputs"] = {str(out / SAMPLE_FILE): manifest["output"]}
+    _rewrite_manifest(out, manifest)
+    with pytest.raises(CorpusError, match="output cannot also be an original input"):
+        verify_sample(out / SAMPLE_MANIFEST, reproduce=True)
+
+
+def test_reproduction_cleans_up_scratch_after_success_and_failure(tmp_path, sampled_families, monkeypatch):
+    import tempfile
+
+    _, out, _, manifest = sampled_families
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(scratch))
+    assert verify_sample(out / SAMPLE_MANIFEST, reproduce=True) == manifest
+    assert not list(scratch.iterdir())
+
+    manifest["counts"]["selected_families"] += 1
+    _rewrite_manifest(out, manifest)
+    with pytest.raises(CorpusError, match="statistics differ"):
+        verify_sample(out / SAMPLE_MANIFEST, reproduce=True)
+    assert not list(scratch.iterdir())
