@@ -248,7 +248,8 @@ class EpochBatchSampler:
         return self.num_batches
 
 
-def stream_corpus_records(path: str | Path, *, max_record_bytes: int = 1048576):
+def stream_corpus_records(path: str | Path, *, max_record_bytes: int = 1048576,
+                          preserve_json_fields: bool = False):
     """Bounded JSONL records or blank-line-delimited TXT paragraphs.
 
     Oversize records are drained, never split into accidentally valid tail records.
@@ -291,7 +292,9 @@ def stream_corpus_records(path: str | Path, *, max_record_bytes: int = 1048576):
                 fields = ("text", "source", "category", "language", "license", "parent_id",
                           "author", "publication_date", "acquisition_date", "original_format",
                           "transformation_history")
-                yield {**{k: record[k] for k in fields if k in record}, "_line": line_number}
+                if not preserve_json_fields:
+                    record = {k: record[k] for k in fields if k in record}
+                yield {**record, "_line": line_number}
             else:
                 if not line.strip():
                     if discarded:

@@ -295,9 +295,13 @@ def validate_config(raw: dict) -> dict:
     return config
 
 
-def load_config(path: str | Path) -> dict:
+def load_config(path: str | Path, *, source_registry: str | Path | None = None) -> dict:
     raw = _load_raw(Path(path))
     registry = raw.pop("source_registry", None)
+    if source_registry is not None:
+        if not registry or raw.get("sources"):
+            raise CorpusError("local source_registry override requires one configured review registry")
+        registry = Path(source_registry).resolve()
     if registry:
         if raw.get("sources"):
             raise CorpusError("use sources or source_registry, never two approval authorities")
