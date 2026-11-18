@@ -4,7 +4,7 @@
   "sources": [
     {
       "publisher": "Wikimedia contributors; individual copyright holders vary",
-      "release": "NOT_PINNED",
+      "release": "zhwiki-20261101-pages-articles",
       "license_references": [
         {
           "uri": "https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use",
@@ -123,7 +123,7 @@
     },
     {
       "publisher": "Work authors and Wikisource contributors",
-      "release": "NOT_PINNED",
+      "release": "zhwikisource-20261101-pages-articles-multistream#sampled-20x10MiB",
       "license_references": [
         {
           "uri": "https://zh.wikisource.org/wiki/Wikisource:版权信息/全文",
@@ -157,7 +157,8 @@
         "paths": [
           "data/raw/candidate-zh-wikisource"
         ],
-        "family_policy": "document"
+        "family_policy": "document",
+        "notes": "Derived subset: 20 equally spaced ~10 MiB byte ranges of the 20261101 multistream dump (1.86% of 10.60 GiB). Byte ranges and hashes are recorded in the local sample manifest; the sample does not match any official checksum."
       },
       "model_training": "PENDING",
       "license_obligations": "PENDING",
@@ -165,7 +166,7 @@
     },
     {
       "publisher": "Wikibooks contributors",
-      "release": "NOT_PINNED",
+      "release": "zhwikibooks-20261101-pages-articles",
       "license_references": [
         {
           "uri": "https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use",
@@ -207,7 +208,7 @@
     },
     {
       "publisher": "Work authors and Wikisource contributors",
-      "release": "NOT_PINNED",
+      "release": "enwikisource-20261101-pages-articles",
       "license_references": [
         {
           "uri": "https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use",

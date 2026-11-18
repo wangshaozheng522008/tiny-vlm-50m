@@ -149,10 +149,14 @@ def test_utf8_json_errors_and_txt_families(tmp_path):
 
 def test_review_obligations_and_duplicate_authorities_fail_closed(tmp_path):
     review = load_source_review(ROOT / "configs/corpus_v4_sources.review.json")
-    review["sources"][0]["v4_source"]["license_status"] = "APPROVED"
+    entry = review["sources"][0]
+    entry["v4_source"]["license_status"] = "APPROVED"
+    # The registry fills in over time, so pin one placeholder explicitly instead
+    # of relying on whichever field happens to be blank first.
+    entry["commercial_use"] = "PENDING"
     p = tmp_path / "review.json"
     p.write_text(json.dumps(review))
-    with pytest.raises(CorpusError, match="publisher|release|obligations"):
+    with pytest.raises(CorpusError, match="commercial_use"):
         load_source_review(p)
     c = {"source_registry": str(p), "sources": [{}]}
     p.write_text(json.dumps(c))
