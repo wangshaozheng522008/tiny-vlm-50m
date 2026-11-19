@@ -1,0 +1,1 @@
+{"consistency":"PASS","content_id":"56fb1b11a6259a9e6e45685ed8da50edef83073803555af07cf2f585f7b2ad9c","files":["supply-analysis.json","supply-analysis.md"],"note":"Read-only analysis; no dataset artifact was built, selected or frozen.","run_id":"v4-pilot-pr14-20261118","schema":"v4-pilot-supply-report/1","status":"DATA_NOT_READY"}

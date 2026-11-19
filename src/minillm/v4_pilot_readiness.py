@@ -9,7 +9,7 @@ from contextlib import closing
 from pathlib import Path
 
 from .corpus_budget import plan as plan_budget
-from .corpus_budget import read_token_index, supervision_by_category
+from .corpus_budget import read_token_index, supervision_by_category, supervision_by_field
 from .corpus_quality import V4_CATEGORIES
 from .corpus_utils import CorpusError, file_info, identity, verify_file
 from .corpus_v4 import (V4_SCHEMA_VERSION, _split_isolation_check, build_registry,
@@ -286,39 +286,75 @@ def _stages(config, registry, directory, result, by_source, coverage):
 def _token_budget(config, directory, stages, result, coverage):
     from .v4_tokenizer_decision import verify_selection
 
+    evidence = result.setdefault("tokenization_evidence", {
+        "status": "TOKENIZER_NOT_SELECTED", "measured": False,
+        "reason": "no human tokenizer decision"})
     if not (directory / "tokenizer-selection.json").is_file():
         return
     generation, split = stages
-    selection = verify_selection(directory)
+    try:
+        selection = verify_selection(directory)
+    except _READ_ERRORS as exc:
+        evidence.update(status="INVALID", measured=False, reason=str(exc))
+        raise
     result["tokenizer_status"] = "HUMAN_DECISION_VERIFIED"
     if not (directory / ".v4/tokenized.stage.json").is_file():
+        evidence.update(status="SELECTED_NOT_TOKENIZED", measured=False,
+                        reason="human decision verified but no tokenized Stage")
         return
     seq_len = config["targets"]["seq_len"]
     fingerprint = selection["fingerprint"]
-    _stage(directory, generation, "tokenizer-file", ["tokenizer.json"],
-           {"fingerprint": fingerprint, "split": split})
-    verify_file(directory / "tokenizer.json", file_info(Path(selection["path"])))
-    _stage(directory, generation, "tokenized", ["tokenization-report.json", "train.bin", "train.token-index.jsonl"],
-           {"split": split, "tokenizer": fingerprint, "seq_len": seq_len, "text_policy": config["text_policy"]})
-    tokenized = _read(directory / "tokenization-report.json")
-    index = read_token_index([directory / "train.token-index.jsonl"])
-    packing = supervision_by_category(((row["category"], row["tokens"]) for row in index["records"]),
-                                      seq_len)
-    if (tokenized["tokenizer"]["fingerprint"] != fingerprint or tokenized["seq_len"] != seq_len
-            or tokenized["packing"] != packing or (directory / "train.bin").stat().st_size != 2 * packing["raw_tokens"]):
-        raise CorpusError("tokenization differs from verified decision or Pilot sequence length")
-    available = {cat: {"documents": packing["documents_by_category"].get(cat, 0),
-                       "effective_tokens": packing["by_category"].get(cat, 0)} for cat in coverage}
-    budget = plan_budget(available, config["targets"]["effective_train_tokens"],
-                         config["targets"]["category_token_ratios"], seq_len=seq_len,
-                         tokenizer_fingerprint=fingerprint, license_review_status="APPROVED")
-    if budget["total_available_effective_tokens"] != tokenized["effective_train_tokens"]:
-        raise CorpusError("tokenization Train supervision differs from category totals")
+    try:
+        _stage(directory, generation, "tokenizer-file", ["tokenizer.json"],
+               {"fingerprint": fingerprint, "split": split})
+        verify_file(directory / "tokenizer.json", file_info(Path(selection["path"])))
+        tokenized_key = _stage(
+            directory, generation, "tokenized",
+            ["tokenization-report.json", "train.bin", "train.token-index.jsonl"],
+            {"split": split, "tokenizer": fingerprint, "seq_len": seq_len,
+             "text_policy": config["text_policy"]})
+        tokenized = _read(directory / "tokenization-report.json")
+        index_path = directory / "train.token-index.jsonl"
+        index = read_token_index([index_path])
+        packing = supervision_by_category(
+            ((row["category"], row["tokens"]) for row in index["records"]), seq_len)
+        if (tokenized["tokenizer"]["fingerprint"] != fingerprint or tokenized["seq_len"] != seq_len
+                or tokenized["packing"] != packing
+                or (directory / "train.bin").stat().st_size != 2 * packing["raw_tokens"]):
+            raise CorpusError("tokenization differs from verified decision or Pilot sequence length")
+        by_source = supervision_by_field(index["records"], seq_len, "source_id")
+        if sum(by_source["by_field"].values()) != packing["effective_tokens"]:
+            raise CorpusError("tokenization source supervision differs from category totals")
+        available = {cat: {"documents": packing["documents_by_category"].get(cat, 0),
+                           "effective_tokens": packing["by_category"].get(cat, 0)} for cat in coverage}
+        budget = plan_budget(available, config["targets"]["effective_train_tokens"],
+                             config["targets"]["category_token_ratios"], seq_len=seq_len,
+                             tokenizer_fingerprint=fingerprint, license_review_status="APPROVED")
+        if budget["total_available_effective_tokens"] != tokenized["effective_train_tokens"]:
+            raise CorpusError("tokenization Train supervision differs from category totals")
+    except _READ_ERRORS as exc:
+        evidence.update(status="INVALID", measured=False, reason=str(exc))
+        raise
     result["effective_train_tokens"] = tokenized["effective_train_tokens"]
     result["budget_gap"]["measured_category_gap_total"] = budget["total_gap_effective_tokens"]
     for cat, row in budget["categories"].items():
         coverage[cat]["effective_train_tokens"] = row["available_effective_tokens"]
         coverage[cat]["effective_token_gap"] = row["gap_effective_tokens"]
+    evidence.update({
+        "status": "VERIFIED", "measured": True,
+        "reason": "human decision and tokenized Stage verified",
+        "tokenizer_fingerprint": fingerprint, "seq_len": seq_len,
+        "tokenized_stage_key": tokenized_key,
+        "token_index": file_info(index_path),
+        "tokenization_report": file_info(directory / "tokenization-report.json"),
+        "train_bin": file_info(directory / "train.bin"),
+        "by_category": packing["by_category"],
+        "documents_by_category": packing["documents_by_category"],
+        "by_source": by_source["by_field"],
+        "documents_by_source": by_source["documents_by_field"],
+        "raw_tokens": packing["raw_tokens"],
+        "effective_train_tokens": tokenized["effective_train_tokens"],
+    })
 
 
 def _contamination(config, base, directory):
@@ -389,6 +425,8 @@ def pilot_readiness(config, base, directory, *, sample_manifests=()):
               "estimated_train_tokens": None, "effective_train_tokens": None,
               "target_effective_train_tokens": target,
               "budget_gap": {"unverified_target_tokens": target, "measured_category_gap_total": None},
+              "tokenization_evidence": {"status": "TOKENIZER_NOT_SELECTED", "measured": False,
+                                        "reason": "no human tokenizer decision"},
               "contamination_status": "NOT_RUN", "pilot_preflight_status": "BLOCKED_DATA_NOT_READY",
               "frozen_integrity_status": "NOT_RUN", "frozen_budget_match": None,
               "pilot_policy_validation": None}
