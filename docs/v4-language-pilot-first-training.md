@@ -8,14 +8,14 @@
 
 ```bash
 PYTHON=.venv/bin/python
-PILOT_CONFIG=configs/corpus_v4_language_pilot_1m.yaml
+PILOT_CONFIG=reports/v4-language-pilot-pr16-source-verification/corpus-reviewed-contamination.yaml
 PILOT_REGISTRY=reports/v4-language-pilot-pr16-source-verification/source-review.approved.json
-LANGUAGE_DATASET=artifacts/corpus/v4-language-pilot-first-training
+LANGUAGE_DATASET=artifacts/corpus/v4-language-pilot-first-training-reviewed
 REPORT=reports/v4-language-pilot-first-training
 TRAINING_CONFIG=configs/pilot-v4-language-1m-t1200.json
 EVALUATION_CONFIG=configs/evaluation.v4-language-pilot.json
 TRAIN_WORKSPACE=artifacts/v4-language-pilot-first-training/workspace
-test -f "$PILOT_REGISTRY"
+test -f "$PILOT_CONFIG" && test -f "$PILOT_REGISTRY"
 
 "$PYTHON" scripts/plan_corpus_v4.py --config "$PILOT_CONFIG" \
   --source-registry "$PILOT_REGISTRY" --out "$LANGUAGE_DATASET" --stage split
@@ -37,12 +37,7 @@ test -f "$TOKENIZER_DECISION"
 
 全量 Train 重新扫描固定评测。审核人按现有格式记录高风险命中的决定，每行包含 `train_document_id`、`benchmark_id`、`action`、`reviewer` 和 `reason`。只有人工确认的普通短语重合可以用 `accept_risk`。有效的 `exclude` 判定要求受影响文档从同范围、再经审核的输入退出，随后重建并重验 Split、Tokenizer 与训练身份。
 
-若采用本次独立的污染处置配置，先将下面两个变量指向已生成的本地配置及其对应数据集。它仍受仓库固定语言策略校验。若重建后 Tokenizer 决策草稿的任何指纹不同，由人工确认新的证据。
-
-```bash
-PILOT_CONFIG=reports/v4-language-pilot-pr16-source-verification/corpus-reviewed-contamination.yaml
-LANGUAGE_DATASET=artifacts/corpus/v4-language-pilot-first-training-reviewed
-```
+本次使用的本地配置沿用仓库固定语言策略，`contamination.decisions` 指向经确认的本地处置文件。它使用独立数据集目录。若改动需重新生成数据集，复核新的 Tokenizer 决策草稿是否逐字节相同。证据发生变化时，由人工确认新的指纹与评估。
 
 确认来源、Tokenizer 和污染处置后，使用同一配置及输出目录运行各阶段。也可用现有 `--stage all --decision "$TOKENIZER_DECISION"` 在一个进程中顺序执行各门禁。
 
@@ -86,3 +81,36 @@ Probe 返回 `WORKLOAD_PASS` 后，用同一个 Workspace、同一训练配置�
 ```
 
 保留 87M 本地权重与私人审核记录。进入 100M 阶段还需独立完成该阶段的数据和预算准入。首轮用于验证工程链路和初步语言学习趋势。
+
+## 首轮真实运行结果
+
+四个固定来源已取得本次人工批准。重新构建得到 8,548 条输入、6,922 条 Quality KEEP、6,881 条去重后文档，Train／Val／Test 为 6,605／138／138 条，Split 隔离通过。人工确认了真实 Train-only `v4-24576` 候选，指纹为 `845a24b9f21458b1d2161c60dfc8a77d5ed40235ece7ef46891677e423727b8a`。两个 `The morning sun` 短语命中均已人工处置，正式污染审计为 `REVIEWED`，未处置高风险命中为 0。最终 Audit 十项通过。内容 ID `7222651ef09e4e09c2d613474f50712e8233d1d4ff9017bda897e597ebdb6da5` 获得 `FROZEN_VERIFIED` 与 `POLICY_MATCH`。
+
+| 类别 | 全量编码供给 | 冻结监督 Token | 冻结占比 | 训练消费监督 Token | 消费占比 |
+|---|---:|---:|---:|---:|---:|
+| 中文通用 | 1,176,437 | 459,004 | 44.5565% | 444,682 | 44.1752% |
+| 中文百科 | 1,783,752 | 308,633 | 29.9597% | 303,518 | 30.1518% |
+| 中文教育 | 1,281,909 | 154,931 | 15.0395% | 151,862 | 15.0861% |
+| 英文通用 | 1,714,855 | 107,593 | 10.4443% | 106,570 | 10.5868% |
+| 数学／代码 | 0 | 0 | 0% | 0 | 0% |
+| 合计 | 5,956,953 | 1,030,161 | 100% | 1,006,632 | 100% |
+
+冻结集含 1,007 个完整窗口和 350 个未监督的尾部 Token。T1200 `WORKLOAD_PASS` 的显存峰值为分配 1,902,630,912 字节、保留 2,239,758,336 字节，完成三次代表性更新和 Checkpoint 读回。正式训练从独立随机 Step 0 初始化，在 767.187 秒内完成 123 次更新，重放验证消费了 984 个唯一窗口。日志覆盖口径平均为 1,350.3 Token/s，训练过程的显存峰值为分配 1,901,320,192 字节、保留 2,239,758,336 字节。训练器控制台另有按每轮平均值外推的预算估计；实际值经训练日志、独立窗口和 Checkpoint 校验。
+
+| 65,536 目标定点口径 | Step 0 | Step 123 |
+|---|---:|---:|
+| Train Loss | 10.2452 | 7.4426 |
+| Train PPL | 28,147.38 | 1,707.16 |
+| Val Loss | 10.2494 | 8.0911 |
+| Val PPL | 28,265.45 | 3,265.43 |
+| 自动评分正确数 | 0 / 197 | 0 / 197 |
+| 汉字比例 | 52.69% | 0% |
+| 平均 Token 4-gram 重复率 | 86.92% | 95.78% |
+| 空输出率 | 0% | 3.28% |
+| 异常字符比例 | 0.82% | 0% |
+
+全量 Val 的最终 Loss 为 7.9653、PPL 2,879.38，最后一个在线 Train Loss 区间为 7.9523。固定题集和五条续写均采用相同的 raw greedy 配置。Step 123 五条续写中，四条只重复逗号，一条输出句号后连续换行。题集中的基础事实自动评分没有提升，开放式题目保留人工评审依据。当前测量显示 Loss 下降，生成结果仍未展示中文流畅性或基础知识能力。
+
+工程验收为 `ENGINEERING_PASS`。正式运行连续完成，最终 Checkpoint 的权重、优化器和 RNG 已验证可恢复，实际中断恢复另由软件夹具覆盖。INT4 文件为 44,730,004 字节，通过 CPU 重载、权重绑定与生成检查。模型以及完整 Loss 曲线、逐条 raw 输出、配对评测和本地审核证据留在工作区。正式 100M 配置的独立来源检查仍返回 `NOT_READY`。下一阶段需补齐该配置的审批及数据门禁，并用小规模诊断复核当前贪心生成的标点退化。
+
+语言 Pilot 专项测试 8 项通过，全量 996 项通过，CPU Smoke Test 通过。
