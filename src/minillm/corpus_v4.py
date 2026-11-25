@@ -1697,15 +1697,27 @@ class CorpusV4Pipeline:
             texts = load_eval_texts(eval_asset)
         except (OSError, ValueError) as exc:
             raise CorpusError(f"invalid fixed tokenizer evaluation text: {exc}") from exc
-        baseline = baseline or self.config["tokenizer"].get("baseline")
-        baseline_path = self._resolve_path(baseline) if baseline else None
+        if self.balanced:
+            from .v4_tokenizer_decision import language_baseline, verify_baseline_record
+
+            baseline_path, baseline_info = language_baseline(self.config)
+        else:
+            baseline = baseline or self.config["tokenizer"].get("baseline")
+            baseline_path = self._resolve_path(baseline) if baseline else None
+            baseline_info = file_info(baseline_path) if baseline_path and baseline_path.is_file() else None
         key = self._key("tokenizer_eval", {"tokenizers": self.keys["tokenizers"],
                                            "eval": file_info(eval_asset),
-                                           "baseline": file_info(baseline_path) if baseline_path and baseline_path.is_file() else None})
+                                           "baseline": baseline_info})
         def producer():
             comparison = compare_candidates(
                 candidates, texts, baseline_path=baseline_path, text_policy=self.config["text_policy"],
                 evaluation_config=self.config["tokenizer"]["evaluation"])
+            if self.balanced:
+                if language_baseline(self.config) != (baseline_path, baseline_info):
+                    raise CorpusError("configured tokenizer Baseline changed during evaluation")
+                if baseline_info and comparison["baseline"]["status"] == "AVAILABLE":
+                    comparison["baseline"]["bytes"] = baseline_info["bytes"]
+                verify_baseline_record(comparison["baseline"], baseline_path, baseline_info)
             comparison["parameter_budget"] = parameter_budget(
                 [candidate["vocab_size"] for candidate in candidates],
                 seq_len=self.seq_len,
@@ -1757,7 +1769,11 @@ class CorpusV4Pipeline:
         if self.demo:
             raise CorpusError("DEMO_ONLY candidates cannot receive a formal decision")
         self.evaluate_tokenizers()
-        from .v4_tokenizer_decision import validate_decision
+        from .v4_tokenizer_decision import validate_decision, verify_evaluation_stage
+        if self.balanced:
+            from .v4_language_pilot import PROJECT_ROOT
+
+            verify_evaluation_stage(self.out, self.config, base=PROJECT_ROOT)
         decision = json.loads(Path(path).read_text(encoding="utf-8"))
         configured = self.config["tokenizer"]["selected"]
         if configured and configured != decision.get("candidate"):

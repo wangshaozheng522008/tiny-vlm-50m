@@ -31,6 +31,7 @@ from .workload import (hardware, parse_training_config, preserved_process, probe
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SUITES = [ROOT / "data/evaluation/pretrain-v1", ROOT / "data/evaluation/chinese-foundation-v1"]
 LANGUAGE_SUITE = ROOT / BENCHMARK
+LANGUAGE_CONTINUATIONS = ROOT / "data/evaluation/chinese-language-continuations-v1/prompts.jsonl"
 PILOT_TARGET_TOKENS = 1_000_000
 
 
@@ -41,7 +42,7 @@ def _evaluation_suites(manifest):
 def _suite_assets(suite):
     suite = Path(suite)
     if suite == LANGUAGE_SUITE:
-        return {"benchmark": suite}
+        return {"benchmark": suite, "prompts": LANGUAGE_CONTINUATIONS}
     return {"prompts": suite / "prompts.jsonl", "candidate_benchmark": suite / "candidates.jsonl"}
 
 
@@ -166,6 +167,11 @@ def preflight(dataset, tokenizer, model_config, training_config, workspace, *,
         if not len(train) or not len(val) or extra["seq_len"] > cfg.max_position_embeddings:
             raise ValueError("nonempty complete train/val windows within model context required")
         budget = validate_pilot_budget(len(train), opts, extra, cpu_nano_test=cpu_nano_test)
+        if manifest and is_language(manifest):
+            frozen = read_json(Path(dataset) / "budget-report.json")
+            if (train.seq_len != frozen["seq_len"]
+                    or budget["independent_effective_tokens"] != manifest["effective_train_tokens"]):
+                raise ValueError("training window length and independent budget must match the frozen language Pilot")
         budget["val_windows"] = len(val)
     except (OSError, ValueError, RuntimeError, KeyError) as exc:
         block("BLOCKED_TOKEN_BUDGET", exc)
@@ -254,6 +260,7 @@ def _evaluations(checkpoint, tokenizer, dataset, destination, config, suites, de
     for index, suite in enumerate(suites):
         out = Path(destination) / f"suite-{index}"
         assets = _suite_assets(suite)
+        measure_train = "benchmark" in assets
         if out.exists():
             report, manifest = verified_evaluation(out)
             policy = manifest["comparison_policy"]
@@ -264,13 +271,15 @@ def _evaluations(checkpoint, tokenizer, dataset, destination, config, suites, de
                     or policy["config"] != asdict(config)
                     or any(evidence[name] != file_info(assets[name])["sha256"] if name in assets
                            else evidence[name] is not None for name in evidence)
-                    or policy["dataset"]["dataset_content_id"] != read_json(Path(dataset) / "dataset-manifest.json")["content_id"]):
+                    or policy["dataset"]["dataset_content_id"] != read_json(Path(dataset) / "dataset-manifest.json")["content_id"]
+                    or (measure_train and (policy.get("train_dataset") or {}).get("sha256")
+                        != file_info(Path(dataset) / "train.bin")["sha256"])):
                 raise ValueError("baseline evaluation no longer matches initial weights/data/frozen evaluation policy")
         else:
             evaluate_model(checkpoint, tokenizer, out, dataset=dataset, split="val",
                            benchmark=assets.get("benchmark"), prompts=assets.get("prompts", ""),
                            candidate_benchmark=assets.get("candidate_benchmark", ""),
-                           config=config, device=device)
+                           config=config, device=device, measure_train=measure_train)
         result.append(out)
     return result
 
@@ -333,6 +342,8 @@ def run_pilot(dataset, tokenizer, model_config, training_config, out, workspace,
             report.update(training_status="EXECUTION_ATTEMPTED",
                           gpu_training_status="NOT_RUN" if cpu_nano_test else "EXECUTION_ATTEMPTED")
             write_json(out / "pilot-v4-1m-report.json", report)
+            if torch.device(opts.device or "cpu").type == "cuda":
+                torch.cuda.reset_peak_memory_stats(torch.device(opts.device))
             launch = launch_pilot(dataset, tokenizer, model_config, _resolved(raw, workspace), out / "launch", execute=True)
             report["launch"] = launch
             if not launch.get("executed"):
@@ -348,6 +359,11 @@ def run_pilot(dataset, tokenizer, model_config, training_config, out, workspace,
                     "peak_allocated_bytes": torch.cuda.max_memory_allocated() if opts.device.startswith("cuda") else None,
                     "peak_reserved_bytes": torch.cuda.max_memory_reserved() if opts.device.startswith("cuda") else None,
                     "memory_scope": "this launch/readiness/training/checkpoint process, before final evaluation"}
+                if pre["data"] and is_language(pre["data"]):
+                    from .v4_training_accounting import trained_category_consumption
+
+                    report["train_category_consumption"] = trained_category_consumption(
+                        dataset, opts.out, summary, pre["data"]["content_id"])
                 rows = [r for r in records(Path(opts.out) / "training-log.jsonl") if r.get("event") == "train"]
                 report["last_training_interval"] = {k: rows[-1][k] for k in
                     ("loss", "learning_rate", "gradient_norm", "tokens_per_second", "step_seconds")} if rows else None
@@ -366,6 +382,13 @@ def run_pilot(dataset, tokenizer, model_config, training_config, out, workspace,
                                   gpu_training_status="NOT_RUN" if cpu_nano_test else "COMPLETED")
                     report["stability"] = {"status": "CHECKED", "errors": [e for a in acceptance for e in a["errors"]],
                         "scope": "existing finite loss/gradient/optimizer guards and full append-log analysis; failures abort, no OOM/precision retry"}
+                    if pre["data"] and is_language(pre["data"]):
+                        initial_eval, _ = verified_evaluation(baseline[0])
+                        final_eval, _ = verified_evaluation(final[0])
+                        report["language_checkpoint_comparison"] = [
+                            {key: evaluation[key] for key in (
+                                "checkpoint", "train_language_model", "language_model", "scores", "diagnostics")}
+                            for evaluation in (initial_eval, final_eval)]
                     report["performance"].update(total_logged_seconds=acceptance[0]["estimated_logged_wall_seconds"],
                         average_logged_tokens_per_second=acceptance[0]["average_logged_tokens_per_second"])
         write_json(out / "pilot-v4-1m-report.json", report)

@@ -45,3 +45,5 @@ reports/
 # Versioned language Pilot evaluation assets.
 !/data/evaluation/chinese-language-v1/*.jsonl
 !/configs/tokenizer-v4-language-evaluation.jsonl
+
+!/data/evaluation/chinese-language-continuations-v1/*.jsonl

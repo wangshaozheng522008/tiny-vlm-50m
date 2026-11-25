@@ -7,6 +7,7 @@ import math
 import re
 import sys
 import time
+import unicodedata
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -192,6 +193,35 @@ def repetition(text, ids):
             "sentence_repeat_ratio": (len(sentences)-len(set(sentences)))/len(sentences) if sentences else 0.0}
 
 
+def generated_text_diagnostics(text):
+    characters = [char for char in text if not char.isspace()]
+    return {
+        "nonspace_characters": len(characters),
+        "han_characters": sum(unicodedata.name(char, "").startswith(
+            ("CJK UNIFIED IDEOGRAPH", "CJK COMPATIBILITY IDEOGRAPH")) for char in characters),
+        "abnormal_characters": sum(char == "\ufffd" or unicodedata.category(char).startswith("C")
+                                   for char in characters),
+        "replacement_characters": text.count("\ufffd"),
+        "ends_with_sentence_punctuation": bool(re.search(r"[。！？!?][”’」』]?\s*$", text)),
+    }
+
+
+def generation_summary(rows):
+    counts = [row["diagnostics"] for row in rows]
+    characters = sum(row["nonspace_characters"] for row in counts)
+    continuations = [row["diagnostics"] for row in rows if row["kind"] == "fixed_prompt"]
+    return {
+        "nonspace_characters": characters,
+        "han_character_fraction": sum(row["han_characters"] for row in counts) / characters if characters else None,
+        "abnormal_character_fraction": (
+            sum(row["abnormal_characters"] for row in counts) / characters if characters else None),
+        "mean_sentence_repeat_ratio": (
+            sum(row["sentence_repeat_ratio"] for row in counts) / len(counts) if counts else None),
+        "fixed_prompt_sentence_ending_fraction": (sum(row["ends_with_sentence_punctuation"] for row in continuations)
+                                                   / len(continuations) if continuations else None),
+    }
+
+
 def prompt_ids(tokenizer, task, config):
     category = task.get("text_category", "auto")
     if task["generation_mode"] == "raw":
@@ -239,8 +269,7 @@ def generate_prediction(model, tokenizer, task, config):
             "early_end": stop_token is not None and len(generated) < budget,
             "empty_output": not bool(text.strip()), "special_token_anomalies": anomalies,
             "seconds": seconds, "tokens_per_second": len(generated)/max(seconds, 1e-9),
-            "diagnostics": {**repetition(text, kept), "replacement_characters": text.count("\ufffd"),
-                            "ends_with_sentence_punctuation": bool(re.search(r"[。！？!?][”’」』]?\s*$", text))}}
+            "diagnostics": {**repetition(text, kept), **generated_text_diagnostics(text)}}
 
 
 def task_asset_provenance(path, count):
@@ -300,9 +329,11 @@ def load_tasks(path, *, scored):
 
 def evaluate_model(ckpt, tokenizer_path, out, *, dataset=None, bin_path=None, split="val",
                    benchmark=DEFAULT_BENCHMARK, prompts=DEFAULT_PROMPTS, config=None, device="cpu",
-                   sft_data=(), candidate_benchmark=None):
+                   sft_data=(), candidate_benchmark=None, measure_train=False):
     config = config or EvaluationConfig()
     config.validate()
+    if measure_train and (dataset is None or config.stage != "pretrain"):
+        raise ValueError("Train loss measurement requires an admitted pretraining dataset")
     if config.stage == "pretrain":
         if benchmark == DEFAULT_BENCHMARK or str(benchmark) == str(DEFAULT_BENCHMARK):
             benchmark = None
@@ -330,6 +361,12 @@ def evaluate_model(ckpt, tokenizer_path, out, *, dataset=None, bin_path=None, sp
         data, data_info = prepare_eval_data(dataset, bin_path, split, tokenizer, config.seq_len, model.cfg)
         if data_info and data_info.get("text_policy", IDENTITY) != tokenizer.text_policy:
             raise ValueError("checkpoint/evaluation dataset text policy mismatch")
+        train_data, train_info = None, None
+        if measure_train:
+            train_data = PackedPretrainDataset(Path(dataset) / "train.bin", config.seq_len)
+            train_info, _ = dataset_identity(train_data, model.cfg.ignore_index)
+            if train_info["dataset_content_id"] != data_info["dataset_content_id"]:
+                raise ValueError("Train and validation loss inputs have different dataset identities")
         tasks, fixed = load_tasks(benchmark, scored=True), load_tasks(prompts, scored=False)
         modes = {"pretrain": ("raw",), "sft": ("chat",)}.get(config.stage, ("raw", "chat"))
         tasks = [({**task, "generation_mode": mode} if task["generation_mode"] == "both" else task)
@@ -355,6 +392,8 @@ def evaluate_model(ckpt, tokenizer_path, out, *, dataset=None, bin_path=None, sp
                   "implementation": identity({name: file_info(Path(__file__).with_name(name)) for name in
                       ("evaluation.py", "evaluation_scoring.py", "evaluation_contamination.py", "assessment_io.py",
                        "generate.py", "model.py", "tokenizer.py", "data.py", "config.py", "text_policy.py", "evaluation_candidates.py")})}
+        if train_info is not None:
+            policy["train_dataset"] = {k: v for k, v in train_info.items() if k != "path"}
         evaluation_identity = {"checkpoint_sha256": file_info(Path(ckpt))["sha256"], "policy": policy}
         evaluation_id = identity(evaluation_identity)
         if device.type == "cuda":
@@ -364,6 +403,8 @@ def evaluate_model(ckpt, tokenizer_path, out, *, dataset=None, bin_path=None, sp
         if device.type=="cuda":
             torch.cuda.synchronize(device)
         lm_seconds=time.perf_counter()-started
+        train_lm = (evaluate_batches(model, fixed_window_batches(train_data, config.batch_size), device,
+                                     config.token_budget) if train_data is not None else None)
         predictions = []
         with (directory / "predictions.jsonl").open("w", encoding="utf-8") as handle:
             for kind, rows in (("benchmark", tasks), ("fixed_prompt", fixed)):
@@ -390,11 +431,14 @@ def evaluate_model(ckpt, tokenizer_path, out, *, dataset=None, bin_path=None, sp
                 raise ValueError(f"input changed during evaluation: {path}")
         if data is not None and dataset_identity(data, model.cfg.ignore_index)[0]["sha256"] != data_info["sha256"]:
             raise ValueError("evaluation BIN changed during evaluation")
+        if train_data is not None and dataset_identity(train_data, model.cfg.ignore_index)[0] != train_info:
+            raise ValueError("Train Loss input changed during evaluation")
         seconds = time.perf_counter() - started
         all_predictions = predictions
         predictions = [r for r in all_predictions if r["kind"] != "candidate_likelihood"]
         report = {"schema_version": 1, "evaluation_id": evaluation_id, "language_model": lm,
                   "scores": aggregate_scores(predictions), "dataset": data_info,
+                  "train_language_model": train_lm,
                   "candidate_likelihood": aggregate_candidates(all_predictions),
                   "stage": {"requested": config.stage, "checkpoint_mode": payload.get("mode", "unknown"),
                       "primary": "language_model + natural-prefix likelihood" if config.stage == "pretrain" else "chat instruction" if config.stage == "sft" else "legacy separated raw/chat",
@@ -413,7 +457,8 @@ def evaluate_model(ckpt, tokenizer_path, out, *, dataset=None, bin_path=None, sp
                       "early_end_rate":sum(p["early_end"] for p in predictions)/len(predictions) if predictions else None,
                       "mean_generated_tokens":sum(p["generated_tokens"] for p in predictions)/len(predictions) if predictions else None,
                       "mean_token_4gram_repeat_ratio":sum(p["diagnostics"]["token_4gram_repeat_ratio"] for p in predictions)/len(predictions) if predictions else None,
-                      "special_token_anomalies": sum(len(p["special_token_anomalies"]) for p in predictions)},
+                      "special_token_anomalies": sum(len(p["special_token_anomalies"]) for p in predictions),
+                      **generation_summary(predictions)},
                   "contamination": contamination, "environment": environment(device),
                   "performance": {"total_seconds": seconds, "generation_tokens": sum(p["generated_tokens"] for p in predictions),
                       "language_model_seconds":lm_seconds if lm else None,
@@ -426,6 +471,7 @@ def evaluate_model(ckpt, tokenizer_path, out, *, dataset=None, bin_path=None, sp
                  f"Evaluation stage: {json.dumps(report['stage'], ensure_ascii=False)}", "",
                  f"Text policy: {tokenizer.text_policy}", "",
                  f"Language model ({split if dataset else 'custom/none'}): {json.dumps(lm, ensure_ascii=False)}", "",
+                 f"Train checkpoint loss on fixed windows: {json.dumps(train_lm, ensure_ascii=False)}", "",
                  f"Natural-prefix likelihood (separate metric): {json.dumps(report['candidate_likelihood'], ensure_ascii=False)}", "",
                  "Raw and Chat are reported separately; no combined total.", ""]
         for mode, score in report["scores"].items():

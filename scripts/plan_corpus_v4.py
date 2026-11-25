@@ -102,6 +102,7 @@ def main(argv=None) -> int:
 
     if args.verify:
         manifest = verify_frozen(Path(args.verify))
+        policy_status = {}
         if is_language(manifest):
             from minillm.v4_admission import validate_v4_pilot_policy
 
@@ -109,7 +110,8 @@ def main(argv=None) -> int:
             if not policy["ok"]:
                 _print(policy)
                 return 2
-        _print({"status": "FROZEN_VERIFIED", "content_id": manifest["content_id"],
+            policy_status["pilot_policy"] = policy["status"]
+        _print({"status": "FROZEN_VERIFIED", **policy_status, "content_id": manifest["content_id"],
                 "corpus_version": manifest["corpus_version"],
                 "effective_train_tokens": manifest["effective_train_tokens"]})
         return 0
