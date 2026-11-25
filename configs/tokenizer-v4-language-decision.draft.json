@@ -1,0 +1,12 @@
+{
+  "candidate": "v4-24576",
+  "fingerprint": null,
+  "vocab_size": 24576,
+  "training_data_content_id": null,
+  "train_split_sha256": null,
+  "evaluation_report_sha256": null,
+  "reason": null,
+  "reviewer": null,
+  "reviewed_at": null,
+  "model_budget_conclusion": null
+}

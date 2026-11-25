@@ -78,9 +78,71 @@ def verify_selection(directory: Path) -> dict:
         for filename, info in stage["files"].items():
             verify_file(Path(filename), info)
         stages[name] = stage
+    from .v4_language_pilot import LANGUAGE_CONFIG, is_language
+
+    if plan.get("generation_config") and is_language(plan["generation_config"]):
+        verify_evaluation_stage(directory, plan["generation_config"], base=LANGUAGE_CONFIG.parents[1])
     expected = identity([4, plan["plan_key"], "tokenizer_selection",
                          {"evaluation": stages["tokenizer_eval"]["key"],
                           "decision": selection["decision_sha256"]}])
     if stages["tokenizer_selection"]["key"] != expected:
         raise CorpusError("tokenizer decision stage key differs from generation identity")
     return selection
+
+
+def verify_evaluation_stage(directory, config, *, base):
+    """Verify the evaluation and candidate stage keys before using their measurements."""
+    from .corpus_utils import file_info
+
+    directory = Path(directory).resolve()
+    plan = json.loads((directory / ".v4/plan.json").read_text(encoding="utf-8"))
+    if (plan["config_sha256"] != identity(config)
+            or plan["plan_key"] != identity({k: v for k, v in plan.items() if k != "plan_key"})):
+        raise CorpusError("tokenizer evaluation generation plan mismatch")
+
+    def stage(name, artifact):
+        result = json.loads((directory / f".v4/{name}.stage.json").read_text(encoding="utf-8"))
+        if str(directory / artifact) not in result["files"]:
+            raise CorpusError(f"{name} lacks its published report")
+        for filename, info in result["files"].items():
+            verify_file(Path(filename), info)
+        return result
+
+    split = stage("split", "split-manifest.json")
+    candidate_stage = stage("tokenizers", "tokenizer-candidates.json")
+    evaluation_stage = stage("tokenizer_eval", "tokenizer-evaluation.json")
+    training = config["tokenizer"]["training"]
+    candidate_report = json.loads((directory / "tokenizer-candidates.json").read_text(encoding="utf-8"))
+    expected_candidates = config["tokenizer"]["candidates"]
+    candidates = candidate_report["candidates"]
+    if ([{k: c[k] for k in ("name", "vocab_size")} for c in candidates] != expected_candidates
+            or candidate_report["demo_only"] is not False):
+        raise CorpusError("tokenizer evaluation has unexpected candidates")
+    for candidate in candidates:
+        verified = candidate_record(Path(candidate["directory"]))
+        metadata = verified["metadata"]
+        if (candidate != verified
+                or metadata["train_split_sha256"] != sha256(directory / "train.text.jsonl")
+                or metadata["split_manifest_sha256"] != sha256(directory / "split-manifest.json")
+                or metadata["text_policy"] != config["text_policy"]
+                or metadata["demo_only"] is not False
+                or any(metadata["training_selection"][k] != training[k]
+                       for k in ("seed", "max_chars", "category_weights"))):
+            raise CorpusError("tokenizer candidate differs from the Train split or training policy")
+    expected = identity([4, plan["plan_key"], "tokenizers", {
+        "split": split["key"], "candidates": expected_candidates,
+        "selection": {"train_sha256": sha256(directory / "train.text.jsonl"),
+                      **{k: training[k] for k in ("seed", "max_chars", "category_weights")}}}])
+    evaluation = json.loads((directory / "tokenizer-evaluation.json").read_text(encoding="utf-8"))
+    baseline = (evaluation.get("baseline") or {}).get("path")
+    baseline_path = Path(baseline) if baseline else None
+    expected_evaluation = identity([4, plan["plan_key"], "tokenizer_eval", {
+        "tokenizers": expected, "eval": file_info(Path(base) / config["tokenizer"]["eval_asset"]),
+        "baseline": file_info(baseline_path) if baseline_path and baseline_path.is_file() else None}])
+    actual_metrics = evaluation["candidates"]
+    if (candidate_stage["key"] != expected or evaluation_stage["key"] != expected_evaluation
+            or evaluation["demo_only"] is not False
+            or set(actual_metrics) != {c["name"] for c in candidates}
+            or any(actual_metrics[c["name"]]["fingerprint"] != c["fingerprint"] for c in candidates)):
+        raise CorpusError("tokenizer evaluation stage key or candidate metrics mismatch")
+    return evaluation_stage

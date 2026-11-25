@@ -1,11 +1,11 @@
-"""Deterministic scoring: whole-answer matching, never keyword hits."""
+"""Whole-answer scoring, optional lexical diagnostics, and manual review."""
 from __future__ import annotations
 
 import math
 import re
 from decimal import Decimal, InvalidOperation
 
-RULES = {"exact_match", "normalized_match", "numeric_match", "multiple_choice", "manual_review"}
+RULES = {"exact_match", "normalized_match", "numeric_match", "multiple_choice", "manual_review", "keyword_match"}
 NORMALIZATION = {"strip", "collapse_whitespace", "casefold", "terminal_punctuation"}
 NUMBER = re.compile(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?\Z")
 
@@ -41,8 +41,8 @@ def validate_task(task):
     for field in ("id", "category", "prompt"):
         if not isinstance(task.get(field), str) or not task[field].strip():
             raise ValueError(f"benchmark requires nonempty {field}")
-    if task.get("generation_mode") not in ("raw", "chat"):
-        raise ValueError("generation_mode must be raw or chat")
+    if task.get("generation_mode") not in ("raw", "chat", "both"):
+        raise ValueError("generation_mode must be raw, chat or both")
     if type(task.get("max_new_tokens", 32)) is not int or task.get("max_new_tokens", 32) <= 0:
         raise ValueError("invalid task max_new_tokens")
     rule = task.get("scoring")
@@ -56,6 +56,12 @@ def validate_task(task):
     allowed = task.get("normalization", ["strip"])
     if not isinstance(allowed, list) or any(x not in NORMALIZATION for x in allowed):
         raise ValueError("invalid explicit normalization rules")
+    aliases = task.get("aliases", [])
+    if (not isinstance(aliases, list) or any(not isinstance(alias, str) or not alias.strip() for alias in aliases)
+            or (aliases and rule not in ("normalized_match", "keyword_match"))):
+        raise ValueError("invalid answer aliases")
+    if rule == "keyword_match" and any(not normalize_answer(a, allowed) for a in [reference, *aliases]):
+        raise ValueError("empty normalized keyword")
     if rule == "numeric_match":
         number(reference)
         for key in ("atol", "rtol"):
@@ -84,9 +90,13 @@ def score_answer(output, task):
     reference = task["reference"]
     if rule == "exact_match":
         correct = output == reference
-    elif rule == "normalized_match":
+    elif rule in ("normalized_match", "keyword_match"):
         allowed = task.get("normalization", ["strip"])
-        correct = normalize_answer(output, allowed) == normalize_answer(reference, allowed)
+        actual = normalize_answer(output, allowed)
+        expected = [normalize_answer(value, allowed) for value in (reference, *task.get("aliases", []))]
+        if rule == "keyword_match":
+            return {"correct": None, "status": "manual_review", "keyword_hit": any(a in actual for a in expected)}
+        correct = actual in expected
     elif rule == "multiple_choice":
         correct = output.strip() == reference
     else:
@@ -112,6 +122,9 @@ def aggregate_scores(predictions):
             categories[category] = {"correct": correct, "scored": len(scored),
                                     "manual_review": len(subset) - len(scored),
                                     "accuracy": correct / len(scored) if scored else None}
+            keyword_hits = [r["score"]["keyword_hit"] for r in subset if "keyword_hit" in r["score"]]
+            if keyword_hits:
+                categories[category]["keyword_matching"] = {"hits": sum(keyword_hits), "tasks": len(keyword_hits)}
         result[mode] = {"categories": categories, "tasks": len(rows),
                         "interpretation": "completion ability" if mode == "raw" else "instruction following; pretrain-only low scores require stage context"}
     return result

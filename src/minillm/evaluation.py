@@ -239,7 +239,8 @@ def generate_prediction(model, tokenizer, task, config):
             "early_end": stop_token is not None and len(generated) < budget,
             "empty_output": not bool(text.strip()), "special_token_anomalies": anomalies,
             "seconds": seconds, "tokens_per_second": len(generated)/max(seconds, 1e-9),
-            "diagnostics": repetition(text, kept)}
+            "diagnostics": {**repetition(text, kept), "replacement_characters": text.count("\ufffd"),
+                            "ends_with_sentence_punctuation": bool(re.search(r"[。！？!?][”’」』]?\s*$", text))}}
 
 
 def task_asset_provenance(path, count):
@@ -330,6 +331,10 @@ def evaluate_model(ckpt, tokenizer_path, out, *, dataset=None, bin_path=None, sp
         if data_info and data_info.get("text_policy", IDENTITY) != tokenizer.text_policy:
             raise ValueError("checkpoint/evaluation dataset text policy mismatch")
         tasks, fixed = load_tasks(benchmark, scored=True), load_tasks(prompts, scored=False)
+        modes = {"pretrain": ("raw",), "sft": ("chat",)}.get(config.stage, ("raw", "chat"))
+        tasks = [({**task, "generation_mode": mode} if task["generation_mode"] == "both" else task)
+                 for task in tasks
+                 for mode in (modes if task["generation_mode"] == "both" else (task["generation_mode"],))]
         if config.stage == "pretrain":
             tasks = [t for t in tasks if t["generation_mode"] == "raw"]
             fixed = [t for t in fixed if t["generation_mode"] == "raw"]
@@ -366,6 +371,8 @@ def evaluate_model(ckpt, tokenizer_path, out, *, dataset=None, bin_path=None, sp
                     row = {"kind": kind, **generate_prediction(model, tokenizer, task, config)}
                     if kind == "benchmark":
                         row["reference"], row["scoring"] = task.get("reference"), task["scoring"]
+                        if task.get("rubric"):
+                            row["rubric"] = task["rubric"]
                         row["score"] = score_answer(row["decoded_text"], task)
                         if row["special_token_anomalies"] and row["score"]["correct"] is not None:
                             row["score"]={"correct":False,"status":"invalid_special_tokens"}

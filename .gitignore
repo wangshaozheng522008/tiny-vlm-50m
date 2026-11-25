@@ -41,3 +41,7 @@ reports/
 !/tests/fixtures/corpus_v4/*.jsonl
 !/tests/fixtures/corpus_v4/*.json
 !/configs/tokenizer-v4-evaluation.jsonl
+
+# Versioned language Pilot evaluation assets.
+!/data/evaluation/chinese-language-v1/*.jsonl
+!/configs/tokenizer-v4-language-evaluation.jsonl

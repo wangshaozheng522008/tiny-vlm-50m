@@ -149,7 +149,9 @@ def requires_source_review(config):
     target = config["targets"]["effective_train_tokens"]
     if type(target) is not int or target <= 0:
         raise CorpusError("invalid source review scope: effective-token target")
-    return target >= MIN_FORMAL_EFFECTIVE_TOKENS
+    from .v4_language_pilot import is_language
+
+    return is_language(config) or target >= MIN_FORMAL_EFFECTIVE_TOKENS
 
 
 def validate_reviewed_source(source, observed_inputs=None, *, corpus_version=None, verify_inputs=False):

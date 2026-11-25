@@ -49,6 +49,12 @@ from .corpus_utils import (CorpusError, Stages, database_output, file_info, hist
 from .data import stream_corpus_records
 from .text_policy import IDENTITY, apply_text_policy, validate_policy
 from .tokenizer import MiniLLMTokenizer
+from .v4_language_pilot import (
+    AUDIT_RECEIPT, LANGUAGE_TOLERANCE, LANGUAGE_VERSION, SELECTION_REPORT, SELECTED_TRAIN,
+    audit_receipt, is_language, select_train,
+    split_text_path, tokenized_extra, validate_language_policy, validate_version_targets,
+    verify_train_selection,
+)
 
 V4_SCHEMA_VERSION = 4
 LICENSE_STATUSES = ("APPROVED", "REVIEW_REQUIRED", "REJECTED")
@@ -64,7 +70,7 @@ def implementation_sha256() -> str:
     """Code identity: a changed reader/cleaner/tokenizer must not reuse old stages."""
     names = ("corpus_v4.py", "corpus.py", "corpus_quality.py", "corpus_dedup.py",
              "corpus_contamination.py", "corpus_budget.py", "tokenizer_v4.py",
-             "data.py", "text_policy.py", "tokenizer.py", "v4_sources.py", "v4_tokenizer_decision.py")
+             "data.py", "text_policy.py", "tokenizer.py", "v4_sources.py", "v4_tokenizer_decision.py", "v4_language_pilot.py")
     return identity({name: sha256(Path(__file__).with_name(name)) for name in names})
 
 DEFAULT_RUNTIME = {"sqlite_cache_mib": 16, "commit_every": 1000, "buffer_bytes": 1048576}
@@ -202,6 +208,7 @@ def validate_config(raw: dict) -> dict:
         raise CorpusError("category token ratios must be finite and nonnegative")
     if not math.isclose(sum(ratios.values()), 1.0, abs_tol=1e-6):
         raise CorpusError("category token ratios must sum to one")
+    validate_version_targets(config)
     config["license_policy"] = _deep_merge(DEFAULT_LICENSE_POLICY, config.get("license_policy", {}), "license_policy")
     if type(config["license_policy"]["approved_only"]) is not bool or type(
             config["license_policy"]["demo_allow_review_required"]) is not bool:
@@ -474,6 +481,11 @@ def status_report(config: dict, base: Path, *, demo: bool = False, dataset_dir: 
     registry = build_registry(sources, demo=demo, license_policy=config["license_policy"])
     blockers = []
     input_error = None
+    if not demo and is_language(config):
+        validate_language_policy(config)
+        required = {c for c, weight in config["targets"]["category_token_ratios"].items() if weight}
+        if required - {s["category"] for s in registry["sources"]}:
+            blockers.append("CATEGORY_SOURCE_APPROVAL_REQUIRED")
     if not registry["sources"]:
         blockers.append("NO_ADMISSIBLE_SOURCES")
     if not demo and registry["counts"].get("APPROVED", 0) == 0:
@@ -670,6 +682,13 @@ class CorpusV4Pipeline:
         self.registry = registry
         self.inputs = inputs
         self.demo = demo
+        validate_version_targets(config)
+        self.balanced = is_language(config) and not demo
+        if self.balanced:
+            validate_language_policy(config)
+            required = {c for c, weight in config["targets"]["category_token_ratios"].items() if weight}
+            if required - {source["category"] for source in registry["sources"]}:
+                raise CorpusError("language Pilot requires approved sources for every positive category")
         self.log = log
         self.runtime = config["runtime"]
         self.seq_len = config["demo"]["seq_len"] if demo else config["targets"]["seq_len"]
@@ -1663,6 +1682,8 @@ class CorpusV4Pipeline:
         return self.stats["tokenizers"]
 
     def evaluate_tokenizers(self, *, baseline: str | Path | None = None):
+        if self.balanced and baseline:
+            raise CorpusError("language Pilot uses the pinned tokenizer baseline")
         if "tokenizer_eval" in self._done:
             return self.stats["tokenizer_eval"]
         self.train_tokenizers()
@@ -1693,7 +1714,22 @@ class CorpusV4Pipeline:
             comparison["selection"] = self._select_candidate(candidates, comparison)
             report_path = self.out / "tokenizer-evaluation.json"
             write_json(report_path, comparison)
-            return {**comparison, "documents": len(texts)}, [report_path]
+            files = [report_path]
+            if self.balanced:
+                from .v4_tokenizer_decision import training_data_id
+
+                preferred = next(c for c in candidates if c["name"] == "v4-24576")
+                draft = {"candidate": preferred["name"], "fingerprint": preferred["fingerprint"],
+                         "vocab_size": preferred["vocab_size"],
+                         "training_data_content_id": training_data_id(self.out),
+                         "train_split_sha256": sha256(self.out / "train.text.jsonl"),
+                         "evaluation_report_sha256": sha256(report_path),
+                         "reviewer": None, "reviewed_at": None, "reason": None,
+                         "model_budget_conclusion": None}
+                draft_path = self.out / "tokenizer-decision.draft.json"
+                write_json(draft_path, draft)
+                files.append(draft_path)
+            return {**comparison, "documents": len(texts)}, files
         self._run("tokenizer_eval", key, producer)
         return self.stats["tokenizer_eval"]
 
@@ -1749,6 +1785,25 @@ class CorpusV4Pipeline:
 
     # ------------------------------------------------------------------ tokenize
 
+    def _select_train(self, tokenizer):
+        key = self._key("train_selection", {"split": self.keys["split"],
+                                           "tokenizer": tokenizer.fingerprint})
+
+        def producer():
+            rows, report = select_train(self.out, self.config, tokenizer)
+            selected = self.out / SELECTED_TRAIN
+            def write_selected(handle):
+                for row in rows:
+                    handle.write(json_bytes(row))
+            atomic_write(selected, write_selected)
+            report["selected_file"] = file_info(selected)
+            report_path = self.out / SELECTION_REPORT
+            write_json(report_path, report)
+            return {"packing": report["packing"]}, [selected, report_path]
+
+        self._run("train_selection", key, producer)
+        return key
+
     def tokenize(self, tokenizer_path: str | Path | None = None, *, selected: dict | None = None):
         if "tokenized" in self._done:
             return self.stats["tokenized"]
@@ -1758,15 +1813,16 @@ class CorpusV4Pipeline:
             if selected is None:
                 selected = self._reviewed_selection() or comparison.get("selection")
             if not selected:
-                raise CorpusError("no tokenizer selected")
+                raise CorpusError("HUMAN_TOKENIZER_DECISION_REQUIRED" if self.balanced else "no tokenizer selected")
             tokenizer_path = selected["path"]
         tokenizer_path = self._resolve_path(tokenizer_path)
         tokenizer = MiniLLMTokenizer.load(tokenizer_path)
-        if not self.demo and (tokenizer.vocab_size >= 24576 or self.target_tokens >= 1_020_000):
+        if not self.demo and (self.balanced or tokenizer.vocab_size >= 24576 or self.target_tokens >= 1_020_000):
             self.evaluate_tokenizers()
             reviewed = self._reviewed_selection()
             if not reviewed or reviewed["fingerprint"] != tokenizer.fingerprint:
-                raise CorpusError("human tokenizer decision required before formal tokenize/freeze")
+                raise CorpusError("HUMAN_TOKENIZER_DECISION_REQUIRED" if self.balanced
+                                  else "human tokenizer decision required before formal tokenize/freeze")
             selected = reviewed
         tokenizer.text_policy = validate_policy(self.config["text_policy"])
         if not 264 <= tokenizer.vocab_size <= 65536:
@@ -1786,16 +1842,18 @@ class CorpusV4Pipeline:
                                                  "split": self.keys["split"]})
         token_record = self._run("tokenizer-file", token_key, copy_tokenizer)
         seq_len = self.seq_len
-        key = self._key("tokenized", {"split": self.keys["split"],
-                                      "tokenizer": tokenizer.fingerprint,
-                                      "seq_len": seq_len,
-                                      "text_policy": self.config["text_policy"]})
+        selection_key = self._select_train(tokenizer) if self.balanced else None
+        key = self._key("tokenized", tokenized_extra(
+            self.config, split=self.keys["split"], fingerprint=tokenizer.fingerprint,
+            seq_len=seq_len, selection_key=selection_key) if not self.demo else {
+                "split": self.keys["split"], "tokenizer": tokenizer.fingerprint,
+                "seq_len": seq_len, "text_policy": self.config["text_policy"]})
         def producer():
             from .corpus import read_records
             results = {}
             index_paths = []
             for name in SPLITS:
-                text_path = self.out / f"{name}.text.jsonl"
+                text_path = split_text_path(self.out, name, balanced=self.balanced)
                 bin_path = self.out / f"{name}.bin"
                 index_path = self.out / f"{name}.token-index.jsonl"
                 records = read_records(text_path)
@@ -1829,6 +1887,12 @@ class CorpusV4Pipeline:
                 totals["token_ratio"] = totals["tokens"] / max(total_tokens, 1)
             deleted = self._measure_deleted_tokens(tokenizer)
             kept_tokens = sum(results[name]["tokens"] for name in SPLITS)
+            if self.balanced:
+                if packing != self.stats["train_selection"]["packing"]:
+                    raise CorpusError("tokenizer output differs from balanced Train selection")
+                full_supply = json.loads((self.out / SELECTION_REPORT).read_text(encoding="utf-8"))["supply"]
+                kept_tokens = (sum(row["raw_tokens"] for row in full_supply.values())
+                               + sum(results[name]["tokens"] for name in ("val", "test")))
             dedup_delta = {"basis": "exact selected-tokenizer encoding; EOS included",
                            "deleted_documents": deleted["documents"],
                            "deleted_tokens": deleted["tokens"],
@@ -1925,6 +1989,8 @@ class CorpusV4Pipeline:
         ratios = self.category_ratios
         seq_len = self.seq_len
         license_status = self._license_status()
+        if self.balanced:
+            self.contamination()
         contamination_status = (self.stats.get("contamination") or {}).get("status")
         if contamination_status is None and (self.out / "contamination-report.json").is_file():
             contamination_status = json.loads((self.out / "contamination-report.json").read_text(
@@ -1935,13 +2001,23 @@ class CorpusV4Pipeline:
                              split_summary=split_summary,
                              license_review_status=license_status,
                              contamination_status=contamination_status,
-                             allow_repetition=self.config["budget"]["allow_repetition"])
+                             allow_repetition=self.config["budget"]["allow_repetition"],
+                             fraction_tolerance=LANGUAGE_TOLERANCE if self.balanced else None)
         report["demo_only"] = self.demo
         report["category_token_distribution_raw"] = tokenization["category_token_distribution"]["raw"]
-        write_json(self.out / "budget-report.json", report)
-        self.stats["budget"] = report
-        self._done.add("budget")
-        return report
+        path = self.out / "budget-report.json"
+        if self.balanced:
+            key = self._key("budget", {"tokenized": self.keys["tokenized"],
+                                       "contamination": file_info(self.out / "contamination-report.json")})
+            def producer():
+                write_json(path, report)
+                return report, [path]
+            self._run("budget", key, producer)
+        else:
+            write_json(path, report)
+            self.stats["budget"] = report
+            self._done.add("budget")
+        return self.stats["budget"]
 
     # ------------------------------------------------------------------ manifest
 
@@ -2014,6 +2090,8 @@ class CorpusV4Pipeline:
             "tokenizer.json", "tokenization-report.json", "quality-report.json",
             "dedup-report.json", "split-manifest.json", "split-assignment.jsonl",
             "contamination-report.json", "budget-report.json"]
+        if self.balanced:
+            required.extend((SELECTED_TRAIN, SELECTION_REPORT))
         for name in required:
             path = self.out / name
             if not path.is_file():
@@ -2147,7 +2225,13 @@ class CorpusV4Pipeline:
               {"selection": selection, "tokenizer_fingerprint": loaded.fingerprint,
                "vocab_size": loaded.vocab_size, "text_policy": loaded.text_policy})
 
-        encoding = self._verify_encoding(loaded, retokenize)
+        if self.balanced:
+            try:
+                verify_train_selection(self.out, self.config, loaded)
+                check("balanced_train_selection", "PASS", file_info(self.out / SELECTION_REPORT))
+            except (CorpusError, OSError, KeyError, ValueError) as exc:
+                check("balanced_train_selection", "FAIL", {"error": str(exc)})
+        encoding = self._verify_encoding(loaded, "full" if self.balanced else retokenize)
         check("bin_reproducibility", encoding["status"], encoding)
 
         budget = self.stats["budget"]
@@ -2155,6 +2239,9 @@ class CorpusV4Pipeline:
                      and budget["target_effective_train_tokens"] == self.target_tokens
                      and budget["total_gap_effective_tokens"] == 0
                      and tokenization["effective_train_tokens"] > 0)
+        if self.balanced:
+            budget_ok = budget_ok and all(tokenization["splits"][name]["tokens"] >= self.seq_len + 1
+                                          for name in ("val", "test"))
         check("token_budget", "PASS" if budget_ok else "FAIL",
               {"status": budget["status"], "target": budget["target_effective_train_tokens"],
                "available": budget["total_available_effective_tokens"],
@@ -2200,6 +2287,8 @@ class CorpusV4Pipeline:
                                   "guarantee; licence review, contamination dispositions and world-knowledge "
                                   "quality remain human responsibilities.")}
         write_json(self.out / "audit-report.json", report)
+        if self.balanced:
+            write_json(self.out / AUDIT_RECEIPT, audit_receipt(self.out, self.plan, report))
         self.stats["audit"] = report
         self._done.add("audit")
         return report
@@ -2212,7 +2301,8 @@ class CorpusV4Pipeline:
         verified = 0
         sample = self.config["audit"]["sample_documents"]
         for name in SPLITS:
-            text_path, bin_path = self.out / f"{name}.text.jsonl", self.out / f"{name}.bin"
+            text_path = split_text_path(self.out, name, balanced=self.balanced)
+            bin_path = self.out / f"{name}.bin"
             if not bin_path.is_file() or not text_path.is_file():
                 return {"status": "FAIL", "detail": f"missing split artifacts: {name}"}
             in_split = 0
@@ -2269,6 +2359,10 @@ class CorpusV4Pipeline:
                 "dataset_status": "DEMO_ONLY", "freeze_status": "NOT_READY",
                 "reason": "synthetic fixtures exercise the pipeline but are not a trainable corpus"})))
         if freeze_status == "READY":
+            if self.balanced:
+                from .v4_language_pilot import verify_language_release
+
+                verify_language_release(self.out, self.plan, manifest)
             freeze = {"schema_version": 1, "content_id": manifest["content_id"],
                       "freeze_status": "READY", "dataset_status": "FORMAL",
                       "manifest_sha256": sha256(self.out / "dataset-manifest.json"),
@@ -2347,6 +2441,17 @@ def verify_frozen(directory: str | Path) -> dict:
         raise CorpusError("frozen dataset lacks complete passing split isolation evidence")
     if not (directory / "FROZEN").is_file():
         raise CorpusError("missing FROZEN marker")
+    if (is_language(manifest) or source_plan.get("corpus_version") == LANGUAGE_VERSION
+            or manifest["identity"]["v4"].get("corpus_version") == LANGUAGE_VERSION):
+        from .v4_language_pilot import verify_language_release
+
+        directory = directory.resolve()
+        freeze = json.loads((directory / "freeze.json").read_text(encoding="utf-8"))
+        marker = json.loads((directory / "FROZEN").read_text(encoding="utf-8"))
+        if (freeze["manifest_sha256"] != sha256(directory / "dataset-manifest.json")
+                or freeze["content_id"] != manifest["content_id"] or marker != {"content_id": manifest["content_id"]}):
+            raise CorpusError("language Pilot freeze record differs from the manifest")
+        verify_language_release(directory, source_plan, manifest)
     if manifest["license_review_status"] != "APPROVED":
         raise CorpusError("frozen dataset lacks approved licence review")
     if manifest["contamination_audit_status"] not in ("CHECKED_NO_HITS", "REVIEWED"):

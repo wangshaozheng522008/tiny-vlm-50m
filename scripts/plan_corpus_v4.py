@@ -28,6 +28,7 @@ if str(REPO_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from minillm.corpus_utils import CorpusError, write_json  # noqa: E402
+from minillm.v4_language_pilot import is_language  # noqa: E402
 from minillm.corpus_v4 import (CorpusV4Pipeline, build_registry, inventory,  # noqa: E402
                                load_config, status_report, verify_frozen)
 
@@ -101,6 +102,13 @@ def main(argv=None) -> int:
 
     if args.verify:
         manifest = verify_frozen(Path(args.verify))
+        if is_language(manifest):
+            from minillm.v4_admission import validate_v4_pilot_policy
+
+            policy = validate_v4_pilot_policy(args.verify)
+            if not policy["ok"]:
+                _print(policy)
+                return 2
         _print({"status": "FROZEN_VERIFIED", "content_id": manifest["content_id"],
                 "corpus_version": manifest["corpus_version"],
                 "effective_train_tokens": manifest["effective_train_tokens"]})
@@ -110,6 +118,15 @@ def main(argv=None) -> int:
     report = status_report(config, Path.cwd(), demo=args.demo,
                            dataset_dir=Path(args.out) if args.out else None)
     if args.status_only:
+        if is_language(config) and report["status"] == "READY_FOR_FREEZE":
+            from minillm.v4_pilot_readiness import pilot_readiness
+
+            readiness = pilot_readiness(config, Path.cwd(), Path(args.out))
+            report["status"] = readiness["status"]
+            report["blockers"] = readiness["blockers"]
+            report["stages"]["freeze"] = (readiness["status"] if readiness["status"] in (
+                "READY_FOR_FREEZE", "FROZEN_VERIFIED") else "NOT_READY")
+            report["stages"]["freeze_blockers"] = readiness["blockers"]
         _print(report)
         return 0
     if not args.demo and report["status"] not in ("READY_FOR_TOKENIZER_EVALUATION", "READY_FOR_FREEZE"):
@@ -136,6 +153,8 @@ def main(argv=None) -> int:
         else:
             result = _stage_result(pipeline, args.stage)
         _print(result)
+        if pipeline.balanced and args.stage in ("audit", "freeze"):
+            return 0 if result.get("status", result.get("freeze_status")) == "READY" else 2
         return 0
 
     pipeline.ingest()
