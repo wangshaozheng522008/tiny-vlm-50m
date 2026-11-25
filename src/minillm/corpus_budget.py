@@ -59,7 +59,7 @@ def supervision_by_category(documents, seq_len: int) -> dict:
         lengths.append(tokens)
         categories.append(category)
         total += tokens
-    windows = (total - 1) // seq_len
+    windows = max(0, (total - 1) // seq_len)
     limit = windows * seq_len
     counts = {category: 0 for category in V4_CATEGORIES}
     documents_by_category = {category: 0 for category in V4_CATEGORIES}
@@ -100,7 +100,7 @@ def supervision_by_field(documents, seq_len: int, field: str) -> dict:
             raise ValueError("document token counts must be positive integers")
         pending.append((label, tokens))
         total += tokens
-    windows = (total - 1) // seq_len
+    windows = max(0, (total - 1) // seq_len)
     limit = windows * seq_len
     by_field, documents_by_field = {}, {}
     cursor = 0
@@ -140,7 +140,8 @@ def plan(available: dict[str, dict], target_effective_tokens: int,
          tokenizer_fingerprint: str | None, split_summary: dict | None = None,
          license_review_status: str = "NOT_ASSESSED",
          contamination_status: str = "NOT_ASSESSED",
-         allow_repetition: bool = False) -> dict:
+         allow_repetition: bool = False,
+         fraction_tolerance: float | None = None) -> dict:
     """Compare independent corpus supply against the requested budget.
 
     ``available[category]`` contains at least ``documents`` and
@@ -157,13 +158,14 @@ def plan(available: dict[str, dict], target_effective_tokens: int,
         raise ValueError("category ratios must be finite and nonnegative")
     if not math.isclose(sum(category_token_ratios.values()), 1.0, abs_tol=1e-6):
         raise ValueError("category ratios must sum to one")
-    missing = [category for category in V4_CATEGORIES if category not in available]
+    missing = [category for category in V4_CATEGORIES if category_token_ratios[category] and category not in available]
     if missing:
         raise ValueError(f"missing available supply for categories: {missing}")
-    total_available = sum(available[category]["effective_tokens"] for category in V4_CATEGORIES)
+    total_available = sum(available[category]["effective_tokens"] for category in V4_CATEGORIES
+                          if category_token_ratios[category])
     categories, shortfall = {}, 0
     for category in V4_CATEGORIES:
-        supply = available[category]
+        supply = available.get(category, {"documents": 0, "effective_tokens": 0})
         if not isinstance(supply.get("documents"), int) or supply["documents"] < 0:
             raise ValueError("available documents must be nonnegative integers")
         if not isinstance(supply.get("effective_tokens"), int) or supply["effective_tokens"] < 0:
@@ -177,16 +179,29 @@ def plan(available: dict[str, dict], target_effective_tokens: int,
             "target_effective_tokens": target,
             "gap_effective_tokens": gap,
             "required_repetition_factor": (max(1.0, target / supply["effective_tokens"])
-                                           if supply["effective_tokens"] else None),
-            "coverage": (supply["effective_tokens"] / target) if target else 1.0,
+                                           if target and supply["effective_tokens"] else None),
+            "coverage": (supply["effective_tokens"] / target) if target else None,
             "satisfied": gap <= 1e-9,
-            "available_share": (supply["effective_tokens"] / total_available) if total_available else 0.0,
+            "available_share": (supply["effective_tokens"] / total_available) if target and total_available else 0.0,
         }
+        if not target:
+            categories[category]["status"] = "NOT_REQUIRED"
     insufficient = any(not row["satisfied"] for row in categories.values())
+    invalid_mix = False
+    if fraction_tolerance is not None:
+        for category, row in categories.items():
+            ratio = category_token_ratios[category]
+            deviation = abs(row["available_share"] - ratio)
+            row.update(share_deviation=deviation, within_tolerance=(
+                deviation <= fraction_tolerance + 1e-12 if ratio
+                else row["available_documents"] == row["available_effective_tokens"] == 0))
+        invalid_mix = any(not row["within_tolerance"] for row in categories.values())
     if not tokenizer_fingerprint:
         status = "NOT_ASSESSED"
     elif insufficient:
         status = "INSUFFICIENT_CORPUS"
+    elif invalid_mix:
+        status = "CATEGORY_MIX_OUT_OF_TOLERANCE"
     else:
         status = "READY_FOR_TRAINING"
     report = {
@@ -213,6 +228,10 @@ def plan(available: dict[str, dict], target_effective_tokens: int,
         "contamination_status": contamination_status,
         "blocking_conditions": [],
     }
+    if fraction_tolerance is not None:
+        report["fraction_tolerance"] = fraction_tolerance
+        if invalid_mix:
+            report["blocking_conditions"].append("CATEGORY_MIX_OUT_OF_TOLERANCE")
     if target_effective_tokens > total_available:
         report["blocking_conditions"].append("TOTAL_CORPUS_SHORTFALL")
     if insufficient:

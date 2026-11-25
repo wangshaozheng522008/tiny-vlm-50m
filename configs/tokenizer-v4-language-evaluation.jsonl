@@ -1,0 +1,24 @@
+{"id": "words", "category": "zh_prose", "text": "常用词语：今天、学习、朋友、工作、自然、家庭。"}
+{"id": "sentence", "category": "zh_prose", "text": "清晨的街道逐渐热闹起来，沿河散步的人们停下脚步，观察桥下缓慢流动的河水，并讨论下一次出行的安排。"}
+{"id": "punctuation", "category": "zh_prose", "text": "他说：“可以吗？”她答：可以！括号（补充）；破折号——以及省略号……"}
+{"id": "dates", "category": "zh_education", "text": "日期为2026年11月17日，质量2.5千克，距离300米，温度18摄氏度。"}
+{"id": "mixed", "category": "zh_prose", "text": "使用 Python 读取 UTF-8 文件，在 CPU 上检查 SHA256，再输出 JSON 报告。"}
+{"id": "entities", "category": "zh_knowledge", "text": "专有名词：长江、珠穆朗玛峰、北京大学、阿基米德、联合国。"}
+{"id": "geography", "category": "zh_knowledge", "text": "地理与国家：河流从高处流向低处，地图使用比例尺表示实际距离。", "topic": "geography_country"}
+{"id": "history", "category": "zh_knowledge", "text": "历史研究需要比较不同年代的史料，并区分事件发生时间和记录形成时间。", "topic": "history"}
+{"id": "science", "category": "zh_knowledge", "text": "基础科学：水蒸发会吸收热量；植物利用光能，将二氧化碳和水转化为有机物。", "topic": "basic_science"}
+{"id": "life", "category": "zh_knowledge", "text": "生活常识：保存食物时需要考虑温度与清洁，过马路应观察交通信号。", "topic": "daily_life"}
+{"id": "logic", "category": "math", "text": "数学与逻辑：若 A 大于 B 且 B 大于 C，则 A 大于 C；x² + y² = r²。", "topic": "math_logic"}
+{"id": "tech", "category": "zh_knowledge", "text": "技术知识：计算机使用二进制表示信息，网络协议约定发送与接收数据的方式。", "topic": "technology"}
+{"id": "english", "category": "en", "text": "A careful reader compares evidence before drawing a conclusion."}
+{"id": "python", "category": "python", "text": "def total(values):\n    return sum(x * x for x in values)\n"}
+{"id": "cpp", "category": "cpp", "text": "#include <vector>\nint main() { std::vector<int> xs{1, 2, 3}; return xs[0]; }\n"}
+{"id": "unicode", "category": "special", "text": "全角ＡＢＣ１２３　emoji🙂 组合é ∑√∞→ αβγ © ™ \t\n终。"}
+{"id":"modern-notice","category":"zh_prose","text":"社区服务站周三下午暂停办理业务，原定当天归还的图书可延至周四。已经约好的读者会收到短信提醒。"}
+{"id":"modern-work","category":"zh_prose","text":"我把修订过的表格放进了共享文件夹，蓝色标记是需要确认的地方。等大家核对完，我们再把最终版本发出去。"}
+{"id":"modern-exposition","category":"zh_prose","text":"做饭前先把需要的食材摆在手边，再按下锅顺序处理。可以用几个小碗分装调味料，这样炒菜时就不用临时找瓶子。"}
+{"id":"encyclopedia-lake","category":"zh_knowledge","topic":"geography_country","text":"咸水湖往往缺少通向海洋的出水口。湖水蒸发之后，溶解在水中的盐分仍留在湖里，逐渐积累。"}
+{"id":"encyclopedia-grid","category":"zh_knowledge","topic":"basic_science","text":"输电线路可以先升高电压，再把电送到远处。到达用电地区后，变压器把电压逐级降低。"}
+{"id":"common-vocabulary","category":"zh_prose","text":"钥匙、零钱、窗口、楼梯、等候、预约、排队、充电、退款、收据、晚点、改签、打包、提醒、顺路。"}
+{"id":"spoken-pickup","category":"zh_prose","text":"你到楼下了吗？我还得等两分钟。外面有点冷，你先进去吧，我一会儿就到。"}
+{"id":"spoken-choice","category":"zh_prose","text":"今晚要不就在家吃？昨天买的菜还剩半袋，热一下也行。你想喝汤的话，我现在去烧水。"}

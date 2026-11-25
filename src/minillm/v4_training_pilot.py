@@ -23,13 +23,26 @@ from .training_manifest import write_json
 from .training_pilot import evaluate_pilot
 from .training_readiness import planned_tokens
 from .utils import set_seed
-from .v4_admission import APPROVED_PILOT_CONFIG, audit_v4_dataset, validate_v4_pilot_policy
+from .v4_admission import audit_v4_dataset, validate_v4_pilot_policy
+from .v4_language_pilot import BENCHMARK, is_language
 from .workload import (hardware, parse_training_config, preserved_process, probe_workload,
                        resolve_plan, verify_workload)
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SUITES = [ROOT / "data/evaluation/pretrain-v1", ROOT / "data/evaluation/chinese-foundation-v1"]
+LANGUAGE_SUITE = ROOT / BENCHMARK
 PILOT_TARGET_TOKENS = 1_000_000
+
+
+def _evaluation_suites(manifest):
+    return [LANGUAGE_SUITE] if manifest and is_language(manifest) else DEFAULT_SUITES
+
+
+def _suite_assets(suite):
+    suite = Path(suite)
+    if suite == LANGUAGE_SUITE:
+        return {"benchmark": suite}
+    return {"prompts": suite / "prompts.jsonl", "candidate_benchmark": suite / "candidates.jsonl"}
 
 
 def validate_pilot_budget(samples, opts, extra, *, cpu_nano_test=False):
@@ -62,9 +75,7 @@ def evaluation_policy(config, suites):
         raise ValueError("V4 pretraining requires the pretrain evaluation protocol")
     assets = {}
     for suite in suites:
-        suite = Path(suite)
-        for name in ("candidates.jsonl", "prompts.jsonl"):
-            path = suite / name
+        for path in _suite_assets(suite).values():
             count = sum(1 for _ in records(path))
             provenance = task_asset_provenance(path, count)
             if provenance["status"] != "FROZEN":
@@ -107,7 +118,6 @@ def preflight(dataset, tokenizer, model_config, training_config, workspace, *,
     opts, extra = parse_training_config(raw)
     cfg = MiniLLMConfig.load(model_config) if Path(model_config).is_file() else get_config(model_config)
     evaluation_config = evaluation_config or EvaluationConfig(stage="pretrain")
-    suites = list(suites or DEFAULT_SUITES)
     blockers, details = [], {}
 
     def block(code, reason):
@@ -124,7 +134,7 @@ def preflight(dataset, tokenizer, model_config, training_config, workspace, *,
         pilot_policy = {"ok": False, "status": "BLOCKED_POLICY_MISMATCH",
                         "errors": ["production Pilot policy is pinned to the repository-approved configuration"]}
     else:
-        pilot_policy = validate_v4_pilot_policy(dataset, approved_config_path or APPROVED_PILOT_CONFIG)
+        pilot_policy = validate_v4_pilot_policy(dataset, approved_config_path)
     if not pilot_policy["ok"]:
         block(pilot_policy["status"], "; ".join(pilot_policy["errors"]))
     try:
@@ -183,9 +193,11 @@ def preflight(dataset, tokenizer, model_config, training_config, workspace, *,
         block("BLOCKED_OUTPUT_OCCUPIED", opts.out)
     evaluation = request = None
     try:
-        if not cpu_nano_test and suites != DEFAULT_SUITES:
-            raise ValueError("production pilot uses the frozen PR6/PR7 suites")
-        evaluation = evaluation_policy(evaluation_config, suites)
+        expected_suites = _evaluation_suites(manifest)
+        active_suites = list(suites or expected_suites)
+        if not cpu_nano_test and active_suites != expected_suites:
+            raise ValueError("production Pilot uses its pinned frozen evaluation suites")
+        evaluation = evaluation_policy(evaluation_config, active_suites)
         if manifest is not None:
             request = _request(dataset, tokenizer, cfg, raw, evaluation, cpu_nano_test)
             request["approved_policy_sha256"] = pilot_policy.get("approved_policy_sha256")
@@ -241,18 +253,23 @@ def _evaluations(checkpoint, tokenizer, dataset, destination, config, suites, de
     result = []
     for index, suite in enumerate(suites):
         out = Path(destination) / f"suite-{index}"
+        assets = _suite_assets(suite)
         if out.exists():
             report, manifest = verified_evaluation(out)
             policy = manifest["comparison_policy"]
+            candidate_provenance = policy.get("candidate_provenance") or {}
+            evidence = {"benchmark": policy.get("benchmark_sha256"), "prompts": policy.get("fixed_prompts_sha256"),
+                        "candidate_benchmark": candidate_provenance.get("sha256")}
             if (report["checkpoint"]["sha256"] != file_info(Path(checkpoint))["sha256"]
                     or policy["config"] != asdict(config)
-                    or policy["fixed_prompts_sha256"] != file_info(Path(suite) / "prompts.jsonl")["sha256"]
-                    or policy["candidate_provenance"]["sha256"] != file_info(Path(suite) / "candidates.jsonl")["sha256"]
+                    or any(evidence[name] != file_info(assets[name])["sha256"] if name in assets
+                           else evidence[name] is not None for name in evidence)
                     or policy["dataset"]["dataset_content_id"] != read_json(Path(dataset) / "dataset-manifest.json")["content_id"]):
                 raise ValueError("baseline evaluation no longer matches initial weights/data/frozen evaluation policy")
         else:
-            evaluate_model(checkpoint, tokenizer, out, dataset=dataset, split="val", benchmark=None,
-                           prompts=Path(suite) / "prompts.jsonl", candidate_benchmark=Path(suite) / "candidates.jsonl",
+            evaluate_model(checkpoint, tokenizer, out, dataset=dataset, split="val",
+                           benchmark=assets.get("benchmark"), prompts=assets.get("prompts", ""),
+                           candidate_benchmark=assets.get("candidate_benchmark", ""),
                            config=config, device=device)
         result.append(out)
     return result
@@ -271,10 +288,10 @@ def run_pilot(dataset, tokenizer, model_config, training_config, out, workspace,
     if execute and probe:
         raise ValueError("probe and execute are separate explicit stages")
     evaluation_config = evaluation_config or EvaluationConfig(stage="pretrain")
-    suites = list(suites or DEFAULT_SUITES)
     pre = preflight(dataset, tokenizer, model_config, raw, workspace, cpu_nano_test=cpu_nano_test,
                     evaluation_config=evaluation_config, suites=suites, require_workload=not probe,
                     approved_config_path=approved_config_path)
+    suites = list(suites or _evaluation_suites(pre["data"]))
     report = {"schema_version": 1, "scope": pre["scope"], "status": pre["status"],
               "training_status": "NOT_RUN", "gpu_training_status": "NOT_RUN", "preflight": pre,
               "initialization": None, "training": None, "evaluation": None, "recovery": {"status": "NOT_RUN"},

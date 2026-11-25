@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "version": "chinese-language-v1",
+  "files": {
+    "tasks.jsonl": {
+      "sha256": "92e7e2899a30d9648eb05035acfbaf7c2736f85cdbec774664c3385c8c42762e",
+      "records": 300
+    }
+  }
+}

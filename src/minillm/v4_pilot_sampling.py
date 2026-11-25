@@ -315,6 +315,18 @@ def verify_sample(path, *, verify_inputs=True, reproduce=False, family_policy=No
     return manifest
 
 
+def sample_origin(entry, version, path):
+    """A new review may explicitly bind unchanged old sample bytes."""
+    from .v4_language_pilot import LANGUAGE_VERSION
+
+    if version == LANGUAGE_VERSION:
+        for link in entry["v4_source"].get("transformation_history", []):
+            if isinstance(link, dict) and link.get("kind") == SAMPLE_KIND and link.get("manifest") == str(path):
+                if link.get("reuse_from_corpus_version") == PILOT_VERSION:
+                    return PILOT_VERSION
+    return version
+
+
 def verify_sample_binding(path, manifest, entry, version):
     """Bind one manifest and output to the existing source review entry."""
     path = Path(path)
@@ -327,7 +339,8 @@ def verify_sample_binding(path, manifest, entry, version):
     output = str((path.parent / SAMPLE_FILE).resolve())
     if (entry["local_inventory"]["files"].get(output) != manifest["output"]
             or manifest["source_id"] != source["source_id"] or manifest["release"] != entry["release"]
-            or manifest["category"] != source["category"] or manifest["corpus_version"] != version):
+            or manifest["category"] != source["category"]
+            or manifest["corpus_version"] != sample_origin(entry, version, path)):
         raise CorpusError("Pilot sample differs from reviewed scope or file identity")
     return output
 

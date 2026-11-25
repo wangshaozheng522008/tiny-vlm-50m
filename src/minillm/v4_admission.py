@@ -8,21 +8,29 @@ import numpy as np
 from .assessment_io import read_json
 from .corpus_utils import CorpusError, file_info, identity, verify_file
 from .tokenizer import MiniLLMTokenizer
+from .v4_language_pilot import (LANGUAGE_CONFIG,
+                                is_language, split_text_path, tokenized_extra)
 
 APPROVED_PILOT_CONFIG = Path(__file__).resolve().parents[2] / "configs/corpus_v4_pilot_1m.yaml"
 
 
 def _pilot_policy(config):
     """Content-affecting policy; source approvals and reviewed choices vary."""
-    return {key: config[key] for key in (
+    policy = {key: config[key] for key in (
         "schema_version", "corpus_version", "dataset_name", "seed", "text_policy",
         "targets", "quality", "deduplication", "split", "contamination",
         "license_policy", "budget", "audit")} | {
         "tokenizer_training": config["tokenizer"]["training"],
         "tokenizer_evaluation": config["tokenizer"]["evaluation"]}
+    if is_language(config):
+        from .v4_language_pilot import LANGUAGE_TOLERANCE
+
+        policy["contamination"] = {k: v for k, v in policy["contamination"].items() if k != "decisions"}
+        policy["train_selection"] = {"fraction_tolerance": LANGUAGE_TOLERANCE, "algorithm": "seeded-category-prefix-v1"}
+    return policy
 
 
-def validate_v4_pilot_policy(dataset_dir, approved_config_path=APPROVED_PILOT_CONFIG):
+def validate_v4_pilot_policy(dataset_dir, approved_config_path=None):
     """Bind actual generation policy to frozen stages, then to approved policy.
 
     The caller supplies a reviewed, versioned configuration, never an expected
@@ -37,9 +45,10 @@ def validate_v4_pilot_policy(dataset_dir, approved_config_path=APPROVED_PILOT_CO
     directory = Path(dataset_dir)
     report = {"ok": False, "status": "BLOCKED_POLICY_EVIDENCE_MISSING", "errors": []}
     try:
-        approved = load_config(approved_config_path)
         plan = read_json(directory / ".v4/plan.json")
         actual = plan["generation_config"]
+        pinned_profile = LANGUAGE_CONFIG if is_language(actual) else APPROVED_PILOT_CONFIG
+        approved = load_config(approved_config_path or pinned_profile)
         policies = plan["policies"]
         for key in ("quality_policy_sha256", "dedup_policy_sha256", "split_policy_sha256",
                     "tokenizer_config_sha256", "text_policy"):
@@ -100,8 +109,12 @@ def validate_v4_pilot_policy(dataset_dir, approved_config_path=APPROVED_PILOT_CO
         dedup = stage("dedup", {"quality": quality, "dedup": policies["dedup_policy_sha256"]})
         split = stage("split", {"dedup": dedup, "split": policies["split_policy_sha256"],
                                 "seed": approved["split"]["seed"]})
-        stage("tokenized", {"split": split, "tokenizer": recorded["tokenizer_fingerprint"],
-                            "seq_len": approved["targets"]["seq_len"], "text_policy": approved["text_policy"]})
+        selection_key = None
+        if is_language(approved):
+            selection_key = stage("train_selection", {"split": split, "tokenizer": recorded["tokenizer_fingerprint"]})
+        stage("tokenized", tokenized_extra(approved, split=split,
+                                          fingerprint=recorded["tokenizer_fingerprint"],
+                                          seq_len=approved["targets"]["seq_len"], selection_key=selection_key))
         quality_report = read_json(directory / "quality-report.json")
         dedup_report = read_json(directory / "dedup-report.json")
         split_report = read_json(directory / "split-manifest.json")
@@ -252,7 +265,7 @@ def audit_v4_dataset(directory, *, manifest=None, tokenizer_path=None,
             if retokenize:
                 from .corpus import read_records
                 with path.open("rb") as handle:
-                    for row in read_records(directory / f"{name}.text.jsonl"):
+                    for row in read_records(split_text_path(directory, name, balanced=is_language(manifest))):
                         ids = tok.encode_document(row["text"], category=row["language"])
                         expected = np.asarray(ids, dtype="<u2").tobytes()
                         if handle.read(len(expected)) != expected:

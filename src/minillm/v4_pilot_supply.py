@@ -292,6 +292,13 @@ def _tokenizer_report(dataset, base, readiness, config):
     evaluation_artifact = _stage_artifact(dataset, "tokenizer_eval", "tokenizer-evaluation.json")
     candidate_artifact = _stage_artifact(dataset, "tokenizers", "tokenizer-candidates.json")
     candidate_check = _candidate_evidence(dataset, candidates, config)
+    if evaluation_artifact["status"] == "VERIFIED":
+        from .v4_tokenizer_decision import verify_evaluation_stage
+
+        try:
+            verify_evaluation_stage(dataset, config, base=base)
+        except (CorpusError, OSError, ValueError, KeyError, TypeError) as exc:
+            evaluation_artifact.update(status="INVALID", reason=str(exc))
     unverified_tokenized = bool(
         (dataset / "train.token-index.jsonl").is_file()
         or (dataset / ".v4/tokenized.stage.json").is_file()) and evidence_status != "VERIFIED"
@@ -306,7 +313,7 @@ def _tokenizer_report(dataset, base, readiness, config):
         evaluation_status = "INVALID"
     elif evaluation is None:
         evaluation_status = "NOT_RUN"
-    elif evaluation_artifact["status"] == "VERIFIED" and candidate_check["status"] in ("VERIFIED", "NOT_RUN"):
+    elif evaluation_artifact["status"] == "VERIFIED" and candidate_check["status"] == "VERIFIED" and candidate_artifact["status"] == "VERIFIED":
         evaluation_status = evaluation.get("status", "COMPARED")
     else:
         evaluation_status = "UNVERIFIED"
@@ -372,7 +379,7 @@ def _tokenizer_report(dataset, base, readiness, config):
                 "mode": selection.get("mode")})
         elif invalid:
             result["selection_file"]["error"] = "formal tokenizer decision verification failed"
-    if invalid or evaluation is None:
+    if invalid or evaluation_status != "COMPARED":
         return result
     if candidates is not None and candidate_check["status"] != "INVALID":
         for candidate in candidates.get("candidates", []):
@@ -508,6 +515,8 @@ def _measurement(readiness, dataset):
 
 
 def _math_supply_status(admitted, split_assessed, estimated, measured, target):
+    if not target:
+        return "NOT_REQUIRED"
     if not admitted:
         return "MATH_CODE_SOURCE_REQUIRED"
     if not split_assessed or estimated is None:
@@ -522,7 +531,6 @@ def _math_supply_status(admitted, split_assessed, estimated, measured, target):
 def _pipeline_status(readiness, evidence, dataset, blockers=()):
     blockers = set(blockers or readiness.get("blockers", []))
     stage_error = "STAGE_EVIDENCE_INVALID" in blockers
-    tokenization = evidence.get("status", "TOKENIZER_NOT_SELECTED")
     unverified_artifact = ((Path(dataset) / "train.token-index.jsonl").is_file()
                            or (Path(dataset) / ".v4/tokenized.stage.json").is_file())         and evidence.get("status") != "VERIFIED"
     if evidence.get("status") == "VERIFIED":
@@ -552,7 +560,7 @@ def _pipeline_status(readiness, evidence, dataset, blockers=()):
     if contamination not in ("CHECKED_NO_HITS", "REVIEWED"):
         contamination = "INVALID" if stage_error else contamination
     frozen = (Path(dataset) / "FROZEN").is_file()
-    if tokenization == "INVALID" and frozen:
+    if tokenized == "INVALID" and frozen:
         freeze, audit = "INVALID", "INVALID"
     elif readiness.get("status") == "FROZEN_VERIFIED":
         freeze, audit = "VERIFIED", "VERIFIED"
@@ -562,6 +570,14 @@ def _pipeline_status(readiness, evidence, dataset, blockers=()):
     else:
         freeze = "NOT_RUN"
         audit = "INVALID" if stage_error else "NOT_RUN"
+        from .v4_language_pilot import AUDIT_RECEIPT, LANGUAGE_VERSION, verify_audit_receipt
+
+        if readiness.get("corpus_version") == LANGUAGE_VERSION and (Path(dataset) / AUDIT_RECEIPT).is_file():
+            try:
+                audited = verify_audit_receipt(Path(dataset), _read(Path(dataset) / ".v4/plan.json"))
+                audit = ("VERIFIED" if audited["status"] == "READY" else "BLOCKED") if tokenized == "VERIFIED" else "INVALID"
+            except (CorpusError, OSError, ValueError, KeyError, TypeError):
+                audit = "INVALID"
     return {"tokenizer_selection": selection, "tokenization": tokenized,
             "contamination": contamination, "budget": budget,
             "audit": audit, "freeze": freeze}
@@ -663,11 +679,11 @@ def analyze_supply(config, base, dataset, *, sample_manifests=(), run_id=None):
             },
             "estimated_train_tokens": estimated,
             "estimated_gap_tokens": None if estimated is None else max(0, target_tokens - estimated),
-            "estimated_coverage": None if estimated is None else estimated / target_tokens,
+            "estimated_coverage": None if estimated is None or not target_tokens else estimated / target_tokens,
             "effective_train_tokens": effective,
             "effective_gap_tokens": None if effective is None else max(0, target_tokens - effective),
-            "effective_coverage": None if effective is None else effective / target_tokens,
-            "measurement_status": measurement_status,
+            "effective_coverage": None if effective is None or not target_tokens else effective / target_tokens,
+            "measurement_status": measurement_status if target_tokens else "NOT_REQUIRED",
         }
 
     accounting = _Accounting()
@@ -677,7 +693,7 @@ def analyze_supply(config, base, dataset, *, sample_manifests=(), run_id=None):
                      approved_category_total, "approved inputs are counted once")
     category_target_sum = _sum(row["target_effective_train_tokens"] for row in categories.values())
     accounting.check("category targets equal Pilot target", target, category_target_sum,
-                     "40/25/15/10/10 targets sum to 1,020,000")
+                     "configured category targets sum to the Pilot target")
 
     if ingest_stats is not None:
         published_ingest = ingest_stats.get("documents")
@@ -881,6 +897,7 @@ def analyze_supply(config, base, dataset, *, sample_manifests=(), run_id=None):
         },
         "status": status,
         "blockers": sorted(blockers),
+        "train_selection": readiness.get("train_selection"),
         "targets": {
             "effective_train_tokens": target,
             "seq_len": seq_len,
@@ -942,9 +959,12 @@ def analyze_supply(config, base, dataset, *, sample_manifests=(), run_id=None):
         ],
     }
     report["next_actions"] = _next_actions(report)
-    report["content_id"] = identity({key: report[key] for key in (
+    binding = {key: report[key] for key in (
         "corpus_version", "status", "targets", "totals", "categories", "sources",
-        "pipeline_status", "tokenizer", "math_logic_code", "consistency", "dataset")})
+        "pipeline_status", "tokenizer", "math_logic_code", "consistency", "dataset")}
+    if report["train_selection"] is not None:
+        binding["train_selection"] = report["train_selection"]
+    report["content_id"] = identity(binding)
     return report
 
 
@@ -1082,6 +1102,17 @@ def render_markdown(report):
             f"{number(row['estimated_train_tokens'])} | {number(row['estimated_gap_tokens'])} | "
             f"{ratio(row['estimated_coverage'])} | {number(row['effective_train_tokens'])} | "
             f"{number(row['effective_gap_tokens'])} | {row['measurement_status']} |")
+    selection = report.get("train_selection")
+    if selection:
+        lines += ["", "### 平衡选样的实测供给与实际 Loss", "",
+                  "| 类别 | 全量 Train 编码 Token | 入选编码 Token | 入选文档 | 有效监督 Token | 实际占比 |",
+                  "|---|---:|---:|---:|---:|---:|"]
+        for category, supply in selection["supply"].items():
+            budget = selection["category_budget"][category]
+            lines.append(f"| {category} | {number(supply['raw_tokens'])} | "
+                         f"{number(selection['selected_raw_tokens_by_category'][category])} | "
+                         f"{number(budget['available_documents'])} | {number(budget['available_effective_tokens'])} | "
+                         f"{ratio(budget['available_share'])} |")
     lines += [
         "",
         "### Split 与 Train 预算",

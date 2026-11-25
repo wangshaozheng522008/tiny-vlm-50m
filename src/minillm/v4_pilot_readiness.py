@@ -16,7 +16,9 @@ from .corpus_v4 import (V4_SCHEMA_VERSION, _split_isolation_check, build_registr
                         implementation_sha256, status_report, verify_frozen)
 from .data import stream_corpus_records
 from .v4_pilot_sampling import (PILOT_VERSION, SAMPLE_FILE, load_sample_manifest, scan_jsonl,
-                                verify_sample, verify_sample_binding)
+                                sample_origin, verify_sample, verify_sample_binding)
+from .v4_language_pilot import (LANGUAGE_TOLERANCE, LANGUAGE_VERSION, SELECTION_REPORT, SELECTED_TRAIN,
+                                is_language, tokenized_extra, verify_train_selection)
 from .v4_sources import PLACEHOLDERS, validate_reviewed_source, validate_source_plan
 
 _READ_ERRORS = (CorpusError, OSError, ValueError, KeyError, TypeError, sqlite3.Error)
@@ -49,7 +51,7 @@ def _paths(source, base):
     return sorted(files)
 
 
-def _missing_evidence(entry):
+def _missing_evidence(entry, version):
     source = entry["v4_source"]
 
     def missing(value):
@@ -61,7 +63,7 @@ def _missing_evidence(entry):
         fields.append("license_references")
     if source["provenance_status"] != "VERIFIED":
         fields.append("provenance_status")
-    if PILOT_VERSION not in entry.get("corpus_versions", []):
+    if version not in entry.get("corpus_versions", []):
         fields.append("corpus_versions")
     if not entry["local_inventory"]["files"]:
         fields.append("local_inventory.files")
@@ -94,7 +96,7 @@ def _wiki_identity(path, info, base, source_id):
     return lineage
 
 
-def _inspect(source, base, max_record_bytes, preview):
+def _inspect(source, base, max_record_bytes, preview, version):
     source_id = source["source_id"]
     entry = source["source_review"]["entry"]
     result = {
@@ -102,7 +104,7 @@ def _inspect(source, base, max_record_bytes, preview):
         "publisher": entry["publisher"], "release": entry["release"], "source_uri": source["source_uri"],
         "upstream_snapshot_uri": entry.get("upstream_snapshot_uri"),
         "license_status": source["license_status"], "available_files": [], "available_documents": 0,
-        "available_characters": 0, "missing_evidence": _missing_evidence(entry),
+        "available_characters": 0, "missing_evidence": _missing_evidence(entry, version),
         "source_evidence_status": "REVIEW_REQUIRED", "admitted": False,
     }
     paths = _paths(source, base)
@@ -117,7 +119,7 @@ def _inspect(source, base, max_record_bytes, preview):
         if preview:
             manifest_path, manifest = preview
             if (manifest["source_id"] != source_id or manifest["release"] != entry["release"]
-                    or manifest["category"] != source["category"] or manifest["corpus_version"] != PILOT_VERSION
+                    or manifest["category"] != source["category"] or manifest["corpus_version"] != sample_origin(entry, version, manifest_path)
                     or manifest["max_record_bytes"] != max_record_bytes):
                 raise CorpusError("preview differs from the configured source scope or record bound")
             configured = {str(path) for path in paths}
@@ -125,7 +127,7 @@ def _inspect(source, base, max_record_bytes, preview):
             if output in configured:
                 if configured != {output}:
                     raise CorpusError("sample preview requires an exact output file set")
-                verify_sample_binding(manifest_path, manifest, entry, PILOT_VERSION)
+                verify_sample_binding(manifest_path, manifest, entry, version)
                 sample_output = output
                 result.update(available_documents=manifest["counts"]["selected_documents"],
                               available_characters=manifest["counts"]["selected_characters"])
@@ -181,7 +183,7 @@ def _inspect(source, base, max_record_bytes, preview):
 
     if approved:
         try:
-            validate_reviewed_source(source, observed, corpus_version=PILOT_VERSION, verify_inputs=True)
+            validate_reviewed_source(source, observed, corpus_version=version, verify_inputs=True)
             result["source_evidence_status"] = "VERIFIED"
             result["admitted"] = source.get("enabled", True)
             if sample_output:
@@ -308,11 +310,18 @@ def _token_budget(config, directory, stages, result, coverage):
         _stage(directory, generation, "tokenizer-file", ["tokenizer.json"],
                {"fingerprint": fingerprint, "split": split})
         verify_file(directory / "tokenizer.json", file_info(Path(selection["path"])))
+        selection_key, train_selection = None, None
+        if is_language(config):
+            from .tokenizer import MiniLLMTokenizer
+
+            selection_key = _stage(directory, generation, "train_selection", [SELECTED_TRAIN, SELECTION_REPORT],
+                                   {"split": split, "tokenizer": fingerprint})
+            train_selection = verify_train_selection(directory, config, MiniLLMTokenizer.load(directory / "tokenizer.json"))
         tokenized_key = _stage(
             directory, generation, "tokenized",
             ["tokenization-report.json", "train.bin", "train.token-index.jsonl"],
-            {"split": split, "tokenizer": fingerprint, "seq_len": seq_len,
-             "text_policy": config["text_policy"]})
+            tokenized_extra(config, split=split, fingerprint=fingerprint, seq_len=seq_len,
+                            selection_key=selection_key))
         tokenized = _read(directory / "tokenization-report.json")
         index_path = directory / "train.token-index.jsonl"
         index = read_token_index([index_path])
@@ -329,12 +338,17 @@ def _token_budget(config, directory, stages, result, coverage):
                            "effective_tokens": packing["by_category"].get(cat, 0)} for cat in coverage}
         budget = plan_budget(available, config["targets"]["effective_train_tokens"],
                              config["targets"]["category_token_ratios"], seq_len=seq_len,
-                             tokenizer_fingerprint=fingerprint, license_review_status="APPROVED")
+                             tokenizer_fingerprint=fingerprint, license_review_status="APPROVED",
+                             fraction_tolerance=LANGUAGE_TOLERANCE if is_language(config) else None)
         if budget["total_available_effective_tokens"] != tokenized["effective_train_tokens"]:
             raise CorpusError("tokenization Train supervision differs from category totals")
     except _READ_ERRORS as exc:
         evidence.update(status="INVALID", measured=False, reason=str(exc))
         raise
+    if train_selection is not None:
+        result["train_selection"] = {k: v for k, v in train_selection.items() if k != "selected_documents"}
+        result["train_selection"]["category_budget"] = budget["categories"]
+        result["train_selection"]["budget_status"] = budget["status"]
     result["effective_train_tokens"] = tokenized["effective_train_tokens"]
     result["budget_gap"]["measured_category_gap_total"] = budget["total_gap_effective_tokens"]
     for cat, row in budget["categories"].items():
@@ -372,7 +386,8 @@ def _contamination(config, base, directory):
 
 def pilot_readiness(config, base, directory, *, sample_manifests=()):
     """Inspect source files and verified V4 artifacts without building a dataset."""
-    if config["corpus_version"] != PILOT_VERSION:
+    version = config["corpus_version"]
+    if version not in (PILOT_VERSION, LANGUAGE_VERSION):
         raise CorpusError("requires the V4 1M Pilot configuration")
     base, directory = Path(base).resolve(), Path(directory).resolve()
     previews = {}
@@ -386,7 +401,7 @@ def pilot_readiness(config, base, directory, *, sample_manifests=()):
     if previews.keys() - {source["source_id"] for source in config["sources"]}:
         raise CorpusError("sample source absent from the review registry")
     by_source = {source["source_id"]: _inspect(source, base, config["quality"]["max_record_bytes"],
-                                               previews.get(source["source_id"]))
+                                               previews.get(source["source_id"]), version)
                  for source in config["sources"]}
     targets = config["targets"]
     target = targets["effective_train_tokens"]
@@ -410,11 +425,13 @@ def pilot_readiness(config, base, directory, *, sample_manifests=()):
     registry = build_registry(config["sources"], demo=False, license_policy=config["license_policy"])
     policy = status_report(config, base, dataset_dir=directory)
     blockers = set(policy["blockers"])
-    if any(source["file_status"] == "SOURCE_FILES_MISSING" for source in by_source.values()):
+    if any(source["file_status"] == "SOURCE_FILES_MISSING"
+           and (source["category"] not in coverage or coverage[source["category"]]["target_ratio"])
+           for source in by_source.values()):
         blockers.add("SOURCE_FILES_MISSING")
     evidence = "VERIFIED" if registry["sources"] and all(by_source[s["source_id"]]["admitted"]
                                                          for s in registry["sources"]) else "REVIEW_REQUIRED"
-    result = {"schema_version": 1, "corpus_version": PILOT_VERSION, "status": "DATA_NOT_READY",
+    result = {"schema_version": 1, "corpus_version": version, "status": "DATA_NOT_READY",
               "source_status": by_source, "category_coverage": coverage,
               "approved_source_count": sum(s["license_status"] == "APPROVED" for s in by_source.values()),
               "admitted_source_count": sum(s["admitted"] for s in by_source.values()),
@@ -444,6 +461,9 @@ def pilot_readiness(config, base, directory, *, sample_manifests=()):
 
     missing_categories = []
     for cat, row in coverage.items():
+        if not row["target_ratio"]:
+            row.update(status="NOT_REQUIRED", effective_token_gap=0)
+            continue
         measured = row["effective_token_gap"]
         if (not row["admitted_documents"] or
                 (result["split_status"] == "PASS" and not row["train_documents"]) or
@@ -452,6 +472,8 @@ def pilot_readiness(config, base, directory, *, sample_manifests=()):
     if missing_categories:
         blockers.add("CATEGORY_DATA_INSUFFICIENT")
     result["insufficient_categories"] = sorted(missing_categories)
+    if result.get("train_selection", {}).get("budget_status") == "CATEGORY_MIX_OUT_OF_TOLERANCE":
+        blockers.add("CATEGORY_MIX_OUT_OF_TOLERANCE")
     if result["split_status"] != "PASS":
         blockers.add("SPLIT_NOT_VERIFIED")
     if result["dedup_status"] == "FAIL":
