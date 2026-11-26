@@ -283,6 +283,7 @@ class TrainingOptions:
     threads: int = 0
     resume: str | None = None
     init_from: str | None = None
+    milestone_steps: tuple[int, ...] = ()
     extra_meta: dict = field(default_factory=dict)
 
 
@@ -439,6 +440,15 @@ def fit(
             "global_step", "epoch", "micro_batches_consumed_in_epoch"))
         samples_seen, tokens_seen = state["samples_seen"], state["tokens_seen"]
         best_loss, history = state["best_loss"], state["history"]
+        if plan.get("milestone_steps"):
+            from .training_milestones import reconcile_recovery_log, verify_milestone
+
+            for step in plan["milestone_steps"]:
+                if step < global_step:
+                    node = out / "milestones" / f"step-{step}"
+                    receipt = json.loads((node / "manifest.json").read_text(encoding="utf-8"))
+                    verify_milestone(node, manifest, step=step, tokens=receipt["tokens_seen"])
+            reconcile_recovery_log(out, state, Path(opts.resume))
         del state
         print(f"[resume] {opts.resume}: global_step {global_step}, epoch {epoch}, micro-batch {cursor}")
 
@@ -471,6 +481,7 @@ def fit(
     # Explicit backup recovery treats the old primary as untrusted, even if a
     # damaged file can still deserialize. Preserve the chosen recovery point.
     preserve_backup = bool(opts.resume and Path(opts.resume).name == "state.prev.pt")
+    milestones = set(plan.get("milestone_steps", ()))
 
     def save_state():
         nonlocal last_saved_step, last_checkpoint_seconds, preserve_backup, validation_state_dirty
@@ -530,6 +541,15 @@ def fit(
         last_validation_step, last_validation_metrics = global_step, metrics
         return metrics
 
+    def capture_milestone():
+        if global_step not in milestones:
+            return
+        from .training_milestones import save_milestone
+
+        save_state()
+        save_milestone(out, model, tokenizer, manifest, step=global_step, tokens=tokens_seen,
+                       extra={"mode": mode, **opts.extra_meta})
+
     def handle_signal(signum, frame):
         nonlocal interrupted, stop_reason
         interrupted, stop_reason = True, signal.Signals(signum).name
@@ -537,6 +557,7 @@ def fit(
 
     old_handlers = {sig: signal.signal(sig, handle_signal) for sig in (signal.SIGINT, signal.SIGTERM)}
     try:
+        capture_milestone()
         while global_step < total_steps and not interrupted:
             if opts.max_minutes and (time.monotonic() - started) >= opts.max_minutes * 60:
                 stop_reason = "time_budget"
@@ -590,6 +611,7 @@ def fit(
                           f"loss {record['loss']:.4f} lr {lr:.2e} grad {result.grad_norm:.3f} "
                           f"{record['tokens_per_second']:,.0f} tok/s {step_seconds:.3f}s/step")
                     last_log, running_loss_sum, running_tokens, steps_since_log = now, 0.0, 0, 0
+                capture_milestone()
                 if interrupted:
                     break  # Persist first; do not spend the shutdown budget validating.
                 if val_dataset is not None and opts.val_every and global_step % opts.val_every == 0:

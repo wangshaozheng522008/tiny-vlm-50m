@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import json
+from fractions import Fraction
+from math import ceil
 from pathlib import Path
 
 from .corpus import read_records
 from .corpus_budget import read_token_index, supervision_by_category
 from .corpus_quality import V4_CATEGORIES
 from .corpus_utils import CorpusError, file_info, identity, sha256
+from .v4_language_scaling import CORPUS_CONFIG as SCALING_CONFIG, VERSION as SCALING_VERSION
 
 LANGUAGE_VERSION = "minillm-corpus-v4-language-pilot-1m-v1"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -23,7 +26,11 @@ SELECTED_TRAIN = "train.selected.jsonl"
 
 
 def is_language(config):
-    return config["corpus_version"] == LANGUAGE_VERSION
+    return config["corpus_version"] in (LANGUAGE_VERSION, SCALING_VERSION)
+
+
+def language_config(version):
+    return {LANGUAGE_VERSION: LANGUAGE_CONFIG, SCALING_VERSION: SCALING_CONFIG}[version]
 
 
 def validate_version_targets(config):
@@ -36,7 +43,7 @@ def validate_language_policy(config):
     from .corpus_v4 import load_config
     from .v4_admission import _pilot_policy
 
-    approved = load_config(LANGUAGE_CONFIG)
+    approved = load_config(language_config(config["corpus_version"]))
     if (_pilot_policy(config) != _pilot_policy(approved)
             or config["tokenizer"]["candidates"] != approved["tokenizer"]["candidates"]
             or config["tokenizer"]["eval_asset"] != approved["tokenizer"]["eval_asset"]
@@ -107,8 +114,11 @@ def select_train(directory, config, tokenizer):
     index = []
     cursor = 0
     required = [category for category in groups if ratios[category] > 0]
+    quotas = {c: (ceil(targets["effective_train_tokens"] * Fraction(str(r)))
+                  if config["corpus_version"] == SCALING_VERSION else round(targets["effective_train_tokens"] * r))
+              for c, r in ratios.items()}
     for category in required:
-        target = round(targets["effective_train_tokens"] * ratios[category])
+        target = quotas[category]
         start = _supervised_through(cursor, seq_len)
         cutoff = None
         for _, tokens, row in sorted(groups[category], key=lambda entry: (entry[0], entry[2]["document_id"])):
@@ -128,7 +138,7 @@ def select_train(directory, config, tokenizer):
     report = {"algorithm": "seeded-category-prefix-v1", "seed": seed, "seq_len": seq_len,
               "tokenizer_fingerprint": tokenizer.fingerprint, "train_input": file_info(path),
               "split_manifest": file_info(split_manifest), "supply": supply,
-              "targets": {c: round(targets["effective_train_tokens"] * r) for c, r in ratios.items()},
+              "targets": quotas,
               "selected_documents": index, "packing": packing,
               "selected_raw_tokens_by_category": {
                   c: sum(row["tokens"] for row in index if row["category"] == c) for c in ratios},
@@ -194,10 +204,13 @@ def verify_language_release(directory, plan, manifest):
     config = plan["generation_config"]
     if (config["corpus_version"] != manifest["corpus_version"]
             or config["dataset_name"] != manifest["dataset_name"]
-            or manifest["identity"]["v4"]["corpus_version"] != LANGUAGE_VERSION
+            or manifest["identity"]["v4"]["corpus_version"] != config["corpus_version"]
             or not is_language(config) or plan["demo"] is not False):
         raise CorpusError("language Pilot release version or plan mismatch")
     validate_language_policy(config)
+    if config["corpus_version"] == SCALING_VERSION:
+        from .v4_language_scaling import verify_pinned_release
+        verify_pinned_release(directory)
     selected = verify_selection(directory)
     tokenizer = MiniLLMTokenizer.load(directory / "tokenizer.json")
     if tokenizer.fingerprint != selected["fingerprint"]:

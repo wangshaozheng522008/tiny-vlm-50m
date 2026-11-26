@@ -175,6 +175,9 @@ def validate_reviewed_source(source, observed_inputs=None, *, corpus_version=Non
     version = _review_text(record.get("corpus_version"), "source_review corpus_version")
     if version not in entry["corpus_versions"] or (corpus_version is not None and version != corpus_version):
         raise CorpusError("source_review belongs to a different corpus version")
+    from .v4_language_scaling import VERSION, validate_scope
+    if version == VERSION:
+        validate_scope(entry)
     # Compare canonical source values, not just a marker or a declared SHA.
     actual = copy.deepcopy(source)
     actual.pop("source_review")
@@ -221,6 +224,9 @@ def validate_source_inputs(config, registry, inputs, *, require=False, verify_in
         known = {s["source_id"] for s in registry["sources"]}
         if any(i["source_id"] not in known for i in inputs):
             raise CorpusError("Ingest input has no corresponding reviewed source")
+    from .v4_language_scaling import VERSION, validate_source_set
+    if config["corpus_version"] == VERSION:
+        validate_source_set(registry)
     return hashes
 
 

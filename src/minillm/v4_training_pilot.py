@@ -46,11 +46,15 @@ def _suite_assets(suite):
     return {"prompts": suite / "prompts.jsonl", "candidate_benchmark": suite / "candidates.jsonl"}
 
 
-def validate_pilot_budget(samples, opts, extra, *, cpu_nano_test=False):
+def validate_pilot_budget(samples, opts, extra, *, cpu_nano_test=False, corpus_version=None):
     """One cumulative fixed plan, including Resume; rounding is < one update."""
+    from .v4_language_scaling import TARGET, VERSION
+
+    scaling = corpus_version == VERSION and not cpu_nano_test
+    expected_target = 2_000_000 if scaling else PILOT_TARGET_TOKENS
     target = extra.get("target_tokens")
-    if type(target) is not int or (target < 1 if cpu_nano_test else target != PILOT_TARGET_TOKENS):
-        raise ValueError("V4 Pilot requires exactly 1,000,000 integer target tokens (CPU fixtures use their independent small budget)")
+    if type(target) is not int or (target < 1 if cpu_nano_test else target != expected_target):
+        raise ValueError(f"V4 Pilot requires exactly {expected_target:,} integer target tokens (CPU fixtures use their independent small budget)")
     if opts.max_steps < 3 or extra.get("allow_data_repetition", False) is not False:
         raise ValueError("at least three fixed updates and no corpus repetition required")
     seq_len = extra["seq_len"]
@@ -64,6 +68,9 @@ def validate_pilot_budget(samples, opts, extra, *, cpu_nano_test=False):
         raise ValueError("declared planned token budget differs from actual fixed windows")
     if not cpu_nano_test and independent < 1_020_000:
         raise ValueError("at least 1.02M independent effective tokens required")
+    if scaling and (seq_len, update, opts.max_steps, planned, list(opts.milestone_steps)) != (
+            1024, 8184, 245, TARGET, [0, 123, 245]):
+        raise ValueError("2M requires 245 full independent 8,184-target updates and milestones 0/123/245")
     return {"planned_effective_tokens": planned, "independent_effective_tokens": independent,
             "target_tokens": target, "optimizer_updates": opts.max_steps,
             "full_update_effective_tokens": update, "train_windows": samples,
@@ -100,6 +107,8 @@ def _workspace_plan(workspace, request):
     plan = unseal(read_json(Path(workspace) / "pilot-plan.json"))
     if plan["request"] != request or plan["initial_checkpoint"] != file_info(Path(workspace) / "initial.pt"):
         raise ValueError("pilot workspace data/tokenizer/plan/initial weights changed")
+    if request.get("pinned_initial_checkpoint") and plan["initial_checkpoint"] != request["pinned_initial_checkpoint"]:
+        raise ValueError("2M workspace does not contain the original Step 0 checkpoint")
     return plan
 
 
@@ -131,6 +140,14 @@ def preflight(dataset, tokenizer, model_config, training_config, workspace, *,
         block("BLOCKED_DATA_NOT_READY", "; ".join(audit["errors"]))
     else:
         manifest = read_json(Path(dataset) / "dataset-manifest.json")
+    from . import v4_language_scaling as scaling_policy
+    scaling = bool(manifest and manifest["corpus_version"] == scaling_policy.VERSION)
+    if scaling:
+        try:
+            scaling_policy.validate_training_config(raw, workspace, evaluation_config)
+            scaling_policy.verify_file(scaling_policy.INITIAL, scaling_policy.INITIAL_FILE)
+        except (OSError, ValueError, RuntimeError, KeyError) as exc:
+            block("BLOCKED_2M_PROFILE", exc)
     if approved_config_path is not None and not cpu_nano_test:
         pilot_policy = {"ok": False, "status": "BLOCKED_POLICY_MISMATCH",
                         "errors": ["production Pilot policy is pinned to the repository-approved configuration"]}
@@ -166,12 +183,17 @@ def preflight(dataset, tokenizer, model_config, training_config, workspace, *,
         val = PackedPretrainDataset(Path(dataset) / "val.bin", extra["seq_len"])
         if not len(train) or not len(val) or extra["seq_len"] > cfg.max_position_embeddings:
             raise ValueError("nonempty complete train/val windows within model context required")
-        budget = validate_pilot_budget(len(train), opts, extra, cpu_nano_test=cpu_nano_test)
+        budget = validate_pilot_budget(len(train), opts, extra, cpu_nano_test=cpu_nano_test,
+                                       corpus_version=manifest["corpus_version"] if manifest else None)
         if manifest and is_language(manifest):
             frozen = read_json(Path(dataset) / "budget-report.json")
             if (train.seq_len != frozen["seq_len"]
                     or budget["independent_effective_tokens"] != manifest["effective_train_tokens"]):
                 raise ValueError("training window length and independent budget must match the frozen language Pilot")
+        if scaling:
+            if cpu_nano_test:
+                raise ValueError("2M formal data requires the production pilot")
+            budget["sampler_preview"] = scaling_policy.preview_consumption(dataset, train, opts)
         budget["val_windows"] = len(val)
     except (OSError, ValueError, RuntimeError, KeyError) as exc:
         block("BLOCKED_TOKEN_BUDGET", exc)
@@ -192,7 +214,7 @@ def preflight(dataset, tokenizer, model_config, training_config, workspace, *,
     while not ancestor.exists():
         ancestor = ancestor.parent
     disk = {"free_bytes": shutil.disk_usage(ancestor).free,
-            "required_bytes": int(cfg.num_parameters * 44 * extra.get("disk_margin_factor", 1.2))}
+            "required_bytes": int(cfg.num_parameters * (100 if scaling else 44) * extra.get("disk_margin_factor", 1.2))}
     if disk["free_bytes"] < disk["required_bytes"]:
         block("BLOCKED_DISK", disk)
     if Path(opts.out).exists() and (not Path(opts.out).is_dir() or any(Path(opts.out).iterdir())) and not opts.resume:
@@ -207,6 +229,8 @@ def preflight(dataset, tokenizer, model_config, training_config, workspace, *,
         if manifest is not None:
             request = _request(dataset, tokenizer, cfg, raw, evaluation, cpu_nano_test)
             request["approved_policy_sha256"] = pilot_policy.get("approved_policy_sha256")
+            if scaling:
+                request["pinned_initial_checkpoint"] = scaling_policy.INITIAL_FILE
         if Path(workspace).exists():
             _workspace_plan(workspace, request)
         elif opts.resume:
@@ -242,14 +266,22 @@ def _initialize(workspace, request, model_config, tokenizer):
     from .tokenizer import MiniLLMTokenizer
     cfg = MiniLLMConfig.load(model_config) if Path(model_config).is_file() else get_config(model_config)
     with report_directory(workspace) as directory, preserved_process():
-        set_seed(request["training"]["seed"])
-        tok = MiniLLMTokenizer.load(tokenizer)
-        tok.text_policy = request["text_policy"]
-        model = MiniLLM(cfg)
-        save_model_checkpoint(directory / "initial.pt", model, tok, step=0, tokens=0, val_loss=None,
-                              extra={"mode": "pretrain", "baseline_status": "UNTRAINED_RANDOM_INITIALIZATION"})
+        initialization = "random_weights_saved_before_training"
+        if request.get("pinned_initial_checkpoint"):
+            from .v4_language_scaling import INITIAL, INITIAL_FILE, verify_file
+            verify_file(INITIAL, INITIAL_FILE)
+            shutil.copyfile(INITIAL, directory / "initial.pt")
+            verify_file(directory / "initial.pt", INITIAL_FILE)
+            initialization = "weights_only_from_pr16_step0"
+        else:
+            set_seed(request["training"]["seed"])
+            tok = MiniLLMTokenizer.load(tokenizer)
+            tok.text_policy = request["text_policy"]
+            model = MiniLLM(cfg)
+            save_model_checkpoint(directory / "initial.pt", model, tok, step=0, tokens=0, val_loss=None,
+                                  extra={"mode": "pretrain", "baseline_status": "UNTRAINED_RANDOM_INITIALIZATION"})
         plan = sealed({"schema_version": 1, "request": request,
-                       "initialization": "random_weights_saved_before_training",
+                       "initialization": initialization,
                        "initial_checkpoint": file_info(directory / "initial.pt")})
         write_json(directory / "pilot-plan.json", plan)
     return plan
@@ -301,6 +333,7 @@ def run_pilot(dataset, tokenizer, model_config, training_config, out, workspace,
                     evaluation_config=evaluation_config, suites=suites, require_workload=not probe,
                     approved_config_path=approved_config_path)
     suites = list(suites or _evaluation_suites(pre["data"]))
+    report_file = "pilot-v4-2m-report.json" if raw.get("target_tokens") == 2_000_000 else "pilot-v4-1m-report.json"
     report = {"schema_version": 1, "scope": pre["scope"], "status": pre["status"],
               "training_status": "NOT_RUN", "gpu_training_status": "NOT_RUN", "preflight": pre,
               "initialization": None, "training": None, "evaluation": None, "recovery": {"status": "NOT_RUN"},
@@ -308,7 +341,7 @@ def run_pilot(dataset, tokenizer, model_config, training_config, out, workspace,
               "engineering": "NOT_RUN", "convergence": "NOT_RUN", "capability": "NOT_RUN"}
     with report_directory(out) as directory:
         write_json(directory / "preflight.json", pre)
-        write_json(directory / "pilot-v4-1m-report.json", report)
+        write_json(directory / report_file, report)
     if pre["readiness"] != "READY":
         return report
     try:
@@ -318,7 +351,7 @@ def run_pilot(dataset, tokenizer, model_config, training_config, out, workspace,
             report["readiness"] = ready
             if ready["status"] != "READY":
                 report["status"] = "BLOCKED_READINESS"
-                write_json(out / "pilot-v4-1m-report.json", report)
+                write_json(out / report_file, report)
                 return report
         if probe:
             plan = _initialize(workspace, pre["request"], model_config, tokenizer)
@@ -341,7 +374,7 @@ def run_pilot(dataset, tokenizer, model_config, training_config, out, workspace,
             launched_at = time.perf_counter()
             report.update(training_status="EXECUTION_ATTEMPTED",
                           gpu_training_status="NOT_RUN" if cpu_nano_test else "EXECUTION_ATTEMPTED")
-            write_json(out / "pilot-v4-1m-report.json", report)
+            write_json(out / report_file, report)
             if torch.device(opts.device or "cpu").type == "cuda":
                 torch.cuda.reset_peak_memory_stats(torch.device(opts.device))
             launch = launch_pilot(dataset, tokenizer, model_config, _resolved(raw, workspace), out / "launch", execute=True)
@@ -391,11 +424,11 @@ def run_pilot(dataset, tokenizer, model_config, training_config, out, workspace,
                             for evaluation in (initial_eval, final_eval)]
                     report["performance"].update(total_logged_seconds=acceptance[0]["estimated_logged_wall_seconds"],
                         average_logged_tokens_per_second=acceptance[0]["average_logged_tokens_per_second"])
-        write_json(out / "pilot-v4-1m-report.json", report)
+        write_json(out / report_file, report)
     except Exception as exc:
         report.update(status="FAILED", error=str(exc))
         report["stability"] = {"status": "FAILED", "errors": [type(exc).__name__ + ": " + str(exc)]}
-        write_json(out / "pilot-v4-1m-report.json", report)
+        write_json(out / report_file, report)
         raise
     return report
 

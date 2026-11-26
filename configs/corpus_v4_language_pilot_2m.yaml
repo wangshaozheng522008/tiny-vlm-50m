@@ -1,0 +1,178 @@
+# Independent scaling pilot. New source approvals are required; reuse the frozen PR #16 tokenizer.
+# Whole documents are selected before packing. v4_language_pilot.py pins a 1 pp mix tolerance.
+schema_version: 4
+corpus_version: minillm-corpus-v4-language-pilot-2m-v1
+dataset_name: minillm-corpus-v4-language-pilot-2m
+seed: 42
+text_policy: identity-v1
+targets:
+  effective_train_tokens: 2005080
+  seq_len: 1024
+  category_token_ratios:
+    zh_general: 0.45
+    zh_encyclopedic: 0.30
+    zh_education: 0.15
+    en_general: 0.1
+    math_logic_code: 0
+source_registry: corpus_v4_sources.review.json
+license_policy:
+  approved_only: true
+  demo_allow_review_required: true
+quality:
+  min_chars: 80
+  max_chars: 20000
+  max_record_bytes: 1048576
+  strip_html: true
+  rules:
+    empty_or_short:
+      enabled: true
+      min_chars: 80
+      action: REJECT
+    extreme_length:
+      enabled: true
+      max_chars: 20000
+      action: REVIEW
+    repeated_characters:
+      enabled: true
+      max_run: 30
+      action: REJECT
+    replacement_characters:
+      enabled: true
+      max_ratio: 0.001
+      action: REJECT
+    html_residue:
+      enabled: true
+      max_tags: 3
+      max_tag_ratio: 0.002
+      action: REVIEW
+    boilerplate_noise:
+      enabled: true
+      max_matches: 3
+      action: REVIEW
+    punctuation_density:
+      enabled: true
+      min_ratio: 0.0
+      max_ratio: 0.3
+      action: REVIEW
+    digit_density:
+      enabled: true
+      max_ratio: 0.45
+      action: REVIEW
+    repeated_paragraph:
+      enabled: true
+      min_repeats: 4
+      max_ratio: 0.5
+      action: REJECT
+    language_mismatch:
+      enabled: true
+      action: REVIEW
+    unprintable_ratio:
+      enabled: true
+      max_ratio: 0.02
+      action: REJECT
+    pii_contacts:
+      enabled: true
+      max_contacts: 3
+      action: REVIEW
+    low_information:
+      enabled: true
+      action: REVIEW
+deduplication:
+  exact: true
+  near:
+    method: minhash_lsh
+    threshold: 0.85
+    num_bins: 128
+    bands: 32
+    rows: 4
+    seed: 42
+    zh_ngram: 5
+    en_ngram: 3
+    code_ngram: 8
+    include_code: false
+    max_shingles_per_chunk: 20000
+    max_candidates_per_chunk: 512
+    chunk_chars: 20000
+split:
+  seed: 42
+  ratios:
+    train: 0.96
+    val: 0.02
+    test: 0.02
+  strategy: family_cluster_hash
+  verify_near_cross_split: true
+tokenizer:
+  candidates:
+  - name: v4-24576
+    vocab_size: 24576
+  - name: v4-32768
+    vocab_size: 32768
+  selected: null
+  output_root: artifacts/tokenizers/v4-language-pilot-2m-v1
+  baseline: runs/minillm-87m/corpus/tokenizer.json
+  eval_asset: configs/tokenizer-v4-language-evaluation.jsonl
+  training:
+    max_chars: 30000000
+    seed: 42
+    min_documents: 1
+    category_weights:
+      zh_general: 0.45
+      zh_encyclopedic: 0.30
+      zh_education: 0.15
+      en_general: 0.1
+      math_logic_code: 0
+  evaluation:
+    min_gain_fraction: 0.03
+    max_param_increase_fraction: 0.02
+budget:
+  allow_repetition: false
+  chars_per_token:
+    zh: 1.8
+    en: 4.0
+    code: 3.0
+    mixed: 2.0
+    unknown: 3.0
+contamination:
+  enabled: true
+  min_prompt_chars: 12
+  long_span_containment: 0.8
+  max_hits: 5000
+  decisions: null
+  assets:
+  - path: data/evaluation/minillm-zh-benchmark.jsonl
+    kind: scored
+  - path: data/evaluation/fixed-prompts.jsonl
+    kind: fixed_prompts
+  - path: data/evaluation/pretrain-v1/candidates.jsonl
+    kind: candidates
+  - path: data/evaluation/pretrain-v1/prompts.jsonl
+    kind: prompts
+  - path: data/evaluation/chinese-foundation-v1/candidates.jsonl
+    kind: candidates
+  - path: data/evaluation/chinese-foundation-v1/prompts.jsonl
+    kind: prompts
+  - path: data/evaluation/chinese-language-v1/tasks.jsonl
+    kind: language
+runtime:
+  sqlite_cache_mib: 16
+  commit_every: 1000
+  buffer_bytes: 1048576
+hardware:
+  device: NVIDIA T1200 Laptop
+  memory_bytes: 3865470566
+  budget_bytes: 3116105728
+  adamw_bytes_per_parameter: 20
+  overhead_bytes: 805306368
+audit:
+  retokenize: full
+  sample_documents: 2000
+demo:
+  sources_manifest: tests/fixtures/corpus_v4/demo-sources.json
+  effective_train_tokens: 2048
+  seq_len: 128
+  tokenizer_candidates:
+  - name: demo-320
+    vocab_size: 320
+  - name: demo-384
+    vocab_size: 384
+  eval_asset: tests/fixtures/corpus_v4/tokenizer-eval.jsonl

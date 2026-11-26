@@ -75,6 +75,13 @@ def implementation():
 
 
 def resolve_plan(dataset, tokenizer_path, model_config, config):
+    from . import v4_language_scaling as scaling
+
+    published = Path(dataset) / "dataset-manifest.json"
+    is_scaling = published.is_file() and read_json(published).get("corpus_version") == scaling.VERSION
+    if is_scaling:
+        raw = read_json(config) if isinstance(config, (str, Path)) else dict(config)
+        scaling.validate_launch_config(raw)
     opts, extra = parse_training_config(config)
     torch.set_num_threads(opts.threads)
     device = get_device(opts.device)
@@ -109,6 +116,8 @@ def resolve_plan(dataset, tokenizer_path, model_config, config):
         init = {"sha256": file_info(Path(opts.init_from))["sha256"], "kind": "weights_only"}
     else:
         init = {"seed": opts.seed, "kind": "fresh"}
+    if is_scaling and init != {"sha256": scaling.INITIAL_FILE["sha256"], "kind": "weights_only"}:
+        raise ValueError("2M training lineage must start from the original Step 0 weights")
     policy = {"manifest": manifest, "initialization": init, "validation_limit": opts.val_limit,
               "environment": hardware(device), "implementation": implementation()}
     return opts, extra, cfg, tok, train, val, sampler, device, precision, policy

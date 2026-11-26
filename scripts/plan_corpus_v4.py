@@ -165,6 +165,10 @@ def main(argv=None) -> int:
     pipeline.split()
     if args.tokenizer:
         pipeline.tokenize(Path(args.tokenizer))
+    elif pipeline.scaling:
+        if args.decision or args.baseline:
+            raise CorpusError("the 2M profile uses the pinned historical tokenizer decision")
+        pipeline.tokenize()
     else:
         pipeline.train_tokenizers()
         pipeline.evaluate_tokenizers(baseline=args.baseline)

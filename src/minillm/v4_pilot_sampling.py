@@ -318,8 +318,9 @@ def verify_sample(path, *, verify_inputs=True, reproduce=False, family_policy=No
 def sample_origin(entry, version, path):
     """A new review may explicitly bind unchanged old sample bytes."""
     from .v4_language_pilot import LANGUAGE_VERSION
+    from .v4_language_scaling import VERSION
 
-    if version == LANGUAGE_VERSION:
+    if version in (LANGUAGE_VERSION, VERSION):
         for link in entry["v4_source"].get("transformation_history", []):
             if isinstance(link, dict) and link.get("kind") == SAMPLE_KIND and link.get("manifest") == str(path):
                 if link.get("reuse_from_corpus_version") == PILOT_VERSION:

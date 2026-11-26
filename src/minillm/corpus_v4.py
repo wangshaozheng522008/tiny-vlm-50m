@@ -50,7 +50,7 @@ from .data import stream_corpus_records
 from .text_policy import IDENTITY, apply_text_policy, validate_policy
 from .tokenizer import MiniLLMTokenizer
 from .v4_language_pilot import (
-    AUDIT_RECEIPT, LANGUAGE_TOLERANCE, LANGUAGE_VERSION, SELECTION_REPORT, SELECTED_TRAIN,
+    AUDIT_RECEIPT, LANGUAGE_TOLERANCE, SCALING_VERSION, SELECTION_REPORT, SELECTED_TRAIN,
     audit_receipt, is_language, select_train,
     split_text_path, tokenized_extra, validate_language_policy, validate_version_targets,
     verify_train_selection,
@@ -70,7 +70,8 @@ def implementation_sha256() -> str:
     """Code identity: a changed reader/cleaner/tokenizer must not reuse old stages."""
     names = ("corpus_v4.py", "corpus.py", "corpus_quality.py", "corpus_dedup.py",
              "corpus_contamination.py", "corpus_budget.py", "tokenizer_v4.py",
-             "data.py", "text_policy.py", "tokenizer.py", "v4_sources.py", "v4_tokenizer_decision.py", "v4_language_pilot.py")
+             "data.py", "text_policy.py", "tokenizer.py", "v4_sources.py", "v4_tokenizer_decision.py",
+             "v4_language_pilot.py", "v4_language_scaling.py", "v4_pilot_sampling.py")
     return identity({name: sha256(Path(__file__).with_name(name)) for name in names})
 
 DEFAULT_RUNTIME = {"sqlite_cache_mib": 16, "commit_every": 1000, "buffer_bytes": 1048576}
@@ -684,6 +685,9 @@ class CorpusV4Pipeline:
         self.demo = demo
         validate_version_targets(config)
         self.balanced = is_language(config) and not demo
+        self.scaling = config["corpus_version"] == SCALING_VERSION
+        if self.scaling and demo:
+            raise CorpusError("the pinned 2M profile requires the reviewed historical snapshot")
         if self.balanced:
             validate_language_policy(config)
             required = {c for c, weight in config["targets"]["category_token_ratios"].items() if weight}
@@ -1486,6 +1490,16 @@ class CorpusV4Pipeline:
             file_hashes["split-assignment.jsonl"] = file_info(assignment_temporary)
             leakage = self._split_leakage(scratch_path, family_cluster_violations=violations)
 
+            if self.scaling:
+                from .v4_language_scaling import BASE, SPLIT_FILES, base_manifest, verify_split_reuse
+
+                historical = base_manifest(*SPLIT_FILES)
+                verify_file(assignment_temporary, historical["files"][assignment_path.name])
+                for name, path in temporary.items():
+                    filename = f"{name}.text.jsonl"
+                    verify_split_reuse(filename, path, historical)
+                    shutil.copyfile(BASE / filename, path)
+
             for name in SPLITS:
                 os.replace(temporary[name], self.out / f"{name}.text.jsonl")
                 published.append(self.out / f"{name}.text.jsonl")
@@ -1509,6 +1523,9 @@ class CorpusV4Pipeline:
             if not split_stats["val"]["documents"] or not split_stats["test"]["documents"]:
                 raise CorpusError("split produced an empty validation/test split; add independent groups")
             write_json(manifest_path, manifest)
+            published.append(manifest_path)
+            if self.scaling:
+                verify_file(manifest_path, historical["files"][manifest_path.name])
             success = True
             stats = {"documents": total_documents, "splits": split_stats, "groups": group_count,
                      "leakage": leakage, "split_manifest_sha256": sha256(manifest_path)}
@@ -1612,6 +1629,8 @@ class CorpusV4Pipeline:
     # ------------------------------------------------------------------ tokenizers
 
     def train_tokenizers(self):
+        if self.scaling:
+            raise CorpusError("the 2M profile reuses the frozen tokenizer; use the tokenize stage")
         if not self.demo and self._license_status() != "APPROVED":
             raise CorpusError("TOKENIZER_TRAINING_BLOCKED: approved sources with human licence evidence required")
         if "tokenizers" in self._done:
@@ -1682,6 +1701,8 @@ class CorpusV4Pipeline:
         return self.stats["tokenizers"]
 
     def evaluate_tokenizers(self, *, baseline: str | Path | None = None):
+        if self.scaling:
+            raise CorpusError("the 2M profile reuses the frozen tokenizer evaluation; use the tokenize stage")
         if self.balanced and baseline:
             raise CorpusError("language Pilot uses the pinned tokenizer baseline")
         if "tokenizer_eval" in self._done:
@@ -1766,6 +1787,8 @@ class CorpusV4Pipeline:
         return None
 
     def record_tokenizer_decision(self, path: str | Path):
+        if self.scaling:
+            raise CorpusError("the 2M profile requires the pinned historical tokenizer decision")
         if self.demo:
             raise CorpusError("DEMO_ONLY candidates cannot receive a formal decision")
         self.evaluate_tokenizers()
@@ -1793,6 +1816,8 @@ class CorpusV4Pipeline:
         if not (self.out / "tokenizer-selection.json").is_file():
             return None
         selection = verify_selection(self.out)
+        if self.scaling:
+            return selection
         key = self._key("tokenizer_selection", {"evaluation": self.keys["tokenizer_eval"],
                                                 "decision": selection["decision_sha256"]})
         self._run("tokenizer_selection", key, lambda: (_ for _ in ()).throw(
@@ -1800,6 +1825,23 @@ class CorpusV4Pipeline:
         return selection
 
     # ------------------------------------------------------------------ tokenize
+
+    def _reuse_scaling_tokenizer(self):
+        from .v4_language_scaling import BASE, BASE_ID, tokenizer_receipt
+
+        key = self._key("tokenizer_selection", {"split": self.keys["split"], "base_content_id": BASE_ID})
+        def producer():
+            receipt = tokenizer_receipt(self.out)
+            paths = [self.out / name for name in ("tokenizer-evaluation.json", "tokenizer-candidates.json")]
+            for path in paths:
+                with (BASE / path.name).open("rb") as handle:
+                    atomic_write(path, lambda out: shutil.copyfileobj(handle, out))
+            path = self.out / "tokenizer-selection.json"
+            write_json(path, receipt)
+            return receipt, [*paths, path]
+
+        self._run("tokenizer_selection", key, producer)
+        return self._reviewed_selection()
 
     def _select_train(self, tokenizer):
         key = self._key("train_selection", {"split": self.keys["split"],
@@ -1824,6 +1866,11 @@ class CorpusV4Pipeline:
         if "tokenized" in self._done:
             return self.stats["tokenized"]
         self.split()
+        if self.scaling:
+            if tokenizer_path is not None or selected is not None:
+                raise CorpusError("the 2M profile cannot override its frozen tokenizer")
+            selected = self._reuse_scaling_tokenizer()
+            tokenizer_path = selected["path"]
         if tokenizer_path is None:
             comparison = self.evaluate_tokenizers()
             if selected is None:
@@ -1833,7 +1880,7 @@ class CorpusV4Pipeline:
             tokenizer_path = selected["path"]
         tokenizer_path = self._resolve_path(tokenizer_path)
         tokenizer = MiniLLMTokenizer.load(tokenizer_path)
-        if not self.demo and (self.balanced or tokenizer.vocab_size >= 24576 or self.target_tokens >= 1_020_000):
+        if not self.scaling and not self.demo and (self.balanced or tokenizer.vocab_size >= 24576 or self.target_tokens >= 1_020_000):
             self.evaluate_tokenizers()
             reviewed = self._reviewed_selection()
             if not reviewed or reviewed["fingerprint"] != tokenizer.fingerprint:
@@ -1939,6 +1986,9 @@ class CorpusV4Pipeline:
                      *(self.out / f"{name}.token-index.jsonl" for name in SPLITS), report_path]
             return report, files
         self._run("tokenized", key, producer)
+        if self.scaling:
+            from .v4_language_scaling import verify_pinned_release
+            verify_pinned_release(self.out)
         return self.stats["tokenized"]
 
     def _measure_deleted_tokens(self, tokenizer: MiniLLMTokenizer) -> dict:
@@ -2442,9 +2492,12 @@ def verify_frozen(directory: str | Path) -> dict:
         from .v4_tokenizer_decision import verify_selection
         selection = verify_selection(directory)
         plan = json.loads((directory / ".v4/plan.json").read_text(encoding="utf-8"))
-        expected = identity([V4_SCHEMA_VERSION, plan["plan_key"], "tokenizer_selection",
-                             {"evaluation": recomputed["tokenizer_eval"]["key"],
-                              "decision": selection["decision_sha256"]}])
+        if manifest["corpus_version"] == SCALING_VERSION:
+            from .v4_language_scaling import BASE_ID
+            basis = {"split": recomputed["split"]["key"], "base_content_id": BASE_ID}
+        else:
+            basis = {"evaluation": recomputed["tokenizer_eval"]["key"], "decision": selection["decision_sha256"]}
+        expected = identity([V4_SCHEMA_VERSION, plan["plan_key"], "tokenizer_selection", basis])
         if (recomputed.get("tokenizer_selection", {}).get("key") != expected
                 or selection["fingerprint"] != manifest["tokenizer"]["fingerprint"]
                 or "tokenizer-selection.json" not in manifest["files"]):
@@ -2457,8 +2510,9 @@ def verify_frozen(directory: str | Path) -> dict:
         raise CorpusError("frozen dataset lacks complete passing split isolation evidence")
     if not (directory / "FROZEN").is_file():
         raise CorpusError("missing FROZEN marker")
-    if (is_language(manifest) or source_plan.get("corpus_version") == LANGUAGE_VERSION
-            or manifest["identity"]["v4"].get("corpus_version") == LANGUAGE_VERSION):
+    if any(is_language({"corpus_version": value}) for value in (
+            manifest["corpus_version"], source_plan.get("corpus_version"),
+            manifest["identity"]["v4"].get("corpus_version"))):
         from .v4_language_pilot import verify_language_release
 
         directory = directory.resolve()
