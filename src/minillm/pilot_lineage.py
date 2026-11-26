@@ -4,7 +4,6 @@ from __future__ import annotations
 import contextlib
 import copy
 import re
-from dataclasses import asdict
 from pathlib import Path
 
 import torch
@@ -40,7 +39,7 @@ def _initialization(value, manifest):
 
 def _launch(path, manifest, initialization, out, *, initial):
     # Imports are lazy because workload.resolve_plan also reads lineage.
-    from .workload import parse_training_config
+    from .workload import parse_training_config, resolved_training_options
     from .train import resolve_precision
     path = Path(path).resolve()
     record = read_json(path / "launch-manifest.json")
@@ -50,7 +49,7 @@ def _launch(path, manifest, initialization, out, *, initial):
             or record.get("training_output") != str(out.resolve())):
         raise ValueError("launch record identity/source/output mismatch")
     opts, extra = parse_training_config(record["configuration"])
-    if asdict(opts) != record["resolved_options"] or Path(opts.out).resolve() != out.resolve():
+    if resolved_training_options(opts) != record["resolved_options"] or Path(opts.out).resolve() != out.resolve():
         raise ValueError("launch record configuration mismatch")
     if initial and opts.resume or not initial and not opts.resume:
         raise ValueError("launch record does not identify the first startup/resume")

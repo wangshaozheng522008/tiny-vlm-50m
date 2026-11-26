@@ -102,6 +102,10 @@ def build_manifest(opts, model, tokenizer, train_dataset, val_dataset, *, mode, 
     updates = math.ceil(len(sampler) / opts.grad_accum)
     target = opts.max_steps if opts.max_steps > 0 else updates * opts.epochs
     warmup = int(target * opts.warmup_ratio)
+    milestones = opts.milestone_steps
+    if (not isinstance(milestones, (list, tuple)) or any(type(step) is not int or not 0 <= step <= target for step in milestones)
+            or list(milestones) != sorted(set(milestones))):
+        raise ValueError("milestone_steps must be unique, increasing completed steps within the training plan")
     return {
         "training_state_version": TRAINING_STATE_VERSION,
         "model_architecture": ARCHITECTURE, "model_config": model.cfg.to_dict(),
@@ -119,6 +123,7 @@ def build_manifest(opts, model, tokenizer, train_dataset, val_dataset, *, mode, 
             "scheduler": "warmup_cosine", "scheduler_total_steps": target,
             "optimizer": "AdamW", "betas": [0.9, 0.95], "eps": 1e-8,
             "weight_decay": opts.weight_decay, "grad_clip": opts.grad_clip,
+            **({"milestone_steps": list(milestones)} if milestones else {}),
         },
         # Strict policy: changes require a new weights-only run, not an equivalent resume.
         "execution": {"precision": precision, "device": str(device),

@@ -31,6 +31,7 @@ from .checkpoint import (
     CheckpointError, TRAINING_STATE_VERSION, atomic_torch_save, load_training_state,
 )
 from .training_manifest import build_manifest, compare_manifests, write_json
+from .corpus_utils import file_info
 from .config import ARCH_VERSION, ARCHITECTURE, MiniLLMConfig, get_config
 from .data import EpochBatchSampler, PackedPretrainDataset, collate_batch
 from .model import MiniLLM
@@ -154,7 +155,7 @@ def save_training_state(
     scaler: torch.amp.GradScaler | None, tokenizer: MiniLLMTokenizer, *,
     global_step: int, epoch: int, micro_batches_consumed_in_epoch: int,
     samples_seen: int, best_loss: float | None, history: list[dict], tokens: int,
-    manifest: dict, preserve_backup: bool = False,
+    manifest: dict, preserve_backup: bool = False, best_checkpoint: dict | None = None,
 ) -> None:
     backup = None if preserve_backup else path.with_name("state.prev.pt")
     if path.exists() and backup is not None:
@@ -177,6 +178,8 @@ def save_training_state(
         "samples_seen": samples_seen, "tokens_seen": tokens,
         "best_loss": best_loss, "history": history, "rng": rng_state(), "manifest": manifest,
     }
+    if best_checkpoint is not None:
+        payload["best_checkpoint"] = best_checkpoint
     atomic_torch_save(payload, path, backup=backup)
 
 
@@ -283,7 +286,17 @@ class TrainingOptions:
     threads: int = 0
     resume: str | None = None
     init_from: str | None = None
+    milestone_steps: tuple[int, ...] = ()
     extra_meta: dict = field(default_factory=dict)
+
+
+def _tokens_at_cursor(manifest, dataset, sampler, epoch, prefix_samples):
+    if isinstance(dataset, PackedPretrainDataset):
+        prefix_tokens = prefix_samples * (dataset.seq_len - 1)
+    else:
+        prefix_tokens = sum(int((dataset[i]["labels"][1:] != manifest["model_config"]["ignore_index"]).sum())
+                            for i in sampler.indices(epoch)[:prefix_samples])
+    return epoch * manifest["dataset"]["train"]["effective_loss_tokens"] + prefix_tokens
 
 
 def _validate_progress(state: dict, manifest: dict, dataset: Dataset, sampler: EpochBatchSampler) -> None:
@@ -298,12 +311,7 @@ def _validate_progress(state: dict, manifest: dict, dataset: Dataset, sampler: E
     prefix_samples = min(cursor * plan["batch_size"], len(dataset))
     if state["samples_seen"] != epoch * len(dataset) + prefix_samples:
         raise CheckpointError("resume samples_seen contradicts the data cursor")
-    if isinstance(dataset, PackedPretrainDataset):
-        prefix_tokens = prefix_samples * (dataset.seq_len - 1)
-    else:
-        prefix_tokens = sum(int((dataset[i]["labels"][1:] != manifest["model_config"]["ignore_index"]).sum())
-                            for i in sampler.indices(epoch)[:prefix_samples])
-    expected_tokens = epoch * manifest["dataset"]["train"]["effective_loss_tokens"] + prefix_tokens
+    expected_tokens = _tokens_at_cursor(manifest, dataset, sampler, epoch, prefix_samples)
     if state["tokens_seen"] != expected_tokens:
         raise CheckpointError("resume tokens_seen contradicts the data cursor")
 
@@ -420,6 +428,7 @@ def fit(
     scaler = torch.amp.GradScaler("cuda", enabled=precision == "fp16") if device.type == "cuda" else None
     global_step = epoch = cursor = samples_seen = tokens_seen = 0
     best_loss: float | None = None
+    best_checkpoint = None
     history: list[dict] = []
     if opts.resume:
         state = load_training_state(opts.resume)
@@ -432,13 +441,26 @@ def fit(
                 if not state["scaler"]:
                     raise CheckpointError("resume is missing required AMP scaler state")
                 scaler.load_state_dict(state["scaler"])
-            set_rng_state(state["rng"])
         except (ValueError, RuntimeError, KeyError, TypeError) as exc:
-            raise CheckpointError(f"invalid resume model/optimizer/scaler/RNG: {exc}") from exc
+            raise CheckpointError(f"invalid resume model/optimizer/scaler: {exc}") from exc
         global_step, epoch, cursor = (state[key] for key in (
             "global_step", "epoch", "micro_batches_consumed_in_epoch"))
         samples_seen, tokens_seen = state["samples_seen"], state["tokens_seen"]
         best_loss, history = state["best_loss"], state["history"]
+        if plan.get("milestone_steps"):
+            from .training_milestones import reconcile_best_checkpoint, reconcile_recovery_log, verify_milestone
+
+            for step in plan["milestone_steps"]:
+                if step < global_step:
+                    node = out / "milestones" / f"step-{step}"
+                    receipt = json.loads((node / "manifest.json").read_text(encoding="utf-8"))
+                    verify_milestone(node, manifest, step=step, tokens=receipt["tokens_seen"])
+            reconcile_recovery_log(out, state, Path(opts.resume))
+            best_checkpoint = reconcile_best_checkpoint(out, state, Path(opts.resume), train_dataset, sampler)
+        try:
+            set_rng_state(state["rng"])
+        except (ValueError, RuntimeError, KeyError, TypeError) as exc:
+            raise CheckpointError(f"invalid resume RNG: {exc}") from exc
         del state
         print(f"[resume] {opts.resume}: global_step {global_step}, epoch {epoch}, micro-batch {cursor}")
 
@@ -466,11 +488,17 @@ def fit(
     last_saved_step = global_step if opts.resume and Path(opts.resume).resolve() == (out / "state.pt").resolve() else -1
     last_checkpoint_seconds = None
     validation_state_dirty = False
-    last_validation_step = None
-    last_validation_metrics = None
+    # A milestone resume retains a committed validation at the restored step.
+    # Other resume modes can still revalidate with their requested val_limit.
+    committed_validation = (history[-1] if opts.resume and plan.get("milestone_steps")
+                            and history and history[-1]["step"] == global_step else None)
+    last_validation_step = committed_validation["step"] if committed_validation else None
+    last_validation_metrics = ({key: value for key, value in committed_validation.items() if key not in ("step", "mode")}
+                               if committed_validation else None)
     # Explicit backup recovery treats the old primary as untrusted, even if a
     # damaged file can still deserialize. Preserve the chosen recovery point.
     preserve_backup = bool(opts.resume and Path(opts.resume).name == "state.prev.pt")
+    milestones = set(plan.get("milestone_steps", ()))
 
     def save_state():
         nonlocal last_saved_step, last_checkpoint_seconds, preserve_backup, validation_state_dirty
@@ -483,6 +511,7 @@ def fit(
                 global_step=global_step, epoch=epoch,
                 micro_batches_consumed_in_epoch=cursor, samples_seen=samples_seen,
                 best_loss=best_loss, history=history, tokens=tokens_seen, manifest=manifest,
+                best_checkpoint=best_checkpoint,
                 # A same-step metadata refresh must keep the previous update's backup.
                 preserve_backup=preserve_backup or last_saved_step == global_step,
             )
@@ -499,7 +528,7 @@ def fit(
         print(f"[checkpoint] saved step {global_step} -> {out / 'state.pt'} ({last_checkpoint_seconds:.2f}s)")
 
     def validation():
-        nonlocal best_loss, validation_state_dirty, last_validation_step, last_validation_metrics
+        nonlocal best_loss, best_checkpoint, validation_state_dirty, last_validation_step, last_validation_metrics
         if val_dataset is None:
             return None
         if last_validation_step == global_step:
@@ -521,14 +550,33 @@ def fit(
             _write_metrics(out, history)
             _append_log(out, {"event": "validation", "global_step": global_step, **metrics})
         if best_loss is None or metrics["loss"] < best_loss:
+            best_path = out / "best.pt"
+            extra = {"mode": mode, **opts.extra_meta}
+            if milestones:
+                extra["training_run_id"] = manifest["run_id"]
             save_model_checkpoint(
-                out / "best.pt", model, tokenizer, step=global_step, tokens=tokens_seen,
-                val_loss=metrics["loss"], extra={"mode": mode, **opts.extra_meta},
+                best_path, model, tokenizer, step=global_step, tokens=tokens_seen,
+                val_loss=metrics["loss"], extra=extra,
             )
             best_loss = metrics["loss"]
+            if milestones:
+                from .training_milestones import write_best_status
+
+                best_checkpoint = {"step": global_step, "tokens_seen": tokens_seen,
+                                   "val_loss": best_loss, "file": file_info(best_path)}
+                write_best_status(out, best_loss, best_checkpoint)
             validation_state_dirty = True
         last_validation_step, last_validation_metrics = global_step, metrics
         return metrics
+
+    def capture_milestone():
+        if global_step not in milestones:
+            return
+        from .training_milestones import save_milestone
+
+        save_state()
+        save_milestone(out, model, tokenizer, manifest, step=global_step, tokens=tokens_seen,
+                       extra={"mode": mode, **opts.extra_meta})
 
     def handle_signal(signum, frame):
         nonlocal interrupted, stop_reason
@@ -537,6 +585,7 @@ def fit(
 
     old_handlers = {sig: signal.signal(sig, handle_signal) for sig in (signal.SIGINT, signal.SIGTERM)}
     try:
+        capture_milestone()
         while global_step < total_steps and not interrupted:
             if opts.max_minutes and (time.monotonic() - started) >= opts.max_minutes * 60:
                 stop_reason = "time_budget"
@@ -590,6 +639,7 @@ def fit(
                           f"loss {record['loss']:.4f} lr {lr:.2e} grad {result.grad_norm:.3f} "
                           f"{record['tokens_per_second']:,.0f} tok/s {step_seconds:.3f}s/step")
                     last_log, running_loss_sum, running_tokens, steps_since_log = now, 0.0, 0, 0
+                capture_milestone()
                 if interrupted:
                     break  # Persist first; do not spend the shutdown budget validating.
                 if val_dataset is not None and opts.val_every and global_step % opts.val_every == 0:

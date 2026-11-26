@@ -63,12 +63,15 @@ def validate_decision(directory: Path, decision: dict) -> dict:
 
 def verify_selection(directory: Path) -> dict:
     directory = Path(directory)
-    selection = json.loads((directory / "tokenizer-selection.json").read_text(encoding="utf-8"))
-    if selection != validate_decision(directory, selection.get("decision")):
-        raise CorpusError("published tokenizer decision was changed")
     plan = json.loads((directory / ".v4/plan.json").read_text(encoding="utf-8"))
     if plan["plan_key"] != identity({k: v for k, v in plan.items() if k != "plan_key"}):
         raise CorpusError("tokenizer decision generation plan identity mismatch")
+    from .v4_language_scaling import VERSION, verify_tokenizer_reuse
+    if plan.get("corpus_version") == VERSION:
+        return verify_tokenizer_reuse(directory)
+    selection = json.loads((directory / "tokenizer-selection.json").read_text(encoding="utf-8"))
+    if selection != validate_decision(directory, selection.get("decision")):
+        raise CorpusError("published tokenizer decision was changed")
     stages = {}
     for name, artifact in (("tokenizer_eval", "tokenizer-evaluation.json"),
                            ("tokenizer_selection", "tokenizer-selection.json")):

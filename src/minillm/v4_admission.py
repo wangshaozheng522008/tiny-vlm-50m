@@ -8,7 +8,7 @@ import numpy as np
 from .assessment_io import read_json
 from .corpus_utils import CorpusError, file_info, identity, verify_file
 from .tokenizer import MiniLLMTokenizer
-from .v4_language_pilot import (LANGUAGE_CONFIG,
+from .v4_language_pilot import (language_config,
                                 is_language, split_text_path, tokenized_extra)
 
 APPROVED_PILOT_CONFIG = Path(__file__).resolve().parents[2] / "configs/corpus_v4_pilot_1m.yaml"
@@ -47,7 +47,7 @@ def validate_v4_pilot_policy(dataset_dir, approved_config_path=None):
     try:
         plan = read_json(directory / ".v4/plan.json")
         actual = plan["generation_config"]
-        pinned_profile = LANGUAGE_CONFIG if is_language(actual) else APPROVED_PILOT_CONFIG
+        pinned_profile = language_config(actual["corpus_version"]) if is_language(actual) else APPROVED_PILOT_CONFIG
         approved = load_config(approved_config_path or pinned_profile)
         policies = plan["policies"]
         for key in ("quality_policy_sha256", "dedup_policy_sha256", "split_policy_sha256",
@@ -77,7 +77,12 @@ def validate_v4_pilot_policy(dataset_dir, approved_config_path=None):
         require(plan["corpus_version"] == actual["corpus_version"] == frozen["corpus_version"]
                 == recorded["corpus_version"] and plan["dataset_name"] == actual["dataset_name"]
                 == frozen["dataset_name"], "Pilot version identity mismatch")
-        require(plan["implementation_sha256"] == recorded["implementation_sha256"] == implementation_sha256(),
+        from .v4_language_scaling import BASE_ID, BASE_IMPLEMENTATION
+        compatible = {implementation_sha256()}
+        if frozen["content_id"] == BASE_ID:
+            compatible.add(BASE_IMPLEMENTATION)
+        require(plan["implementation_sha256"] == recorded["implementation_sha256"]
+                and recorded["implementation_sha256"] in compatible,
                 "generation implementation identity mismatch")
         require(plan["registry"] == frozen["license_sources"] and plan["registry"]["sha256"]
                 == recorded["source_manifest_sha256"], "generation source registry binding mismatch")

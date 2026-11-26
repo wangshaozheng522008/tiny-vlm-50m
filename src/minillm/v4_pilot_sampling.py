@@ -8,6 +8,7 @@ import re
 import sqlite3
 from collections import Counter
 from contextlib import closing, contextmanager
+from contextvars import ContextVar
 from copy import deepcopy
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -28,6 +29,20 @@ _FAMILY_POLICIES = ("document", "file")
 _REQUIRED_COUNTS = {"rows_seen", "documents", "characters", "selected_documents",
                     "selected_characters", "selected_families"}
 _OPTIONAL_COUNTS = {"record_too_large", "empty_text", "canonical_record_too_large", "duplicate_documents"}
+_verified_replays = ContextVar("verified_sample_replays", default=None)
+
+
+@contextmanager
+def reuse_verified_sample_replays():
+    """Reuse only deterministic replay results within one verification session."""
+    if _verified_replays.get() is not None:
+        yield
+        return
+    token = _verified_replays.set(set())
+    try:
+        yield
+    finally:
+        _verified_replays.reset(token)
 
 
 def input_paths(paths):
@@ -305,21 +320,26 @@ def verify_sample(path, *, verify_inputs=True, reproduce=False, family_policy=No
                 raise CorpusError("Pilot sample output cannot also be an original input")
             stamps[raw] = stamp
             verify_file(raw, info)
-    if reproduce:
+    verified = _verified_replays.get() if reproduce else None
+    replay = (manifest["sha256"], declared_policy)
+    if reproduce and (verified is None or replay not in verified):
         _verify_reproduction(output, manifest, declared_policy)
     else:
         verify_file(output, manifest["output"])
     for file, stamp in stamps.items():
         if not file.is_file() or _stamp(file) != stamp:
             raise CorpusError(f"Pilot sample file changed during verification: {file}")
+    if verified is not None:
+        verified.add(replay)
     return manifest
 
 
 def sample_origin(entry, version, path):
     """A new review may explicitly bind unchanged old sample bytes."""
     from .v4_language_pilot import LANGUAGE_VERSION
+    from .v4_language_scaling import VERSION
 
-    if version == LANGUAGE_VERSION:
+    if version in (LANGUAGE_VERSION, VERSION):
         for link in entry["v4_source"].get("transformation_history", []):
             if isinstance(link, dict) and link.get("kind") == SAMPLE_KIND and link.get("manifest") == str(path):
                 if link.get("reuse_from_corpus_version") == PILOT_VERSION:

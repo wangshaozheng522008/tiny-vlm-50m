@@ -1,0 +1,31 @@
+{
+  "out": "runs/v4-language-pilot-2m-v1",
+  "seq_len": 1024,
+  "batch_size": 1,
+  "grad_accum": 8,
+  "max_steps": 245,
+  "target_tokens": 2000000,
+  "planned_effective_tokens": 2005080,
+  "allow_data_repetition": false,
+  "lr": 0.0003,
+  "min_lr": 3e-05,
+  "warmup_ratio": 0.02,
+  "weight_decay": 0.1,
+  "grad_clip": 1.0,
+  "seed": 42,
+  "precision": "fp32",
+  "device": "cuda",
+  "threads": 1,
+  "grad_checkpointing": true,
+  "log_every": 1,
+  "save_every": 20,
+  "val_every": 20,
+  "val_limit": 0,
+  "gpu_memory_limit_mib": 2971.75,
+  "disk_margin_factor": 1.2,
+  "milestone_steps": [
+    0,
+    123,
+    245
+  ]
+}
