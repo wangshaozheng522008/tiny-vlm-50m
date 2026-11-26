@@ -1,0 +1,11 @@
+{
+  "version": "language-degeneration-probes-v1",
+  "scope": "DIAGNOSTIC_ONLY",
+  "contamination_policy": "Evaluation-stage prefix overlap observation; outside the frozen formal contamination policy.",
+  "probes": [
+    {"id": "diag-next-01", "prompt": "夜市快要收摊时，", "suffix": "摊主把剩下的水果装进纸袋。"},
+    {"id": "diag-next-02", "prompt": "火车驶出隧道，", "suffix": "乘客看见山脚下的一片村庄。"},
+    {"id": "diag-next-03", "prompt": "快递员敲了两下门。", "suffix": "屋里的老人听见声音就走了出来。"},
+    {"id": "diag-next-04", "prompt": "修完电扇以后，", "suffix": "工人打开开关检查叶片转得是否平稳。"}
+  ]
+}

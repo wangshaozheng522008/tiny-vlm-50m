@@ -53,6 +53,8 @@ def build_reply(
     top_k: int = 0,
     use_cache: bool = True,
     category: str = "auto",
+    top_p: float = 1.0,
+    repetition_penalty: float = 1.0,
 ) -> dict:
     """Tokenise a prompt, generate, cut at the stop marker and decode."""
     if raw:
@@ -63,10 +65,11 @@ def build_reply(
         )
     input_ids = torch.tensor([ids], dtype=torch.long, device=next(model.parameters()).device)
     stop_ids = stop_ids_for(raw)
-    max_new_tokens = min(max_new_tokens, max(model.cfg.max_position_embeddings - input_ids.shape[1], 1))
+    max_new_tokens = min(max_new_tokens, model.cfg.max_position_embeddings - input_ids.shape[1])
     output = model.generate(
         input_ids, max_new_tokens=max_new_tokens, temperature=temperature, top_k=top_k,
         eos_token_id=model.cfg.eos_token_id, stop_token_ids=stop_ids, use_cache=use_cache,
+        top_p=top_p, repetition_penalty=repetition_penalty,
     )
     new_tokens = output[0, input_ids.shape[1]:].tolist()
     kept = truncate_at_stop(new_tokens, stop_ids)
@@ -108,6 +111,8 @@ def main() -> None:
     p.add_argument("--max-new-tokens", type=int, default=128)
     p.add_argument("--temperature", type=float, default=0.0)
     p.add_argument("--top-k", type=int, default=0)
+    p.add_argument("--top-p", type=float, default=1.0)
+    p.add_argument("--repetition-penalty", type=float, default=1.0)
     p.add_argument("--no-cache", action="store_true")
     p.add_argument("--device", default=None)
     p.add_argument("--seed", type=int, default=0)
@@ -131,6 +136,7 @@ def main() -> None:
             model, tokenizer, text, raw=args.raw, system=args.system,
             max_new_tokens=args.max_new_tokens, temperature=args.temperature,
             top_k=args.top_k, use_cache=not args.no_cache, category=args.text_category,
+            top_p=args.top_p, repetition_penalty=args.repetition_penalty,
         )
         elapsed = time.time() - started
         rate = result["tokens"] / max(elapsed, 1e-6)

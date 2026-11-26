@@ -46,7 +46,8 @@ def category_consumption(documents, seq_len, windows):
             "window_order_sha256": identity(windows), "frozen_packing": packing, "categories": mix}
 
 
-def trained_category_consumption(dataset, run, summary, frozen_content_id):
+def replay_trained_windows(dataset, run, summary, frozen_content_id):
+    """Recover the exact committed independent Train windows in sampler order."""
     dataset, run = Path(dataset), Path(run)
     frozen = read_json(dataset / "dataset-manifest.json")
     if frozen["content_id"] != frozen_content_id:
@@ -72,12 +73,19 @@ def trained_category_consumption(dataset, run, summary, frozen_content_id):
     batches = sampler.batches(0)
     if epoch == 0:
         batches = islice(batches, cursor)
-    result = category_consumption(read_token_index([index])["records"], data.seq_len,
-                                  (i for batch in batches for i in batch))
+    windows = [i for batch in batches for i in batch]
+    return state, frozen, data, windows
+
+
+def trained_category_consumption(dataset, run, summary, frozen_content_id):
+    dataset, run = Path(dataset), Path(run)
+    state, frozen, data, windows = replay_trained_windows(dataset, run, summary, frozen_content_id)
+    index = dataset / "train.token-index.jsonl"
+    result = category_consumption(read_token_index([index])["records"], data.seq_len, windows)
     if (result["effective_tokens"] != state["tokens_seen"]
             or result["consumed_windows"] != state["samples_seen"]
             or result["frozen_packing"]["effective_tokens"] != frozen["effective_train_tokens"]
             or result["frozen_packing"]["by_category"] != frozen["category_token_distribution"]["effective"]):
         raise ValueError("sampler accounting does not reproduce frozen and trained Loss totals")
     return {**result, "checkpoint": file_info(run / "state.pt"), "dataset_content_id": frozen_content_id,
-            "index": frozen["files"][index.name], "sampler_seed": plan["sampler_seed"]}
+            "index": frozen["files"][index.name], "sampler_seed": state["manifest"]["training"]["sampler_seed"]}
