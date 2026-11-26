@@ -54,12 +54,18 @@ def validate_scope(entry):
             or any(scope.get(key) != value for key, value in fields.items())):
         raise CorpusError("new human 2M training scope approval required")
     _review_text(scope.get("confirmation"), "2M human confirmation")
-    _review_text(scope.get("reviewer"), "2M reviewer")
-    from datetime import date
+    reviewer = _review_text(scope.get("reviewer"), "2M reviewer")
+    from datetime import date, datetime
     try:
-        date.fromisoformat(_review_text(scope.get("reviewed_at"), "2M review date"))
+        reviewed = date.fromisoformat(_review_text(scope.get("reviewed_at"), "2M review date"))
+        source = entry["v4_source"]
+        licensed = datetime.fromisoformat(_review_text(source.get("license_reviewed_at"), "2M source review date")
+                                           .replace("Z", "+00:00")).date()
     except ValueError as exc:
-        raise CorpusError("2M review date must be ISO YYYY-MM-DD") from exc
+        raise CorpusError("2M review dates must be valid ISO dates") from exc
+    if (source.get("license_status") != "APPROVED" or reviewed != licensed
+            or reviewer != _review_text(source.get("license_reviewer"), "2M source reviewer")):
+        raise CorpusError("2M requires a matching fresh source approval decision")
 
 
 def validate_source_set(registry):
@@ -201,7 +207,8 @@ def prepare_request(out):
     from .v4_sources import validate_reviewed_source
     import torch
 
-    manifest = base_manifest(*SPLIT_FILES, *EVAL_FILES, "tokenizer.json")
+    names = (*SPLIT_FILES, *EVAL_FILES, "tokenizer.json", "train.bin", "train.token-index.jsonl", "budget-report.json")
+    manifest = base_manifest(*names)
     verify_file(INITIAL, INITIAL_FILE)
     verify_file(HISTORICAL, HISTORICAL_FILE)
     draft, sources = [], []
@@ -249,7 +256,7 @@ def prepare_request(out):
              "training": "NOT_RUN", "freeze": "NOT_RUN", "evaluation": "NOT_RUN", "int4": "NOT_RUN",
              "historical_content_id": BASE_ID, "tokenizer_fingerprint": FINGERPRINT,
              "checkpoints": {"step0": INITIAL_FILE, "historical_step123": HISTORICAL_FILE},
-             "fixed_files": {name: manifest["files"][name] for name in (*SPLIT_FILES, *EVAL_FILES, "tokenizer.json")},
+             "fixed_files": {name: manifest["files"][name] for name in names},
              "environment": {"cuda_available": torch.cuda.is_available(),
                              "gpu": torch.cuda.get_device_name() if torch.cuda.is_available() else None},
              "next": "Obtain independent human approval for each pinned source and run the build stage."}
@@ -259,6 +266,7 @@ def prepare_request(out):
         write_json(directory / "source-review.pending.json", {"schema_version": 1, "sources": draft})
         write_json(directory / "packing-preview.json", {"status": "PREVIEW_ONLY_NOT_FROZEN",
                    "packing": packing, "quotas": selection["targets"], "raw_full_supply": selection["supply"],
+                   "selected_raw_tokens_by_category": selection["selected_raw_tokens_by_category"],
                    "selected_document_order_sha256": identity(selection["selected_documents"]), "sampler": sampler})
         write_json(directory / "training-plan.json", {"status": "NOT_RUN", "configuration": training,
                    "initialized_from": INITIAL_FILE, "planned_updates": lr, "warmup_steps": warmup})

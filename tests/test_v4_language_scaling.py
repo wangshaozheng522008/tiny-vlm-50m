@@ -60,7 +60,8 @@ def test_new_approval_scope_and_pinned_inventory(monkeypatch):
         "effective_train_tokens": scaling.TARGET, "reviewer": "software fixture",
         "reviewed_at": "2026-11-26", "confirmation": "software fixture only"},
         "v4_source": {"category": "zh_general", "language": "zh", "family_policy": "document",
-                      "priority": 1, "transformation_history": []},
+                      "priority": 1, "transformation_history": [], "license_status": "APPROVED",
+                      "license_reviewer": "software fixture", "license_reviewed_at": "2026-11-26"},
         "release": "software fixture", "local_inventory": {"files": {"/tmp/fixture": {"bytes": 18, "sha256": "a"*64}}}}
     scaling.validate_scope(entry)
     old = {"source_id": "fixture", "source_review": {"entry": entry}}
@@ -71,6 +72,8 @@ def test_new_approval_scope_and_pinned_inventory(monkeypatch):
         scaling.validate_source_set({"sources": [{**old, "source_review": {"entry": changed}}]})
     with pytest.raises(CorpusError, match="2M training scope"):
         scaling.validate_scope({**entry, "training_scope": {**entry["training_scope"], "effective_train_tokens": 1_006_632}})
+    with pytest.raises(CorpusError, match="matching fresh"):
+        scaling.validate_scope({**entry, "v4_source": {**entry["v4_source"], "license_reviewed_at": "2026-11-25"}})
 
 
 def test_fixed_release_rejects_val_hash_and_tokenizer_drift(tmp_path, monkeypatch):

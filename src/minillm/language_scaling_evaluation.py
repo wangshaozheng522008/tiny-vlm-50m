@@ -26,7 +26,7 @@ from .training_manifest import dataset_identity, write_json
 from .training_milestones import verify_milestone
 from .v4_admission import validate_v4_pilot_policy
 from .v4_language_scaling import (BASE, BASE_ID, FINGERPRINT, HISTORICAL, HISTORICAL_FILE, INITIAL, INITIAL_FILE,
-                                  OUTPUT, ROOT, TARGET, TRAINING_CONFIG, VERSION, verify_pinned_release)
+                                  OUTPUT, ROOT, TARGET, TRAINING_CONFIG, VERSION, base_manifest, verify_pinned_release)
 from .v4_training_accounting import category_consumption
 
 BASELINE = "historical_step123"
@@ -166,6 +166,7 @@ def evaluate_scaling(out, *, dataset=OUTPUT):
     if current["corpus_version"] != VERSION:
         raise ValueError("expected the 2M profile")
     original = verify_pinned_release(dataset)
+    base_manifest("train.bin", "train.token-index.jsonl", "budget-report.json")
     if not torch.cuda.is_available():
         raise ValueError("matched 87M comparison uses the available CUDA device")
     torch.set_num_threads(1)

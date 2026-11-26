@@ -78,7 +78,7 @@ def reconcile_recovery_log(out, state, checkpoint):
         kept.append(line if line.endswith(b"\n") else line + b"\n")
     after = b"".join(kept)
     metrics = out / "metrics.json"
-    metrics_differ = metrics.is_file() and read_json(metrics) != state["history"]
+    metrics_differ = (read_json(metrics) if metrics.is_file() else []) != state["history"]
     if after != before or metrics_differ:
         scope = f"step-{step}-{sha256(path)}"
         archive = out / "recovery" / scope
