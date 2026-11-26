@@ -80,12 +80,12 @@ def rotate_half(x: torch.Tensor) -> torch.Tensor:
 def apply_rope(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
     """Rotate (b, heads, t, head_dim) queries/keys by their absolute position.
 
-    cos/sin are (t, head_dim); the rotation is applied in fp32 and cast back so
-    fp16/bf16 autocast does not lose angle precision.
+    cos/sin are (t, head_dim) for shared positions or (b, t, head_dim) for
+    per-row positions. Apply the rotation in fp32 and cast back afterwards.
     """
     dtype = x.dtype
     x32 = x.float()
-    out = x32 * cos[None, None] + rotate_half(x32) * sin[None, None]
+    out = x32 * cos.unsqueeze(-3) + rotate_half(x32) * sin.unsqueeze(-3)
     return out.to(dtype)
 
 
@@ -294,8 +294,6 @@ class MiniLLM(nn.Module):
         allow = key_pos <= query_pos  # (t, total)
         mask = allow[None, None]
         if attention_mask is not None:
-            if attention_mask.shape[1] != t:
-                raise ValueError("attention_mask must match the number of input tokens")
             mask = mask & attention_mask.to(torch.bool)[:, None, None, :]
         return mask
 
@@ -319,6 +317,8 @@ class MiniLLM(nn.Module):
             raise ValueError("past_key_values must have one (k, v) pair per layer")
 
         past_len = past_key_values[0][0].shape[2] if past_key_values else 0
+        if attention_mask is not None and attention_mask.shape != (b, past_len + t):
+            raise ValueError("attention_mask must match the batch and total key length")
         offset = past_len if position_offset is None else position_offset
         if offset != past_len:
             raise ValueError("position_offset must match the cached sequence length")
@@ -329,8 +329,14 @@ class MiniLLM(nn.Module):
             )
 
         x = self.embed_tokens(input_ids)
-        cos = self.rope_cos[offset : offset + t]
-        sin = self.rope_sin[offset : offset + t]
+        if attention_mask is None:
+            cos = self.rope_cos[offset : offset + t]
+            sin = self.rope_sin[offset : offset + t]
+        else:
+            # Cache indices remain physical. Rotary positions count only visible
+            # tokens, including visible cached keys preceding the current chunk.
+            positions = (attention_mask.bool().cumsum(dim=1)[:, past_len:] - 1).clamp_min_(0)
+            cos, sin = self.rope_cos[positions], self.rope_sin[positions]
         mask = self._build_mask(t, past_len, attention_mask, input_ids.device)
 
         new_cache: list[tuple[torch.Tensor, torch.Tensor]] | None = [] if use_cache else None
@@ -348,9 +354,19 @@ class MiniLLM(nn.Module):
         logits = self.lm_head(self.norm(x))
         out = ModelOutput(logits=logits, past_key_values=new_cache)
         if labels is not None:
+            labels = self.mask_loss_labels(labels, None if attention_mask is None else attention_mask[:, past_len:])
             out.loss_sum, out.num_loss_tokens = self.loss_terms(logits, labels)
             out.loss = out.loss_sum / max(out.num_loss_tokens, 1)
         return out
+
+    def mask_loss_labels(self, labels: torch.Tensor, attention_mask: torch.Tensor | None) -> torch.Tensor:
+        """Ignore a transition when either its source or its target is masked."""
+        if attention_mask is None:
+            return labels
+        valid = attention_mask.bool()
+        labels = labels.clone()
+        labels[:, 1:].masked_fill_(~(valid[:, :-1] & valid[:, 1:]), self.cfg.ignore_index)
+        return labels
 
     def loss_terms(self, logits: torch.Tensor, labels: torch.Tensor):
         """Summed next-token cross entropy and the number of supervised tokens."""
@@ -378,12 +394,18 @@ class MiniLLM(nn.Module):
         attention_mask: torch.Tensor | None = None,
         generator: torch.Generator | None = None,
         stop_token_ids: list[int] | tuple[int, ...] | None = None,
+        *,
+        top_p: float = 1.0,
+        repetition_penalty: float = 1.0,
     ) -> torch.Tensor:
         """Autoregressive decoding, greedy when temperature <= 0.
 
         With `use_cache=True` the prompt is prefilled once and each step only
         runs a single token through the decoder; with `use_cache=False` the whole
         prefix is recomputed every step (kept for equivalence tests).
+
+        Both left and right padding are supported with an attention mask. RoPE
+        uses visible-token positions; the context limit counts physical slots.
 
         `stop_token_ids` extends the stop set: generation stops as soon as any
         of those ids (or `eos_token_id`, when given) is sampled. Rows that have
@@ -397,6 +419,15 @@ class MiniLLM(nn.Module):
             raise ValueError("max_new_tokens must be nonnegative")
         if input_ids.shape[1] + max_new_tokens > self.cfg.max_position_embeddings:
             raise ValueError("prompt plus max_new_tokens exceeds max_position_embeddings")
+        if not 0 < top_p <= 1:
+            raise ValueError("top_p must be in (0, 1]")
+        if not math.isfinite(repetition_penalty) or repetition_penalty < 1:
+            raise ValueError("repetition_penalty must be finite and at least 1")
+        if attention_mask is not None and (attention_mask.shape != input_ids.shape
+                                           or not bool(attention_mask.any(dim=1).all())):
+            raise ValueError("attention_mask must include a visible prompt token for each row")
+        if max_new_tokens == 0:
+            return input_ids
 
         stop_ids: list[int] = []
         if eos_token_id is not None:
@@ -408,13 +439,21 @@ class MiniLLM(nn.Module):
 
         prompt_len = input_ids.shape[1]
         out = self.forward(input_ids, attention_mask=attention_mask, use_cache=use_cache)
-        logits = out.logits[:, -1, :]
+        if attention_mask is None:
+            logits = out.logits[:, -1, :]
+        else:
+            positions = torch.arange(prompt_len, device=input_ids.device)
+            last_visible = positions.masked_fill(~attention_mask.bool(), -1).amax(dim=1)
+            logits = out.logits[torch.arange(input_ids.shape[0], device=input_ids.device), last_visible]
         cache = out.past_key_values
         generated = input_ids
         finished = torch.zeros(input_ids.shape[0], dtype=torch.bool, device=input_ids.device)
+        sampling_options = {"top_p": top_p} if top_p < 1.0 else {}
 
         for step in range(max_new_tokens):
-            next_id = self._sample(logits, temperature, top_k, generator)
+            if repetition_penalty != 1.0:
+                logits = self._penalize_repetition(logits, generated, repetition_penalty, attention_mask)
+            next_id = self._sample(logits, temperature, top_k, generator, **sampling_options)
             if stop_ids:
                 next_id = torch.where(
                     finished[:, None], torch.full_like(next_id, fill_id), next_id
@@ -426,17 +465,27 @@ class MiniLLM(nn.Module):
             generated = torch.cat([generated, next_id], dim=1)
             if bool(finished.all()) or step == max_new_tokens - 1:
                 break
+            if attention_mask is not None:
+                attention_mask = torch.cat([attention_mask, torch.ones_like(attention_mask[:, :1])], dim=1)
             if use_cache:
-                out = self.forward(next_id, past_key_values=cache, use_cache=True)
+                out = self.forward(next_id, past_key_values=cache, use_cache=True, attention_mask=attention_mask)
                 cache = out.past_key_values
             else:
-                out = self.forward(generated, use_cache=False)
+                out = self.forward(generated, use_cache=False, attention_mask=attention_mask)
             logits = out.logits[:, -1, :]
         return generated
 
     @staticmethod
+    def _penalize_repetition(logits, history, penalty, attention_mask=None):
+        seen = torch.zeros_like(logits, dtype=torch.int32)
+        visible = torch.ones_like(history, dtype=torch.int32) if attention_mask is None else attention_mask.bool().int()
+        seen.scatter_add_(1, history, visible)
+        adjusted = torch.where(logits < 0, logits * penalty, logits / penalty)
+        return torch.where(seen > 0, adjusted, logits)
+
+    @staticmethod
     def _sample(logits: torch.Tensor, temperature: float, top_k: int,
-                generator: torch.Generator | None) -> torch.Tensor:
+                generator: torch.Generator | None, *, top_p: float = 1.0) -> torch.Tensor:
         if temperature <= 0:
             return logits.argmax(dim=-1, keepdim=True)
         scaled = logits / temperature
@@ -444,6 +493,13 @@ class MiniLLM(nn.Module):
             k = min(top_k, scaled.size(-1))
             threshold = scaled.topk(k, dim=-1).values[:, -1, None]
             scaled = scaled.masked_fill(scaled < threshold, float("-inf"))
+        if top_p < 1.0:
+            ordered, indices = scaled.sort(dim=-1, descending=True)
+            cumulative = ordered.float().softmax(dim=-1).cumsum(dim=-1)
+            # Keep the smallest prefix reaching top_p, including its crossing token.
+            remove = F.pad(cumulative[:, :-1] >= top_p, (1, 0), value=False)
+            ordered = ordered.masked_fill(remove, float("-inf"))
+            scaled = torch.empty_like(scaled).scatter_(1, indices, ordered)
         probs = F.softmax(scaled, dim=-1)
         return torch.multinomial(probs, num_samples=1, generator=generator)
 

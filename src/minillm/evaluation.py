@@ -18,6 +18,7 @@ from .config import ARCHITECTURE, ARCH_VERSION, MiniLLMConfig
 from .corpus_audit import audit_dataset
 from .corpus_utils import file_info, identity
 from .data import PackedPretrainDataset, collate_batch
+from .evaluation_windows import evaluate_indexed_windows, indexed_train_plan
 from .evaluation_scoring import aggregate_scores, score_answer, validate_task
 from .generate import stop_ids_for, truncate_at_stop
 from .model import MiniLLM
@@ -122,9 +123,7 @@ def evaluate_batches(model, batches, device, token_budget=0):
         batch = {k: v.to(device) for k, v in batch.items()}
         labels = batch["labels"].clone()
         mask = batch.get("attention_mask")
-        if mask is not None:
-            labels[mask == 0] = model.cfg.ignore_index
-            labels[:, 1:][mask[:, :-1] == 0] = model.cfg.ignore_index
+        labels = model.mask_loss_labels(labels, mask)
         valid = labels[:, 1:] != model.cfg.ignore_index
         remaining = token_budget - count if token_budget else int(valid.sum())
         if remaining <= 0:
@@ -239,7 +238,7 @@ def validate_generation(model, tokenizer, task, config):
 
 
 @torch.inference_mode()
-def generate_prediction(model, tokenizer, task, config):
+def generate_prediction(model, tokenizer, task, config, *, top_p=1.0, repetition_penalty=1.0):
     model.eval()
     ids, budget = validate_generation(model, tokenizer, task, config)
     device = next(model.parameters()).device
@@ -250,11 +249,15 @@ def generate_prediction(model, tokenizer, task, config):
     started = time.perf_counter()
     output = model.generate(torch.tensor([ids], device=device), max_new_tokens=budget,
                             temperature=config.temperature, top_k=config.top_k, generator=generator,
-                            stop_token_ids=stops, eos_token_id=model.cfg.eos_token_id)
+                            stop_token_ids=stops, eos_token_id=model.cfg.eos_token_id,
+                            top_p=top_p, repetition_penalty=repetition_penalty)
     if device.type == "cuda":
         torch.cuda.synchronize(device)
     seconds = time.perf_counter() - started
-    generated = output[0, len(ids):].tolist()
+    return prediction_row(tokenizer, task, ids, output[0, len(ids):].tolist(), budget, stops, seconds)
+
+
+def prediction_row(tokenizer, task, ids, generated, budget, stops, seconds):
     kept = truncate_at_stop(generated, stops)
     stop_token = generated[len(kept)] if len(kept) < len(generated) else None
     text = tokenizer.decode(kept, skip_special_tokens=True)
@@ -329,11 +332,14 @@ def load_tasks(path, *, scored):
 
 def evaluate_model(ckpt, tokenizer_path, out, *, dataset=None, bin_path=None, split="val",
                    benchmark=DEFAULT_BENCHMARK, prompts=DEFAULT_PROMPTS, config=None, device="cpu",
-                   sft_data=(), candidate_benchmark=None, measure_train=False):
+                   sft_data=(), candidate_benchmark=None, measure_train=False,
+                   train_window_policy="representative"):
     config = config or EvaluationConfig()
     config.validate()
     if measure_train and (dataset is None or config.stage != "pretrain"):
         raise ValueError("Train loss measurement requires an admitted pretraining dataset")
+    if train_window_policy not in ("representative", "legacy_prefix"):
+        raise ValueError("unknown Train window policy")
     if config.stage == "pretrain":
         if benchmark == DEFAULT_BENCHMARK or str(benchmark) == str(DEFAULT_BENCHMARK):
             benchmark = None
@@ -361,12 +367,18 @@ def evaluate_model(ckpt, tokenizer_path, out, *, dataset=None, bin_path=None, sp
         data, data_info = prepare_eval_data(dataset, bin_path, split, tokenizer, config.seq_len, model.cfg)
         if data_info and data_info.get("text_policy", IDENTITY) != tokenizer.text_policy:
             raise ValueError("checkpoint/evaluation dataset text policy mismatch")
-        train_data, train_info = None, None
+        train_data, train_info, train_windows = None, None, None
         if measure_train:
             train_data = PackedPretrainDataset(Path(dataset) / "train.bin", config.seq_len)
             train_info, _ = dataset_identity(train_data, model.cfg.ignore_index)
             if train_info["dataset_content_id"] != data_info["dataset_content_id"]:
                 raise ValueError("Train and validation loss inputs have different dataset identities")
+            if train_window_policy == "representative":
+                train_index, train_windows = indexed_train_plan(dataset, train_data, seed=config.seed,
+                                                                token_budget=config.token_budget)
+                for name in ("train.token-index.jsonl", "budget-report.json"):
+                    path = Path(dataset) / name
+                    before[str(path.resolve())] = file_info(path)
         tasks, fixed = load_tasks(benchmark, scored=True), load_tasks(prompts, scored=False)
         modes = {"pretrain": ("raw",), "sft": ("chat",)}.get(config.stage, ("raw", "chat"))
         tasks = [({**task, "generation_mode": mode} if task["generation_mode"] == "both" else task)
@@ -391,9 +403,13 @@ def evaluate_model(ckpt, tokenizer_path, out, *, dataset=None, bin_path=None, sp
                   "fixed_prompts_provenance": task_asset_provenance(prompts,len(load_tasks(prompts,scored=False))),
                   "implementation": identity({name: file_info(Path(__file__).with_name(name)) for name in
                       ("evaluation.py", "evaluation_scoring.py", "evaluation_contamination.py", "assessment_io.py",
-                       "generate.py", "model.py", "tokenizer.py", "data.py", "config.py", "text_policy.py", "evaluation_candidates.py")})}
+                       "generate.py", "model.py", "tokenizer.py", "data.py", "config.py", "text_policy.py",
+                       "evaluation_candidates.py", "evaluation_windows.py")})}
         if train_info is not None:
             policy["train_dataset"] = {k: v for k, v in train_info.items() if k != "path"}
+        if train_windows is not None:
+            policy["train_windows"] = train_windows
+            write_json(directory / "train-windows.json", train_windows)
         evaluation_identity = {"checkpoint_sha256": file_info(Path(ckpt))["sha256"], "policy": policy}
         evaluation_id = identity(evaluation_identity)
         if device.type == "cuda":
@@ -403,8 +419,11 @@ def evaluate_model(ckpt, tokenizer_path, out, *, dataset=None, bin_path=None, sp
         if device.type=="cuda":
             torch.cuda.synchronize(device)
         lm_seconds=time.perf_counter()-started
-        train_lm = (evaluate_batches(model, fixed_window_batches(train_data, config.batch_size), device,
-                                     config.token_budget) if train_data is not None else None)
+        train_lm = None
+        if train_windows is not None:
+            train_lm = evaluate_indexed_windows(model, train_data, train_index, train_windows, device, config.batch_size)
+        elif train_data is not None:
+            train_lm = evaluate_batches(model, fixed_window_batches(train_data, config.batch_size), device, config.token_budget)
         predictions = []
         with (directory / "predictions.jsonl").open("w", encoding="utf-8") as handle:
             for kind, rows in (("benchmark", tasks), ("fixed_prompt", fixed)):
@@ -425,7 +444,8 @@ def evaluate_model(ckpt, tokenizer_path, out, *, dataset=None, bin_path=None, sp
                 predictions.append(row)
                 handle.write(json.dumps(row, ensure_ascii=False, allow_nan=False) + "\n")
         from .evaluation_contamination import contamination_audit
-        contamination = contamination_audit(tasks + [{**t, "reference": t["candidates"][t["reference"]]} for t in candidates], dataset=dataset, sft_data=sft_data)
+        contamination = contamination_audit(tasks + [{**t, "reference": t["candidates"][t["reference"]]} for t in candidates],
+                                            dataset=dataset, sft_data=sft_data, fixed_prompts=fixed)
         for path, expected in before.items():
             if file_info(Path(path)) != expected:
                 raise ValueError(f"input changed during evaluation: {path}")
@@ -504,6 +524,8 @@ def main(argv=None):
     parser.add_argument("--candidate-normalization", choices=["sum", "mean"])
     parser.add_argument("--candidate-boundary-policy", choices=["separate", "joint_shared_prefix"])
     parser.add_argument("--candidate-benchmark")
+    parser.add_argument("--measure-train", action="store_true")
+    parser.add_argument("--train-window-policy", choices=["representative", "legacy_prefix"], default="representative")
     for name in ("seq-len", "batch-size", "token-budget", "max-new-tokens", "seed", "top-k", "threads"):
         parser.add_argument("--"+name, type=int)
     parser.add_argument("--temperature", type=float)

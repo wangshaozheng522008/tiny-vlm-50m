@@ -202,7 +202,9 @@ def check_readiness(dataset, tokenizer_path, model_config, training_config, out,
             _prepare_run_manifest(Path(opts.out),manifest)
         if opts.init_from:
             from .evaluation import load_evaluation_model
+            from .train import require_training_initialization
             initial,initial_payload=load_evaluation_model(opts.init_from,tokenizer,torch.device("cpu"))
+            require_training_initialization(initial_payload)
             from .text_policy import checkpoint_text_policy
             if checkpoint_text_policy(initial_payload)!=manifest["dataset"]["train"].get("text_policy","identity-v1"):
                 raise ValueError("init-from text policy differs from dataset")

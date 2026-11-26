@@ -37,6 +37,8 @@ from .model import MiniLLM
 from .tokenizer import MiniLLMTokenizer
 from .utils import describe_device, get_device, peak_memory_mb, peak_rss_mb, set_seed
 
+DIAGNOSTIC_ONLY = "DIAGNOSTIC_ONLY"
+
 
 # --------------------------------------------------------------------------- state
 
@@ -84,6 +86,11 @@ def lr_at(step: int, total: int, peak: float, min_lr: float, warmup: int) -> flo
 # --------------------------------------------------------------------------- io
 
 
+def require_training_initialization(payload: dict) -> None:
+    if DIAGNOSTIC_ONLY in (payload.get("scope"), payload.get("mode")):
+        raise CheckpointError("DIAGNOSTIC_ONLY weights cannot initialize a training run")
+
+
 def load_model_checkpoint(path: str | Path, device: torch.device) -> tuple[MiniLLM, MiniLLMConfig, dict]:
     path = Path(path)
     if path.name.startswith(".") or path.suffix == ".tmp":
@@ -105,6 +112,7 @@ def load_model_checkpoint(path: str | Path, device: torch.device) -> tuple[MiniL
         )
     if "config" not in payload or "model" not in payload:
         raise CheckpointError(f"{path}: checkpoint is missing 'config' or 'model'")
+    require_training_initialization(payload)
     cfg = MiniLLMConfig.from_dict(payload["config"])
     model = MiniLLM(cfg)
     model.load_state_dict(payload["model"])
@@ -394,6 +402,7 @@ def fit(
         if opts.init_from:
             from .text_policy import checkpoint_text_policy
             source = torch.load(opts.init_from, map_location="cpu", weights_only=False, mmap=True)
+            require_training_initialization(source)
             if checkpoint_text_policy(source) != policy:
                 raise CheckpointError("init-from text policy differs; use a new model experiment, not existing weights")
             del source
@@ -663,7 +672,8 @@ def _train_step(
 ) -> StepResult:
     """Token-weighted gradients; a failed/skipped update never returns success."""
     _check_lr(lr, opts.lr)
-    group_tokens = sum(int((batch["labels"][:, 1:] != model.cfg.ignore_index).sum()) for batch in group)
+    group_tokens = sum(int((model.mask_loss_labels(batch["labels"], batch["attention_mask"])[:, 1:]
+                            != model.cfg.ignore_index).sum()) for batch in group)
     if group_tokens <= 0:
         raise NumericalError("optimizer group has no effective loss tokens")
     optimizer.zero_grad(set_to_none=True)
