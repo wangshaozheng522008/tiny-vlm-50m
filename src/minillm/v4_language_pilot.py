@@ -10,11 +10,13 @@ from .corpus import read_records
 from .corpus_budget import read_token_index, supervision_by_category
 from .corpus_quality import V4_CATEGORIES
 from .corpus_utils import CorpusError, file_info, identity, sha256
+from .corpus_versions import V5_VERSION
 from .v4_language_scaling import CORPUS_CONFIG as SCALING_CONFIG, VERSION as SCALING_VERSION
 
 LANGUAGE_VERSION = "minillm-corpus-v4-language-pilot-1m-v1"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 LANGUAGE_CONFIG = PROJECT_ROOT / "configs/corpus_v4_language_pilot_1m.yaml"
+V5_CONFIG = PROJECT_ROOT / "configs/corpus_v5_language_10m.yaml"
 LEGACY_PILOT_VERSION = "minillm-corpus-v4-pilot-1m-v1"
 LANGUAGE_TOLERANCE = 0.01
 BENCHMARK = "data/evaluation/chinese-language-v1/tasks.jsonl"
@@ -26,11 +28,12 @@ SELECTED_TRAIN = "train.selected.jsonl"
 
 
 def is_language(config):
-    return config["corpus_version"] in (LANGUAGE_VERSION, SCALING_VERSION)
+    return config["corpus_version"] in (LANGUAGE_VERSION, SCALING_VERSION, V5_VERSION)
 
 
 def language_config(version):
-    return {LANGUAGE_VERSION: LANGUAGE_CONFIG, SCALING_VERSION: SCALING_CONFIG}[version]
+    return {LANGUAGE_VERSION: LANGUAGE_CONFIG, SCALING_VERSION: SCALING_CONFIG,
+            V5_VERSION: V5_CONFIG}[version]
 
 
 def validate_version_targets(config):
@@ -115,7 +118,8 @@ def select_train(directory, config, tokenizer):
     cursor = 0
     required = [category for category in groups if ratios[category] > 0]
     quotas = {c: (ceil(targets["effective_train_tokens"] * Fraction(str(r)))
-                  if config["corpus_version"] == SCALING_VERSION else round(targets["effective_train_tokens"] * r))
+                  if config["corpus_version"] in (SCALING_VERSION, V5_VERSION)
+                  else round(targets["effective_train_tokens"] * r))
               for c, r in ratios.items()}
     for category in required:
         target = quotas[category]
@@ -277,3 +281,7 @@ def verify_language_release(directory, plan, manifest):
             or any(check["status"] != "PASS" for check in audit["checks"].values())
             or audit["checks"]["manifest_completeness"]["detail"]["content_id"] != manifest["content_id"]):
         raise CorpusError("language Pilot requires passing Audit bound to the release identity")
+    if config["corpus_version"] == V5_VERSION:
+        from .v5_language_corpus import verify_release
+        verify_release(directory)
+    return True

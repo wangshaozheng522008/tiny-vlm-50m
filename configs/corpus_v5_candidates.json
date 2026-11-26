@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "corpus_version": "minillm-corpus-v5-language-10m-v1",
+  "seed": 42,
+  "target_candidate_effective_tokens": 15000000,
+  "commit_every": 1000,
+  "sources": [
+    {
+      "source_id": "candidate-zh-wikipedia",
+      "path": "data/raw/candidate-zh-wikipedia/zhwiki-20261101-pages.jsonl",
+      "sample_rate": 0.005,
+      "target_raw_tokens": 4500000,
+      "max_source_share": 1.0,
+      "expected_language": "zh"
+    },
+    {
+      "source_id": "candidate-zh-wikinews",
+      "path": "data/raw/candidate-zh-wikinews/zhwikinews-20261101-pages.jsonl",
+      "sample_rate": 1.0,
+      "target_raw_tokens": 3375000,
+      "max_source_share": 0.6,
+      "expected_language": "zh"
+    },
+    {
+      "source_id": "candidate-zh-wikivoyage",
+      "path": "data/raw/candidate-zh-wikivoyage/zhwikivoyage-20261101-pages.jsonl",
+      "sample_rate": 1.0,
+      "target_raw_tokens": 3375000,
+      "max_source_share": 0.6,
+      "expected_language": "zh"
+    },
+    {
+      "source_id": "candidate-zh-wikibooks",
+      "path": "data/raw/candidate-zh-wikibooks/zhwikibooks-20261101-pages.jsonl",
+      "sample_rate": 1.0,
+      "target_raw_tokens": 1400000,
+      "max_source_share": 0.65,
+      "expected_language": "zh"
+    },
+    {
+      "source_id": "candidate-zh-wikiversity",
+      "path": "data/raw/candidate-zh-wikiversity/zhwikiversity-20261101-pages.jsonl",
+      "sample_rate": 1.0,
+      "target_raw_tokens": 850000,
+      "max_source_share": 0.55,
+      "expected_language": "zh"
+    },
+    {
+      "source_id": "candidate-en-wikisource",
+      "path": "data/raw/candidate-en-wikisource/enwikisource-20261101-pages.jsonl",
+      "sample_rate": 0.008,
+      "target_raw_tokens": 1500000,
+      "max_source_share": 1.0,
+      "expected_language": "en"
+    }
+  ]
+}

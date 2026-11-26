@@ -66,9 +66,13 @@ def verify_selection(directory: Path) -> dict:
     plan = json.loads((directory / ".v4/plan.json").read_text(encoding="utf-8"))
     if plan["plan_key"] != identity({k: v for k, v in plan.items() if k != "plan_key"}):
         raise CorpusError("tokenizer decision generation plan identity mismatch")
+    from .corpus_versions import V5_VERSION
     from .v4_language_scaling import VERSION, verify_tokenizer_reuse
     if plan.get("corpus_version") == VERSION:
         return verify_tokenizer_reuse(directory)
+    if plan.get("corpus_version") == V5_VERSION:
+        from .v5_language_corpus import verify_tokenizer_reuse as verify_v5_tokenizer_reuse
+        return verify_v5_tokenizer_reuse(directory)
     selection = json.loads((directory / "tokenizer-selection.json").read_text(encoding="utf-8"))
     if selection != validate_decision(directory, selection.get("decision")):
         raise CorpusError("published tokenizer decision was changed")

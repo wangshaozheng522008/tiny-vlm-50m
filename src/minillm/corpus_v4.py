@@ -41,6 +41,7 @@ from .corpus_budget import plan as plan_budget
 from .corpus_budget import read_token_index, supervision_by_category
 from .corpus_contamination import audit as contamination_audit
 from .corpus_dedup import MinHashLSHIndex, NearDupPolicy, chunk_features, chunk_text, exact_jaccard, shingles
+from .corpus_versions import V5_VERSION
 from .corpus_quality import (QUALITY_RULES_VERSION, V4_CATEGORIES, aggregate_action,
                              content_hash, detect_language, evaluate_quality, infer_category,
                              merge_quality_v4, normalise)
@@ -686,8 +687,9 @@ class CorpusV4Pipeline:
         validate_version_targets(config)
         self.balanced = is_language(config) and not demo
         self.scaling = config["corpus_version"] == SCALING_VERSION
-        if self.scaling and demo:
-            raise CorpusError("the pinned 2M profile requires the reviewed historical snapshot")
+        self.v5 = config["corpus_version"] == V5_VERSION
+        if (self.scaling or self.v5) and demo:
+            raise CorpusError("the pinned language profile requires the reviewed historical snapshot")
         if self.balanced:
             validate_language_policy(config)
             required = {c for c, weight in config["targets"]["category_token_ratios"].items() if weight}
@@ -917,6 +919,8 @@ class CorpusV4Pipeline:
                 CREATE TABLE quality_counts(source_id TEXT, reason TEXT, action TEXT, n INTEGER,
                     PRIMARY KEY(source_id, reason, action));
             """)
+            if self.v5:
+                self._split_overlong_quality(db, policy["max_chars"])
             processed = 0
             cursor = db.execute("SELECT document_id FROM docs ORDER BY document_id")
             while batch := cursor.fetchmany(1000):
@@ -945,6 +949,46 @@ class CorpusV4Pipeline:
             stats["by_source"] = report["by_source"]
             stats["rules_version"] = QUALITY_RULES_VERSION
         return stats, [path, queue, report_path]
+
+    def _split_overlong_quality(self, db, max_chars):
+        """V5 only: split overlong source documents at paragraph/sentence edges."""
+        from .v5_language_corpus import split_long_text
+
+        limit = max(1000, max_chars - 1024)
+        ids = [row[0] for row in db.execute("SELECT document_id FROM docs ORDER BY document_id")]
+        split_documents = 0
+        for document_id in ids:
+            row = db.execute("SELECT * FROM docs WHERE document_id=?", (document_id,)).fetchone()
+            text = row["raw_text"]
+            if len(text) <= max_chars:
+                continue
+            parts = split_long_text(text, limit)
+            if len(parts) <= 1:
+                continue
+            metadata = json.loads(row["metadata"])
+            db.execute("DELETE FROM docs WHERE document_id=?", (document_id,))
+            for part_index, part in enumerate(parts):
+                part_id = f"{document_id}::p{part_index:04d}"
+                part_meta = {**metadata, "parent_document_id": document_id,
+                             "part_index": part_index, "part_count": len(parts),
+                             "v5_split_part": True}
+                encoded = part.encode("utf-8", errors="surrogatepass")
+                db.execute("""INSERT INTO docs(document_id, source_id, source_name, source_uri,
+                    license, license_evidence, license_status, provenance_status, collection_version,
+                    declared_category, declared_language, document_family_id, priority, file_sha256,
+                    line_number, content_sha256, raw_text, raw_bytes, metadata)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                           (part_id, row["source_id"], row["source_name"], row["source_uri"],
+                            row["license"], row["license_evidence"], row["license_status"],
+                            row["provenance_status"], row["collection_version"],
+                            row["declared_category"], row["declared_language"],
+                            row["document_family_id"], row["priority"], row["file_sha256"],
+                            row["line_number"],
+                            hashlib.sha256(encoded).hexdigest(), part, len(encoded),
+                            _safe_json(part_meta)))
+            split_documents += 1
+        db.commit()
+        return split_documents
 
     def _review_one(self, db, row, policy, policy_sha, text_policy):
         document_id = row["document_id"]
@@ -999,6 +1043,8 @@ class CorpusV4Pipeline:
         totals["tokens"] = None
         totals["token_ratio"] = None
         totals["token_basis"] = "not estimated before tokenizer selection; see tokenization-report.json"
+        totals["split_parts"] = int(db.execute(
+            "SELECT COUNT(*) FROM docs WHERE json_extract(metadata, '$.v5_split_part') = 1").fetchone()[0])
         totals["language_distribution"] = {row[0]: row[1] for row in db.execute(
             "SELECT detected_language, COUNT(*) FROM docs GROUP BY detected_language ORDER BY detected_language")}
         totals["category_distribution"] = {row[0]: row[1] for row in db.execute(
@@ -1629,8 +1675,8 @@ class CorpusV4Pipeline:
     # ------------------------------------------------------------------ tokenizers
 
     def train_tokenizers(self):
-        if self.scaling:
-            raise CorpusError("the 2M profile reuses the frozen tokenizer; use the tokenize stage")
+        if self.scaling or self.v5:
+            raise CorpusError("the language profile reuses the frozen tokenizer; use the tokenize stage")
         if not self.demo and self._license_status() != "APPROVED":
             raise CorpusError("TOKENIZER_TRAINING_BLOCKED: approved sources with human licence evidence required")
         if "tokenizers" in self._done:
@@ -1701,8 +1747,8 @@ class CorpusV4Pipeline:
         return self.stats["tokenizers"]
 
     def evaluate_tokenizers(self, *, baseline: str | Path | None = None):
-        if self.scaling:
-            raise CorpusError("the 2M profile reuses the frozen tokenizer evaluation; use the tokenize stage")
+        if self.scaling or self.v5:
+            raise CorpusError("the language profile reuses the frozen tokenizer evaluation; use the tokenize stage")
         if self.balanced and baseline:
             raise CorpusError("language Pilot uses the pinned tokenizer baseline")
         if "tokenizer_eval" in self._done:
@@ -1787,8 +1833,8 @@ class CorpusV4Pipeline:
         return None
 
     def record_tokenizer_decision(self, path: str | Path):
-        if self.scaling:
-            raise CorpusError("the 2M profile requires the pinned historical tokenizer decision")
+        if self.scaling or self.v5:
+            raise CorpusError("the language profile requires the pinned historical tokenizer decision")
         if self.demo:
             raise CorpusError("DEMO_ONLY candidates cannot receive a formal decision")
         self.evaluate_tokenizers()
@@ -1816,7 +1862,7 @@ class CorpusV4Pipeline:
         if not (self.out / "tokenizer-selection.json").is_file():
             return None
         selection = verify_selection(self.out)
-        if self.scaling:
+        if self.scaling or self.v5:
             return selection
         key = self._key("tokenizer_selection", {"evaluation": self.keys["tokenizer_eval"],
                                                 "decision": selection["decision_sha256"]})
@@ -1835,6 +1881,27 @@ class CorpusV4Pipeline:
             paths = [self.out / name for name in ("tokenizer-evaluation.json", "tokenizer-candidates.json")]
             for path in paths:
                 with (BASE / path.name).open("rb") as handle:
+                    atomic_write(path, lambda out: shutil.copyfileobj(handle, out))
+            path = self.out / "tokenizer-selection.json"
+            write_json(path, receipt)
+            return receipt, [*paths, path]
+
+        self._run("tokenizer_selection", key, producer)
+        return self._reviewed_selection()
+
+    def _reuse_v5_tokenizer(self):
+        from .v5_language_corpus import BASE_ID as V5_BASE_ID
+        from .v5_language_corpus import tokenizer_receipt as v5_tokenizer_receipt
+
+        key = self._key("tokenizer_selection", {"split": self.keys["split"],
+                                                "base_content_id": V5_BASE_ID})
+
+        def producer():
+            receipt = v5_tokenizer_receipt()
+            paths = [self.out / name for name in ("tokenizer-evaluation.json", "tokenizer-candidates.json")]
+            from .v4_language_scaling import BASE as BASE_1M
+            for path in paths:
+                with (BASE_1M / path.name).open("rb") as handle:
                     atomic_write(path, lambda out: shutil.copyfileobj(handle, out))
             path = self.out / "tokenizer-selection.json"
             write_json(path, receipt)
@@ -1871,6 +1938,11 @@ class CorpusV4Pipeline:
                 raise CorpusError("the 2M profile cannot override its frozen tokenizer")
             selected = self._reuse_scaling_tokenizer()
             tokenizer_path = selected["path"]
+        if self.v5:
+            if tokenizer_path is not None or selected is not None:
+                raise CorpusError("the v5 profile cannot override its frozen tokenizer")
+            selected = self._reuse_v5_tokenizer()
+            tokenizer_path = selected["path"]
         if tokenizer_path is None:
             comparison = self.evaluate_tokenizers()
             if selected is None:
@@ -1880,7 +1952,7 @@ class CorpusV4Pipeline:
             tokenizer_path = selected["path"]
         tokenizer_path = self._resolve_path(tokenizer_path)
         tokenizer = MiniLLMTokenizer.load(tokenizer_path)
-        if not self.scaling and not self.demo and (self.balanced or tokenizer.vocab_size >= 24576 or self.target_tokens >= 1_020_000):
+        if not self.scaling and not self.v5 and not self.demo and (self.balanced or tokenizer.vocab_size >= 24576 or self.target_tokens >= 1_020_000):
             self.evaluate_tokenizers()
             reviewed = self._reviewed_selection()
             if not reviewed or reviewed["fingerprint"] != tokenizer.fingerprint:
@@ -1989,6 +2061,9 @@ class CorpusV4Pipeline:
         if self.scaling:
             from .v4_language_scaling import verify_pinned_release
             verify_pinned_release(self.out)
+        if self.v5:
+            from .v5_language_corpus import verify_tokenizer_reuse
+            verify_tokenizer_reuse(self.out)
         return self.stats["tokenized"]
 
     def _measure_deleted_tokens(self, tokenizer: MiniLLMTokenizer) -> dict:
@@ -2495,6 +2570,9 @@ def verify_frozen(directory: str | Path) -> dict:
         if manifest["corpus_version"] == SCALING_VERSION:
             from .v4_language_scaling import BASE_ID
             basis = {"split": recomputed["split"]["key"], "base_content_id": BASE_ID}
+        elif manifest["corpus_version"] == V5_VERSION:
+            from .v5_language_corpus import BASE_ID as V5_BASE_ID
+            basis = {"split": recomputed["split"]["key"], "base_content_id": V5_BASE_ID}
         else:
             basis = {"evaluation": recomputed["tokenizer_eval"]["key"], "decision": selection["decision_sha256"]}
         expected = identity([V4_SCHEMA_VERSION, plan["plan_key"], "tokenizer_selection", basis])

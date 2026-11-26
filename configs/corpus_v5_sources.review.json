@@ -1,0 +1,474 @@
+{
+  "schema_version": 1,
+  "approval_authority": "v4_source fields; human decisions only. Candidate references do not constitute approval.",
+  "sources": [
+    {
+      "publisher": "Wikimedia contributors; individual copyright holders vary",
+      "release": "zhwiki-20261101-pages-articles",
+      "license_references": [
+        {
+          "uri": "https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use",
+          "verification": "Public reference for human review; release-specific permission pending."
+        },
+        {
+          "uri": "https://dumps.wikimedia.org/legal.html",
+          "verification": "Wikimedia dump licensing page; downstream obligations remain the reviewer's decision."
+        },
+        {
+          "uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "verification": "Text licence reference; attribution and ShareAlike obligations apply."
+        }
+      ],
+      "commercial_use": "PENDING",
+      "redistribution": "PENDING",
+      "limitations": [
+        "No source-level human approval for corpus v5; public availability and project licence are insufficient.",
+        "Pin release, attribution, ShareAlike/portrait exceptions and redistribution obligations before admission."
+      ],
+      "local_inventory": {
+        "raw_sha256": "46f63cef5be5cd3c0eaa14c268169b78046c93b2e4b4413bb3432904021dae58",
+        "documents": 1562728,
+        "characters": 1095459302,
+        "estimated_tokens": 770365589,
+        "files": {
+          "/home/voyah/work_space/git_ws/min_llm/data/raw/candidate-zh-wikipedia/zhwiki-20261101-pages.jsonl": {
+            "bytes": 2977599196,
+            "sha256": "46f63cef5be5cd3c0eaa14c268169b78046c93b2e4b4413bb3432904021dae58"
+          }
+        },
+        "raw_files": {
+          "/home/voyah/work_space/git_ws/min_llm/data/raw/candidate-zh-wikipedia/zhwiki-20261101-pages-articles.xml.bz2": {
+            "bytes": 3452366696,
+            "sha256": "190f5f03dbca26cf9e8f3b7f3027b3c43cb0b41d234f11242f21d4f19faf72a2"
+          }
+        }
+      },
+      "v4_source": {
+        "source_id": "candidate-zh-wikipedia",
+        "source_name": "Chinese Wikipedia full pages-articles release",
+        "source_uri": "https://zh.wikipedia.org/",
+        "license": "CC-BY-SA-4.0",
+        "license_status": "REVIEW_REQUIRED",
+        "license_evidence": "",
+        "license_reviewer": "",
+        "license_reviewed_at": "",
+        "category": "zh_encyclopedic",
+        "language": "zh",
+        "provenance_status": "VERIFIED",
+        "acquisition_date": "2026-11-26",
+        "paths": [
+          "data/raw/candidate-zh-wikipedia/zhwiki-20261101-pages.jsonl"
+        ],
+        "family_policy": "document",
+        "priority": 5,
+        "original_format": "Wikimedia pages-articles XML dump -> canonical JSONL",
+        "transformation_history": [
+          {
+            "kind": "wiki_dump_extraction",
+            "tool": "scripts/extract_wiki_dump.py",
+            "cleaner": "clean_wikitext/1",
+            "input": "/home/voyah/work_space/git_ws/min_llm/data/raw/candidate-zh-wikipedia/zhwiki-20261101-pages-articles.xml.bz2",
+            "input_sha256": "190f5f03dbca26cf9e8f3b7f3027b3c43cb0b41d234f11242f21d4f19faf72a2",
+            "output": "/home/voyah/work_space/git_ws/min_llm/data/raw/candidate-zh-wikipedia/zhwiki-20261101-pages.jsonl",
+            "output_sha256": "46f63cef5be5cd3c0eaa14c268169b78046c93b2e4b4413bb3432904021dae58"
+          }
+        ],
+        "notes": "Full 20261101 dump. Prior 1M/2M approvals covered only fixed samples; v5 expands to the full release and needs a fresh decision."
+      },
+      "model_training": "PENDING",
+      "license_obligations": "PENDING",
+      "corpus_versions": [],
+      "upstream_snapshot_uri": "https://dumps.wikimedia.org/zhwiki/20261101/"
+    },
+    {
+      "publisher": "Wikimedia contributors; individual copyright holders vary",
+      "release": "zhwikinews-20261101-pages-articles",
+      "license_references": [
+        {
+          "uri": "https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use",
+          "verification": "Public reference for human review; release-specific permission pending."
+        },
+        {
+          "uri": "https://dumps.wikimedia.org/legal.html",
+          "verification": "Wikimedia dump licensing page; downstream obligations remain the reviewer's decision."
+        },
+        {
+          "uri": "https://creativecommons.org/licenses/by/2.5/",
+          "verification": "Wikinews text licence reference; attribution required."
+        }
+      ],
+      "commercial_use": "PENDING",
+      "redistribution": "PENDING",
+      "limitations": [
+        "No source-level human approval for corpus v5; public availability and project licence are insufficient.",
+        "Pin release, attribution, ShareAlike/portrait exceptions and redistribution obligations before admission."
+      ],
+      "local_inventory": {
+        "raw_sha256": "7c6c1a4c3c54f5a157a9be1c25bbaa76994e14f678b33d1d9d38a8d390d70671",
+        "documents": 18659,
+        "characters": 6491950,
+        "estimated_tokens": 4627345,
+        "files": {
+          "/home/voyah/work_space/git_ws/min_llm/data/raw/candidate-zh-wikinews/zhwikinews-20261101-pages.jsonl": {
+            "bytes": 21124282,
+            "sha256": "7c6c1a4c3c54f5a157a9be1c25bbaa76994e14f678b33d1d9d38a8d390d70671"
+          }
+        },
+        "raw_files": {
+          "/home/voyah/work_space/git_ws/min_llm/data/raw/candidate-zh-wikinews/zhwikinews-20261101-pages-articles.xml.bz2": {
+            "bytes": 33815460,
+            "sha256": "fbe8b706c9859f42b434400e3aa8a34a748fea64639b4636609399ddf97b969b"
+          }
+        }
+      },
+      "v4_source": {
+        "source_id": "candidate-zh-wikinews",
+        "source_name": "Chinese Wikinews pages-articles release",
+        "source_uri": "https://zh.wikinews.org/",
+        "license": "CC-BY-2.5",
+        "license_status": "REVIEW_REQUIRED",
+        "license_evidence": "",
+        "license_reviewer": "",
+        "license_reviewed_at": "",
+        "category": "zh_general",
+        "language": "zh",
+        "provenance_status": "VERIFIED",
+        "acquisition_date": "2026-11-26",
+        "paths": [
+          "data/raw/candidate-zh-wikinews/zhwikinews-20261101-pages.jsonl"
+        ],
+        "family_policy": "document",
+        "priority": 10,
+        "original_format": "Wikimedia pages-articles XML dump -> canonical JSONL",
+        "transformation_history": [
+          {
+            "kind": "wiki_dump_extraction",
+            "tool": "scripts/extract_wiki_dump.py",
+            "cleaner": "clean_wikitext/1",
+            "input": "/home/voyah/work_space/git_ws/min_llm/data/raw/candidate-zh-wikinews/zhwikinews-20261101-pages-articles.xml.bz2",
+            "input_sha256": "fbe8b706c9859f42b434400e3aa8a34a748fea64639b4636609399ddf97b969b",
+            "output": "/home/voyah/work_space/git_ws/min_llm/data/raw/candidate-zh-wikinews/zhwikinews-20261101-pages.jsonl",
+            "output_sha256": "7c6c1a4c3c54f5a157a9be1c25bbaa76994e14f678b33d1d9d38a8d390d70671"
+          }
+        ],
+        "notes": "Modern news prose. Fair-use media, if present, is outside the text-only extraction; legal review still required."
+      },
+      "model_training": "PENDING",
+      "license_obligations": "PENDING",
+      "corpus_versions": [],
+      "upstream_snapshot_uri": "https://dumps.wikimedia.org/zhwikinews/20261101/"
+    },
+    {
+      "publisher": "Wikimedia contributors; individual copyright holders vary",
+      "release": "zhwikivoyage-20261101-pages-articles",
+      "license_references": [
+        {
+          "uri": "https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use",
+          "verification": "Public reference for human review; release-specific permission pending."
+        },
+        {
+          "uri": "https://dumps.wikimedia.org/legal.html",
+          "verification": "Wikimedia dump licensing page; downstream obligations remain the reviewer's decision."
+        },
+        {
+          "uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "verification": "Text licence reference; attribution and ShareAlike obligations apply."
+        }
+      ],
+      "commercial_use": "PENDING",
+      "redistribution": "PENDING",
+      "limitations": [
+        "No source-level human approval for corpus v5; public availability and project licence are insufficient.",
+        "Pin release, attribution, ShareAlike/portrait exceptions and redistribution obligations before admission."
+      ],
+      "local_inventory": {
+        "raw_sha256": "ead0492ed5a293f1258280a12452c9d5b80dd68781f0a5f6271c85aa36f164ef",
+        "documents": 5598,
+        "characters": 6156468,
+        "estimated_tokens": 4432476,
+        "files": {
+          "/home/voyah/work_space/git_ws/min_llm/data/raw/candidate-zh-wikivoyage/zhwikivoyage-20261101-pages.jsonl": {
+            "bytes": 16997337,
+            "sha256": "ead0492ed5a293f1258280a12452c9d5b80dd68781f0a5f6271c85aa36f164ef"
+          }
+        },
+        "raw_files": {
+          "/home/voyah/work_space/git_ws/min_llm/data/raw/candidate-zh-wikivoyage/zhwikivoyage-20261101-pages-articles.xml.bz2": {
+            "bytes": 14449233,
+            "sha256": "5d6e604f8f8f6e571be38b67c8572660e48f3056f0a75721dffbd7f05292cfa1"
+          }
+        }
+      },
+      "v4_source": {
+        "source_id": "candidate-zh-wikivoyage",
+        "source_name": "Chinese Wikivoyage pages-articles release",
+        "source_uri": "https://zh.wikivoyage.org/",
+        "license": "CC-BY-SA-4.0",
+        "license_status": "REVIEW_REQUIRED",
+        "license_evidence": "",
+        "license_reviewer": "",
+        "license_reviewed_at": "",
+        "category": "zh_general",
+        "language": "zh",
+        "provenance_status": "VERIFIED",
+        "acquisition_date": "2026-11-26",
+        "paths": [
+          "data/raw/candidate-zh-wikivoyage/zhwikivoyage-20261101-pages.jsonl"
+        ],
+        "family_policy": "document",
+        "priority": 9,
+        "original_format": "Wikimedia pages-articles XML dump -> canonical JSONL",
+        "transformation_history": [
+          {
+            "kind": "wiki_dump_extraction",
+            "tool": "scripts/extract_wiki_dump.py",
+            "cleaner": "clean_wikitext/1",
+            "input": "/home/voyah/work_space/git_ws/min_llm/data/raw/candidate-zh-wikivoyage/zhwikivoyage-20261101-pages-articles.xml.bz2",
+            "input_sha256": "5d6e604f8f8f6e571be38b67c8572660e48f3056f0a75721dffbd7f05292cfa1",
+            "output": "/home/voyah/work_space/git_ws/min_llm/data/raw/candidate-zh-wikivoyage/zhwikivoyage-20261101-pages.jsonl",
+            "output_sha256": "ead0492ed5a293f1258280a12452c9d5b80dd68781f0a5f6271c85aa36f164ef"
+          }
+        ],
+        "notes": "Modern travel/life description and practical knowledge. Some pages are lists or templates and may fail quality gates."
+      },
+      "model_training": "PENDING",
+      "license_obligations": "PENDING",
+      "corpus_versions": [],
+      "upstream_snapshot_uri": "https://dumps.wikimedia.org/zhwikivoyage/20261101/"
+    },
+    {
+      "publisher": "Wikimedia contributors; individual copyright holders vary",
+      "release": "zhwikibooks-20261101-pages-articles",
+      "license_references": [
+        {
+          "uri": "https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use",
+          "verification": "Public reference for human review; release-specific permission pending."
+        },
+        {
+          "uri": "https://dumps.wikimedia.org/legal.html",
+          "verification": "Wikimedia dump licensing page; downstream obligations remain the reviewer's decision."
+        },
+        {
+          "uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "verification": "Text licence reference; attribution and ShareAlike obligations apply."
+        }
+      ],
+      "commercial_use": "PENDING",
+      "redistribution": "PENDING",
+      "limitations": [
+        "No source-level human approval for corpus v5; public availability and project licence are insufficient.",
+        "Pin release, attribution, ShareAlike/portrait exceptions and redistribution obligations before admission."
+      ],
+      "local_inventory": {
+        "raw_sha256": "492c9fff68fa854fbbbf5470e45c0985b769ef5b4f2adc8e40257b7050ac5849",
+        "documents": 7668,
+        "characters": 17809379,
+        "estimated_tokens": 11775973,
+        "files": {
+          "/home/voyah/work_space/git_ws/min_llm/data/raw/candidate-zh-wikibooks/zhwikibooks-20261101-pages.jsonl": {
+            "bytes": 43106014,
+            "sha256": "492c9fff68fa854fbbbf5470e45c0985b769ef5b4f2adc8e40257b7050ac5849"
+          }
+        },
+        "raw_files": {
+          "/home/voyah/work_space/git_ws/min_llm/data/raw/candidate-zh-wikibooks/zhwikibooks-20261101-pages-articles.xml.bz2": {
+            "bytes": 20019071,
+            "sha256": "1db3e7ab78deff32f2f5061889febd05acb0c062799201d016de0e47013964ed"
+          }
+        }
+      },
+      "v4_source": {
+        "source_id": "candidate-zh-wikibooks",
+        "source_name": "Chinese Wikibooks pages-articles release",
+        "source_uri": "https://zh.wikibooks.org/",
+        "license": "CC-BY-SA-4.0",
+        "license_status": "REVIEW_REQUIRED",
+        "license_evidence": "",
+        "license_reviewer": "",
+        "license_reviewed_at": "",
+        "category": "zh_education",
+        "language": "zh",
+        "provenance_status": "VERIFIED",
+        "acquisition_date": "2026-11-26",
+        "paths": [
+          "data/raw/candidate-zh-wikibooks/zhwikibooks-20261101-pages.jsonl"
+        ],
+        "family_policy": "document",
+        "priority": 6,
+        "original_format": "Wikimedia pages-articles XML dump -> canonical JSONL",
+        "transformation_history": [
+          {
+            "kind": "wiki_dump_extraction",
+            "tool": "scripts/extract_wiki_dump.py",
+            "cleaner": "clean_wikitext/1",
+            "input": "/home/voyah/work_space/git_ws/min_llm/data/raw/candidate-zh-wikibooks/zhwikibooks-20261101-pages-articles.xml.bz2",
+            "input_sha256": "1db3e7ab78deff32f2f5061889febd05acb0c062799201d016de0e47013964ed",
+            "output": "/home/voyah/work_space/git_ws/min_llm/data/raw/candidate-zh-wikibooks/zhwikibooks-20261101-pages.jsonl",
+            "output_sha256": "492c9fff68fa854fbbbf5470e45c0985b769ef5b4f2adc8e40257b7050ac5849"
+          }
+        ],
+        "notes": "Educational prose. Prior 1M/2M approvals covered only a fixed sample; full release needs a fresh decision."
+      },
+      "model_training": "PENDING",
+      "license_obligations": "PENDING",
+      "corpus_versions": [],
+      "upstream_snapshot_uri": "https://dumps.wikimedia.org/zhwikibooks/20261101/"
+    },
+    {
+      "publisher": "Wikimedia contributors; individual copyright holders vary",
+      "release": "zhwikiversity-20261101-pages-articles",
+      "license_references": [
+        {
+          "uri": "https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use",
+          "verification": "Public reference for human review; release-specific permission pending."
+        },
+        {
+          "uri": "https://dumps.wikimedia.org/legal.html",
+          "verification": "Wikimedia dump licensing page; downstream obligations remain the reviewer's decision."
+        },
+        {
+          "uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "verification": "Text licence reference; attribution and ShareAlike obligations apply."
+        }
+      ],
+      "commercial_use": "PENDING",
+      "redistribution": "PENDING",
+      "limitations": [
+        "No source-level human approval for corpus v5; public availability and project licence are insufficient.",
+        "Pin release, attribution, ShareAlike/portrait exceptions and redistribution obligations before admission."
+      ],
+      "local_inventory": {
+        "raw_sha256": "88cc63bdf03a49e13b63f7e121cb216d538f3919b633e10b91cf65af7f4d42b7",
+        "documents": 3555,
+        "characters": 6359645,
+        "estimated_tokens": 4396018,
+        "files": {
+          "/home/voyah/work_space/git_ws/min_llm/data/raw/candidate-zh-wikiversity/zhwikiversity-20261101-pages.jsonl": {
+            "bytes": 14816839,
+            "sha256": "88cc63bdf03a49e13b63f7e121cb216d538f3919b633e10b91cf65af7f4d42b7"
+          }
+        },
+        "raw_files": {
+          "/home/voyah/work_space/git_ws/min_llm/data/raw/candidate-zh-wikiversity/zhwikiversity-20261101-pages-articles.xml.bz2": {
+            "bytes": 19109436,
+            "sha256": "22d9e12b22b96f96f97dd95bf9046029deae4606db42cce40af6b1b09eee8862"
+          }
+        }
+      },
+      "v4_source": {
+        "source_id": "candidate-zh-wikiversity",
+        "source_name": "Chinese Wikiversity pages-articles release",
+        "source_uri": "https://zh.wikiversity.org/",
+        "license": "CC-BY-SA-4.0",
+        "license_status": "REVIEW_REQUIRED",
+        "license_evidence": "",
+        "license_reviewer": "",
+        "license_reviewed_at": "",
+        "category": "zh_education",
+        "language": "zh",
+        "provenance_status": "VERIFIED",
+        "acquisition_date": "2026-11-26",
+        "paths": [
+          "data/raw/candidate-zh-wikiversity/zhwikiversity-20261101-pages.jsonl"
+        ],
+        "family_policy": "document",
+        "priority": 5,
+        "original_format": "Wikimedia pages-articles XML dump -> canonical JSONL",
+        "transformation_history": [
+          {
+            "kind": "wiki_dump_extraction",
+            "tool": "scripts/extract_wiki_dump.py",
+            "cleaner": "clean_wikitext/1",
+            "input": "/home/voyah/work_space/git_ws/min_llm/data/raw/candidate-zh-wikiversity/zhwikiversity-20261101-pages-articles.xml.bz2",
+            "input_sha256": "22d9e12b22b96f96f97dd95bf9046029deae4606db42cce40af6b1b09eee8862",
+            "output": "/home/voyah/work_space/git_ws/min_llm/data/raw/candidate-zh-wikiversity/zhwikiversity-20261101-pages.jsonl",
+            "output_sha256": "88cc63bdf03a49e13b63f7e121cb216d538f3919b633e10b91cf65af7f4d42b7"
+          }
+        ],
+        "notes": "Concept explanations and course material. Some pages are stubs, project pages or technical outlines."
+      },
+      "model_training": "PENDING",
+      "license_obligations": "PENDING",
+      "corpus_versions": [],
+      "upstream_snapshot_uri": "https://dumps.wikimedia.org/zhwikiversity/20261101/"
+    },
+    {
+      "publisher": "Wikimedia contributors; individual copyright holders vary",
+      "release": "enwikisource-20261101-pages-articles",
+      "license_references": [
+        {
+          "uri": "https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use",
+          "verification": "Public reference for human review; release-specific permission pending."
+        },
+        {
+          "uri": "https://dumps.wikimedia.org/legal.html",
+          "verification": "Wikimedia dump licensing page; downstream obligations remain the reviewer's decision."
+        },
+        {
+          "uri": "https://en.wikisource.org/wiki/Wikisource:Copyright_policy",
+          "verification": "Work-level review required; public-domain status varies by work and jurisdiction."
+        }
+      ],
+      "commercial_use": "PENDING",
+      "redistribution": "PENDING",
+      "limitations": [
+        "No source-level human approval for corpus v5; public availability and project licence are insufficient.",
+        "Pin release, attribution, ShareAlike/portrait exceptions and redistribution obligations before admission."
+      ],
+      "local_inventory": {
+        "raw_sha256": "89de7544153da2b70e931ef65cc33fc6cf1391fdf00891879504e6597ec7f623",
+        "documents": 169732,
+        "characters": 1937748972,
+        "estimated_tokens": 518017908,
+        "files": {
+          "/home/voyah/work_space/git_ws/min_llm/data/raw/candidate-en-wikisource/enwikisource-20261101-pages.jsonl": {
+            "bytes": 1998203187,
+            "sha256": "89de7544153da2b70e931ef65cc33fc6cf1391fdf00891879504e6597ec7f623"
+          }
+        },
+        "raw_files": {
+          "/home/voyah/work_space/git_ws/min_llm/data/raw/candidate-en-wikisource/enwikisource-20261101-pages-articles.xml.bz2": {
+            "bytes": 3438896364,
+            "sha256": "bb9318dd1045cd0e0f0e5ea9329b1d61a639590758427fd4275a2926fa6a5272"
+          }
+        }
+      },
+      "v4_source": {
+        "source_id": "candidate-en-wikisource",
+        "source_name": "English Wikisource pages-articles release",
+        "source_uri": "https://en.wikisource.org/",
+        "license": "Public-domain works plus CC-BY-SA-4.0 contributions",
+        "license_status": "REVIEW_REQUIRED",
+        "license_evidence": "",
+        "license_reviewer": "",
+        "license_reviewed_at": "",
+        "category": "en_general",
+        "language": "en",
+        "provenance_status": "VERIFIED",
+        "acquisition_date": "2026-11-26",
+        "paths": [
+          "data/raw/candidate-en-wikisource/enwikisource-20261101-pages.jsonl"
+        ],
+        "family_policy": "document",
+        "priority": 5,
+        "original_format": "Wikimedia pages-articles XML dump -> canonical JSONL",
+        "transformation_history": [
+          {
+            "kind": "wiki_dump_extraction",
+            "tool": "scripts/extract_wiki_dump.py",
+            "cleaner": "clean_wikitext/1",
+            "input": "/home/voyah/work_space/git_ws/min_llm/data/raw/candidate-en-wikisource/enwikisource-20261101-pages-articles.xml.bz2",
+            "input_sha256": "bb9318dd1045cd0e0f0e5ea9329b1d61a639590758427fd4275a2926fa6a5272",
+            "output": "/home/voyah/work_space/git_ws/min_llm/data/raw/candidate-en-wikisource/enwikisource-20261101-pages.jsonl",
+            "output_sha256": "89de7544153da2b70e931ef65cc33fc6cf1391fdf00891879504e6597ec7f623"
+          }
+        ],
+        "notes": "English narrative/literary text. Prior approvals covered only a fixed sample; v5 expansion needs a fresh decision."
+      },
+      "model_training": "PENDING",
+      "license_obligations": "PENDING",
+      "corpus_versions": [],
+      "upstream_snapshot_uri": "https://dumps.wikimedia.org/enwikisource/20261101/"
+    }
+  ]
+}
