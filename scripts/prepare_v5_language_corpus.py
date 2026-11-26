@@ -30,9 +30,9 @@ def main(argv=None):
             print(report["status"], report["packing"]["effective_tokens"], "effective candidate tokens")
         if args.stage in ("prepare", "run"):
             inventory_path = out / "candidate/inventory.json"
-            v5.prepare(out / "prepare", registry_path=args.registry,
-                       inventory_path=inventory_path if inventory_path.is_file() else None)
-            print("BLOCKED_SOURCE_APPROVAL")
+            request = v5.prepare(out / "prepare", registry_path=args.registry,
+                                 inventory_path=inventory_path if inventory_path.is_file() else None)
+            print(request["status"])
         if args.stage == "check":
             review = v5.load_source_review(args.registry, verify_inputs=True)
             pending = [entry["v4_source"]["source_id"] for entry in v5.pending_entries(review)]

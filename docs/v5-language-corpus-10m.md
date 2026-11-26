@@ -1,12 +1,13 @@
 # V5 千万 Token 中文语料扩充与冻结
 
-**状态：`BLOCKED_SOURCE_APPROVAL`（候选库存已就绪；正式冻结与 GPU 训练未运行）**
+**状态：`READY_FOR_BUILD`（6/6 来源已获人工批准，范围仅内部研究；正式冻结与 GPU 训练未运行）**
 
-本 PR 交付 `minillm-corpus-v5-language-10m-v1` 的可复现候选库存、审批门禁、10M 训练预算预览和测试，但**没有**正式冻结语料，也没有启动 GPU 训练。全部 6 个来源仍是 `REVIEW_REQUIRED`；没有人类审批记录，因此 `FROZEN`、`freeze.json` 和正式 `dataset-manifest.json` 均不存在。候选语料不是可训练语料，不得被标记为 trainable。
+本 PR 交付 `minillm-corpus-v5-language-10m-v1` 的可复现候选库存、审批门禁、10M 训练预算预览和测试。6 个来源已于 2026-11-26 获人类批准（仅内部研究），审批记录和 evidence 已生成；但本 PR **没有**执行正式 build，也没有启动 GPU 训练。因此 `FROZEN`、`freeze.json` 和正式 `dataset-manifest.json` 均不存在，候选语料仍不是可训练数据集。
 
 | 项目 | 结果 |
 |---|---|
 | 候选 inventory 状态 | `CANDIDATE_INVENTORY_READY` |
+| 来源审批 | **6/6 `APPROVED`**（`wangshaozheng`，2026-11-26，仅内部研究） |
 | 候选清单 content id | `3ed83ea299a6439e0b5bb279089ee642415e3578fa299be9f1f062cf7bb1e93f` |
 | 候选清单文件状态 | `CANDIDATE_ONLY_NOT_TRAINABLE` |
 | 清理后唯一候选 | 30,209 篇 / 28,661,960 tokens / 49,841,686 字符 |
@@ -14,12 +15,12 @@
 | 15M 候选冲刺目标 | 13,994,640 / 15,000,000（差 1,005,360；`INSUFFICIENT_CORPUS`） |
 | 10M 冻结预排 | 10,569,551 raw / 10,558,383 effective；预留 4% val/test 后约 10,136,047 effective |
 | 10,000,848 预算 | 1,222 次完整优化器更新 × 8,184 supervised tokens |
-| 正式冻结 | `NOT_RUN` / `BLOCKED_SOURCE_APPROVAL` |
+| 正式冻结 | `NOT_RUN` / `READY_FOR_BUILD` |
 | GPU 训练 | `NOT_RUN` |
 | 历史 1M / 2M 语料 | 未修改 |
 | 历史 Val / Test | 未修改 |
 
-`CANDIDATE_INVENTORY_READY` 指 10M 目标已有足够、配比合格的候选供给；15M 候选冲刺仍为 `INSUFFICIENT_CORPUS`，不能把 13.99M 说成 15M。
+`CANDIDATE_INVENTORY_READY` 指 10M 目标已有足够、配比合格的候选供给；15M 候选冲刺仍为 `INSUFFICIENT_CORPUS`，不能把 13.99M 说成 15M。来源审批已记录，但正式冻结尚未执行，因此不存在 `FROZEN` 或可训练数据集。
 
 复现命令：
 
@@ -29,7 +30,7 @@
 .venv/bin/python -m pytest -q -o addopts='' tests/test_v5_language_corpus.py
 ```
 
-`inventory` 只写 `reports/` 下的候选报告，不写 `FROZEN`；`prepare` 只写审批请求和 `BLOCKED_SOURCE_APPROVAL` 状态。`build` 需要 `--approval` 和 `--request`，没有人类批准文件时会在构造正式管线前失败。
+`inventory` 只写 `reports/` 下的候选报告，不写 `FROZEN`；`prepare` 生成审批请求，并在 6/6 来源批准后写 `READY_FOR_BUILD` 状态，仍不写 `FROZEN`。`build` 需要 `--approval` 和 `--request`，没有完整人类批准文件时会在构造正式管线前失败。
 
 ## 1. 目标与不变量
 
@@ -50,18 +51,18 @@
 >
 > “未经批准不得进入正式冻结语料，不得伪造审批记录。”
 
-六个来源全部为 `license_status: REVIEW_REQUIRED`，`training_scope` 不存在，商用/再分发/模型训练/许可义务均为 `PENDING`。下表是**候选**登记，不是批准清单。
+六个来源已于 **2026-11-26** 由 `wangshaozheng` 在本会话确认批准，审批范围**仅限内部研究训练**：不商用、不再分发、不公开权重。审批字段写入每个来源的 `training_scope`，审批证据绑定到 `configs/corpus_v5_source-approval.json`（运行期副本在 `reports/v5-language-corpus-10m-v1/approval/source-approval.json`）。这不等于商用、再分发或公开权重许可；任何新来源（例如 FineWeb2、Wikidata）或扩大既有来源使用范围仍需重新审批。
 
-| 来源 | 类别 | 发布快照 / 上游 | 许可（待审） | 许可状态 | 商用 / 再分发 / 训练 |
+| 来源 | 类别 | 发布快照 / 上游 | 许可 | 审批状态 | 商用 / 再分发 / 训练 |
 |---|---|---|---|---|---|
-| `candidate-zh-wikipedia` | `zh_encyclopedic` | `zhwiki-20261101-pages-articles` / https://dumps.wikimedia.org/zhwiki/20261101/ | CC-BY-SA-4.0 | `REVIEW_REQUIRED` | `PENDING` / `PENDING` / `PENDING` |
-| `candidate-zh-wikinews` | `zh_general` | `zhwikinews-20261101-pages-articles` / https://dumps.wikimedia.org/zhwikinews/20261101/ | CC-BY-2.5 | `REVIEW_REQUIRED` | `PENDING` / `PENDING` / `PENDING` |
-| `candidate-zh-wikivoyage` | `zh_general` | `zhwikivoyage-20261101-pages-articles` / https://dumps.wikimedia.org/zhwikivoyage/20261101/ | CC-BY-SA-4.0 | `REVIEW_REQUIRED` | `PENDING` / `PENDING` / `PENDING` |
-| `candidate-zh-wikibooks` | `zh_education` | `zhwikibooks-20261101-pages-articles` / https://dumps.wikimedia.org/zhwikibooks/20261101/ | CC-BY-SA-4.0 | `REVIEW_REQUIRED` | `PENDING` / `PENDING` / `PENDING` |
-| `candidate-zh-wikiversity` | `zh_education` | `zhwikiversity-20261101-pages-articles` / https://dumps.wikimedia.org/zhwikiversity/20261101/ | CC-BY-SA-4.0 | `REVIEW_REQUIRED` | `PENDING` / `PENDING` / `PENDING` |
-| `candidate-en-wikisource` | `en_general` | `enwikisource-20261101-pages-articles` / https://dumps.wikimedia.org/enwikisource/20261101/ | Public-domain works plus CC-BY-SA-4.0 contributions | `REVIEW_REQUIRED` | `PENDING` / `PENDING` / `PENDING` |
+| `candidate-zh-wikipedia` | `zh_encyclopedic` | `zhwiki-20261101-pages-articles` / https://dumps.wikimedia.org/zhwiki/20261101/ | CC-BY-SA-4.0 | `APPROVED`（内部研究） | `NOT_APPROVED` / `NOT_APPROVED` / `APPROVED_INTERNAL_RESEARCH_ONLY` |
+| `candidate-zh-wikinews` | `zh_general` | `zhwikinews-20261101-pages-articles` / https://dumps.wikimedia.org/zhwikinews/20261101/ | CC-BY-2.5 | `APPROVED`（内部研究） | `NOT_APPROVED` / `NOT_APPROVED` / `APPROVED_INTERNAL_RESEARCH_ONLY` |
+| `candidate-zh-wikivoyage` | `zh_general` | `zhwikivoyage-20261101-pages-articles` / https://dumps.wikimedia.org/zhwikivoyage/20261101/ | CC-BY-SA-4.0 | `APPROVED`（内部研究） | `NOT_APPROVED` / `NOT_APPROVED` / `APPROVED_INTERNAL_RESEARCH_ONLY` |
+| `candidate-zh-wikibooks` | `zh_education` | `zhwikibooks-20261101-pages-articles` / https://dumps.wikimedia.org/zhwikibooks/20261101/ | CC-BY-SA-4.0 | `APPROVED`（内部研究） | `NOT_APPROVED` / `NOT_APPROVED` / `APPROVED_INTERNAL_RESEARCH_ONLY` |
+| `candidate-zh-wikiversity` | `zh_education` | `zhwikiversity-20261101-pages-articles` / https://dumps.wikimedia.org/zhwikiversity/20261101/ | CC-BY-SA-4.0 | `APPROVED`（内部研究） | `NOT_APPROVED` / `NOT_APPROVED` / `APPROVED_INTERNAL_RESEARCH_ONLY` |
+| `candidate-en-wikisource` | `en_general` | `enwikisource-20261101-pages-articles` / https://dumps.wikimedia.org/enwikisource/20261101/ | Public-domain works plus CC-BY-SA-4.0 contributions | `APPROVED`（内部研究） | `NOT_APPROVED` / `NOT_APPROVED` / `APPROVED_INTERNAL_RESEARCH_ONLY` |
 
-来源登记与证据在 [`configs/corpus_v5_sources.review.json`](../configs/corpus_v5_sources.review.json)。每个来源记录 source URL、release/version、license、本地 raw JSONL 与 `.xml.bz2` 的 SHA256/字节数、文档数、字符数、估算 tokens、转换历史、`upstream_snapshot_uri` 和许可参考链接。原始 dump、JSONL 和缓存均不提交；登记中的路径是生成机的本地绝对路径。
+来源登记与证据在 [`configs/corpus_v5_sources.review.json`](../configs/corpus_v5_sources.review.json)。每个来源记录 source URL、release/version、license、本地 raw JSONL 与 `.xml.bz2` 的 SHA256/字节数、文档数、字符数、估算 tokens、转换历史、`upstream_snapshot_uri`、许可参考链接、审批人/日期、`training_scope` 和许可义务。原始 dump、JSONL 和缓存均不提交；登记中的路径是生成机的本地绝对路径。
 
 | 来源 | 文档数 | 原始字符数 | 估算 tokens（字符/1.422 等） | 输入 JSONL SHA256 |
 |---|---:|---:|---:|---|
@@ -72,19 +73,28 @@
 | `candidate-zh-wikiversity` | 3,555 | 6,359,645 | 4,396,018 | `88cc63bdf03a49e13b63f7e121cb216d538f3919b633e10b91cf65af7f4d42b7` |
 | `candidate-en-wikisource` | 169,732 | 1,937,748,972 | 518,017,908 | `89de7544153da2b70e931ef65cc33fc6cf1391fdf00891879504e6597ec7f623` |
 
-`en-wikisource` 同时包含公有领域作品和 CC-BY-SA 贡献，商用/再分发/署名/同条件分享义务必须由人类逐项确认；不能因为“多数是公有领域”就推定整包可训练。任何新来源（例如 FineWeb2、Wikidata 或其他 web corpus）或扩大 zhwiki/en-wikisource 的采样范围，都需要重新走审批，不能在候选阶段自动扩权。
+`en-wikisource` 同时包含公有领域作品和 CC-BY-SA 贡献。本次批准只覆盖内部研究训练；署名、同条件分享和逐作品版权状态仍须在对外使用前重新审查，不能因为“多数是公有领域”就推定整包可商用或可再分发。
 
 ### 2.1 审批材料
 
 `prepare` 生成：
 
-- `reports/v5-language-corpus-10m-v1/prepare/source-approval-request.json`：6 个来源、文件 SHA256、请求的 10,000,848 预算、45/30/15/10/0 比例、内部研究用途、非商用、非再分发、非公开发布权重。
-- `reports/v5-language-corpus-10m-v1/prepare/source-review.pending.json`：当前登记副本。
-- `reports/v5-language-corpus-10m-v1/prepare/status.json`：`BLOCKED_SOURCE_APPROVAL`，`approved_sources: 0`。
+- [`configs/corpus_v5_source-approval-request.json`](../configs/corpus_v5_source-approval-request.json)：6 个来源、文件 SHA256、10,000,848 预算、45/30/15/10/0 比例、内部研究用途、非商用、非再分发、非公开发布权重。
+- [`configs/corpus_v5_source-approval.json`](../configs/corpus_v5_source-approval.json)：审批证据，包含 `reviewer=wangshaozheng`、`recorded_at=2026-11-26`、逐字会话确认、精确预算/比例、六个来源的 release/文件 SHA256，以及 request 的 `sha256`/`bytes` 绑定。
+- `reports/v5-language-corpus-10m-v1/prepare/source-review.approved.json`：六个已批准来源的运行期登记副本。
+- `reports/v5-language-corpus-10m-v1/prepare/status.json`：`READY_FOR_BUILD`，`approved_sources: 6`，`pending_sources: []`，`formal_freeze: NOT_RUN`。
 
-人类批准文件必须包含：`corpus_version`、`decision=APPROVED`、真实 reviewer、`recorded_at`、逐字确认、精确 10,000,848、精确类别比例、每个来源的 release 与文件 SHA256、以及 `approval_request` 的文件身份。`validate_approval` 会拒绝占位 reviewer、错误版本、错误文件集合、被篡改的 request 和任何仍是 `REVIEW_REQUIRED` 的来源。当前没有这样的文件；本 PR 不生成、不推断、不伪造。
+当前 request SHA256 为 `11b390ff14804535c574c510405675276f262f10d8041bd5d9c6fbc7f77569b3`，approval evidence SHA256 为 `ae78f214d8fe839f085caba8de3f8780744cb96ceb06702c1aac1c56a6377248`。`validate_approval` 会拒绝占位 reviewer、错误版本、错误文件集合、被篡改的 request 和任何仍是 `REVIEW_REQUIRED` 的来源。
 
-`build` 在 `validate_approval` 之前不会构造正式管线；即使 token 数学上足够，缺少 approvals 也会失败。正式 `verify_frozen` 还会重新检查 source review、预算、污染审计、tokenizer 复用、stage key 和 `FROZEN` 身份。
+`build` 在 `validate_approval` 之前不会构造正式管线；只有 `READY_FOR_BUILD` 和匹配的 approval evidence 才能继续。复现构建命令：
+
+```bash
+.venv/bin/python scripts/prepare_v5_language_corpus.py build \
+  --approval configs/corpus_v5_source-approval.json \
+  --request configs/corpus_v5_source-approval-request.json
+```
+
+正式 `verify_frozen` 还会重新检查 source review、预算、污染审计、tokenizer 复用、stage key 和 `FROZEN` 身份。**本 PR 尚未执行 build，因此没有正式冻结语料。**
 
 ## 3. 候选库存：采样、清洗、去重
 
@@ -159,7 +169,7 @@
 | **合计** | **10,558,383** | **100%** | **10,000,848** | **10,136,047** |
 
 - 比例偏差：-0.039pp / -0.037pp / +0.031pp / +0.044pp，全部在 ±1pp 内。
-- 预排 `budget_for` 状态是 `READY_FOR_TRAINING`（指 token 数学余量），但 `blocking_conditions` 同时列出 `LICENSE_REVIEW_NOT_APPROVED` 和 `CONTAMINATION_NOT_CLEARED`。**这不是可训练状态**；正式冻结仍被审批阻断。
+- 预排报告是在审批前生成的，`budget_for` 状态为 `READY_FOR_TRAINING`（仅指 token 数学余量），其 `blocking_conditions` 记录的是当时的 `LICENSE_REVIEW_NOT_APPROVED` 和 `CONTAMINATION_NOT_CLEARED`。当前来源审批已清除 license 条件，但正式冻结仍需 build 阶段重新审计污染；候选报告本身**不是可训练状态**。
 - 该预排不产生 split 文件、不产生 train.bin、不产生 `FROZEN`。
 
 ### 4.3 来源集中度与语言风格
@@ -238,13 +248,13 @@ V5 只在 `corpus_version == minillm-corpus-v5-language-10m-v1` 时进入新分�
 - **冻结 tokenizer**：`artifacts/corpus/v4-language-pilot-first-training-reviewed/tokenizer.json`；vocab 24,576；fingerprint `845a24b9…b8a`；V5 receipt 的 `reused_from_content_id` 为 1M content id。
 - **1M/2M 不变**：未重写 `artifacts/corpus/v4-language-pilot-first-training-reviewed/` 或 `artifacts/corpus/minillm-corpus-v4-language-pilot-2m-v1/`；两者仍可被 `verify_frozen` 独立验证。
 - **历史 Val/Test 不变**：1M val/test SHA256 `25229b9c…364d` / `b58cb2c0…15c4`；2M manifest 记录相同文件。V5 交叉审计删除 77 篇重复，而不是修改历史文件。
-- **新 Val/Test**：V5 config 的 96/2/2 `family_cluster_hash` 会在正式 freeze 时生成新的 V5 val/test；它们来自 V5 候选组，不复用历史 split，且会再次与历史 val/test 和 7 个 frozen benchmark 做污染审计。由于审批未完成，本 PR 不生成也不提交这些集合。
+- **新 Val/Test**：V5 config 的 96/2/2 `family_cluster_hash` 会在正式 freeze 时生成新的 V5 val/test；它们来自 V5 候选组，不复用历史 split，且会再次与历史 val/test 和 7 个 frozen benchmark 做污染审计。由于正式 build 尚未执行，本 PR 不生成也不提交这些集合。
 - **冻结门禁**：`verify_frozen` 要求 `freeze_status=READY`、`dataset_status=FORMAL`、content id/文件一致、stage keys 一致、source plan 一致、tokenizer selection 一致、split isolation PASS、`FROZEN` 标记、license/contamination/budget 通过。V5 额外要求 source approval 和 10,000,848 的精确预算。
-- 当前 `freeze_status=BLOCKED_SOURCE_APPROVAL`；不存在 `FROZEN` 文件，`freeze.json` 和正式 `dataset-manifest.json` 也未生成。
+- 当前 `freeze_status=READY_FOR_BUILD`；审批已完成，但正式 build/freeze 尚未执行，不存在 `FROZEN` 文件，`freeze.json` 和正式 `dataset-manifest.json` 也未生成。
 
 ## 8. 测试与复现
 
-新增 `tests/test_v5_language_corpus.py`（14 项）覆盖：
+新增 `tests/test_v5_language_corpus.py`（15 项）覆盖：
 
 - 来源审批/许可门禁：pending、旧 `corpus_versions`、错误预算、占位 reviewer、未批准的 scope 全部拒绝；6 类正类别必须覆盖，`math_logic_code` 必须为 0。
 - 审批证据：request 文件身份、逐来源 release/文件 SHA256、reviewer/日期/逐字确认；篡改 request 或文件集合会失败。
@@ -254,16 +264,17 @@ V5 只在 `corpus_version == minillm-corpus-v5-language-10m-v1` 时进入新分�
 - 精确 token 预算：`training_preview` 的 1,222 × 8,184、9,776 窗口、4M/10M 可行、100M 不可行。
 - 长文切分：候选路径与正式 `_split_overlong_quality` 行切分都只在边界切、拼接字节一致、每段 ≤20,000 字符、family 不变。
 - 1M/2M 兼容：`is_language` 仍识别历史 profile；V4 回归测试 166 项通过。
+- 批准状态：6/6 approved 时 `prepare` 输出 `READY_FOR_BUILD`、`source-review.approved.json` 和 `APPROVED_READY_FOR_BUILD` request；仍有 pending 时保持 fail-closed。
 - 冻结身份：V5 tokenizer reuse receipt 与 source approval 绑定的代码路径；正式 freeze 由审批后的 build 验证。
 
 本机执行结果（详见 PR 描述）：
 
 ```text
 .venv/bin/python -m pytest -q -o addopts='' tests/test_v5_language_corpus.py
-# 14 passed
+# 15 passed
 
 .venv/bin/python -m pytest -q -o addopts=''
-# 1082 passed in 1026.26s (0:17:06)
+# 1082 passed, 1 skipped in 1273.93s (0:21:13)
 
 SYNTHETIC=1 bash scripts/smoke_test.sh
 # == smoke test passed ==
@@ -272,7 +283,7 @@ SYNTHETIC=1 bash scripts/smoke_test.sh
 
 ## 9. 已知问题与扩充计划
 
-1. **审批是唯一硬阻断（P0）**。6 个来源均未批准；没有批准就不能 build/freeze，也不能训练。下一步是由人类 reviewer 逐源确认 license/商用/再分发/模型训练/署名义务，填写 approval evidence，并重新生成 request 绑定。
+1. **正式冻结尚未执行（P0 后续）**。审批已记录（仅内部研究），`prepare` 已到 `READY_FOR_BUILD`；下一步是用匹配的 approval evidence 运行 `build`，再验证 `verify_frozen`。正式冻结前不得进入训练。
 2. **15M 候选冲刺差 1.0M**。主要缺 zhwiki（3.50M vs 4.50M）。若审批允许扩大 zhwiki 使用范围，将 sample_rate 从 0.005 提高到约 0.007，可补 ~1.0M；这会扩大既有来源使用范围，必须重新审批，不能在候选阶段自动做。
 3. **10M 的 zh_encyclopedic 余量最小**（预排 3.16M vs 配额 3.00M）。正式 split 的组粒度可能使 train 侧略低于预排；冻结门禁会拒绝不足，届时优先补 zhwiki，而不是降低比例或重复窗口。
 4. **REVIEW/REJECT 比例仍高**：wikinews 的 9,552 个 REJECT 包含大量短讯/占位/模板信号；wikibooks/wikivoyage/enwikisource 的 REVIEW 包含 PII、模板、标点/长度信号。后续可改进规则解释和来源特定预处理，但不得把 REVIEW 直接转为 KEEP。
@@ -282,7 +293,7 @@ SYNTHETIC=1 bash scripts/smoke_test.sh
 
 ## 10. 交付边界
 
-- 新增：`src/minillm/v5_language_corpus.py`、`src/minillm/corpus_versions.py`、`configs/corpus_v5_language_10m.yaml`、`configs/corpus_v5_candidates.json`、`configs/corpus_v5_sources.review.json`、`configs/corpus_v5_historical-eval.json`、`scripts/prepare_v5_language_corpus.py`、`tests/test_v5_language_corpus.py`。
+- 新增：`src/minillm/v5_language_corpus.py`、`src/minillm/corpus_versions.py`、`configs/corpus_v5_language_10m.yaml`、`configs/corpus_v5_candidates.json`、`configs/corpus_v5_sources.review.json`、`configs/corpus_v5_source-approval.json`、`configs/corpus_v5_source-approval-request.json`、`configs/corpus_v5_historical-eval.json`、`scripts/prepare_v5_language_corpus.py`、`tests/test_v5_language_corpus.py`。
 - 修改：`corpus_v4.py`、`v4_language_pilot.py`、`v4_sources.py`、`v4_tokenizer_decision.py` 的 V5 分支；1M/2M 路径保持原行为。
 - 不提交：`data/raw/`、`artifacts/`、`reports/`、`runs/`、任何 `.bin`/`.pt`/大缓存。候选报告在 `reports/v5-language-corpus-10m-v1/`，已被 `.gitignore` 排除。
 - 不合并：PR 保持打开，等待人类审批和后续 freeze/训练 PR。

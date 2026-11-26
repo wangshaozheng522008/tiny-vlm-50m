@@ -352,6 +352,22 @@ def test_prepare_fails_closed_without_human_approval(tmp_path, monkeypatch):
     assert (tmp_path / "prepare/source-approval-request.json").is_file()
 
 
+def test_prepare_reports_ready_when_every_source_is_approved(tmp_path):
+    review = _review(tmp_path, approved=True)
+    registry_path = tmp_path / "review.json"
+    write_json(registry_path, review)
+    request = v5.prepare(tmp_path / "prepare", registry_path=registry_path)
+    status = json.loads((tmp_path / "prepare/status.json").read_text(encoding="utf-8"))
+    assert request["status"] == "APPROVED_READY_FOR_BUILD"
+    assert status["status"] == "READY_FOR_BUILD"
+    assert status["approved_sources"] == len(review["sources"])
+    assert status["pending_sources"] == []
+    assert status["formal_freeze"] == "NOT_RUN"
+    assert (tmp_path / "prepare/source-review.approved.json").is_file()
+    assert not (tmp_path / "prepare/source-review.pending.json").exists()
+    assert all(source["new_approval"] == "APPROVED" for source in request["requested_sources"])
+
+
 def test_legacy_language_profiles_remain_language_profiles():
     assert is_language({"corpus_version": "minillm-corpus-v4-language-pilot-1m-v1"})
     assert is_language({"corpus_version": "minillm-corpus-v4-language-pilot-2m-v1"})

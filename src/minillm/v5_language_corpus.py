@@ -1002,8 +1002,11 @@ def approval_request(review: dict, inventory: dict | None = None) -> dict:
             "characters": entry["local_inventory"].get("characters"),
             "estimated_tokens": entry["local_inventory"].get("estimated_tokens"),
             "candidate_measured": measured,
-            "new_approval": "PENDING_HUMAN",
+            "new_approval": ("APPROVED" if source.get("license_status") == "APPROVED"
+                             else "PENDING_HUMAN"),
         })
+    approved_all = bool(review["sources"]) and all(
+        entry["v4_source"].get("license_status") == "APPROVED" for entry in review["sources"])
     return {
         "corpus_version": V5_VERSION,
         "dataset_name": "minillm-corpus-v5-language-10m",
@@ -1025,7 +1028,7 @@ def approval_request(review: dict, inventory: dict | None = None) -> dict:
         "required_statement": (
             "Approve each source for corpus v5 and the 10,000,848-token internal research budget; "
             "state whether public weight release or commercial use is included."),
-        "status": "PENDING_HUMAN",
+        "status": "APPROVED_READY_FOR_BUILD" if approved_all else "PENDING_HUMAN",
     }
 
 
@@ -1272,23 +1275,37 @@ def prepare(out_dir: str | Path, *, registry_path: str | Path = SOURCE_REGISTRY,
     review = load_source_review(registry_path, verify_inputs=True)
     inventory = read_json(inventory_path) if inventory_path else None
     request = approval_request(review, inventory)
+    approved = len(approved_entries(review))
+    total = len(review["sources"])
+    ready = approved == total and total > 0
+    if ready:
+        # A licence marker alone is not enough: the pinned V5 scope must also
+        # validate before prepare can advertise READY_FOR_BUILD.
+        for entry in review["sources"]:
+            validate_scope(entry)
+    status = "READY_FOR_BUILD" if ready else "BLOCKED_SOURCE_APPROVAL"
     with report_directory(out) as directory:
         write_json(directory / "source-approval-request.json", request)
-        write_json(directory / "source-review.pending.json", review)
+        if ready:
+            write_json(directory / "source-review.approved.json", review)
+        else:
+            write_json(directory / "source-review.pending.json", review)
         write_json(directory / "status.json", {
             "corpus_version": V5_VERSION,
-            "status": "BLOCKED_SOURCE_APPROVAL",
-            "approved_sources": len(approved_entries(review)),
+            "status": status,
+            "approved_sources": approved,
             "pending_sources": [entry["v4_source"]["source_id"] for entry in pending_entries(review)],
             "target_effective_train_tokens": V5_TARGET,
             "updated_steps": V5_UPDATES,
             "formal_freeze": "NOT_RUN",
             "gpu_training": "NOT_RUN",
-            "next": "A human must approve every source and the versioned 10M budget, then run build with the approval file.",
+            "next": ("Run build with the approved source-approval evidence; formal freeze and GPU training remain not run."
+                     if ready else
+                     "A human must approve every source and the versioned 10M budget, then run build with the approval file."),
         })
         write_json(directory / "manifest.json", {"schema_version": 1,
                    "files": {path.name: file_info(path) for path in sorted(directory.glob("*.json"))}})
-    log("[v5 prepare] BLOCKED_SOURCE_APPROVAL (no source is admitted by this step)")
+    log(f"[v5 prepare] {status} ({approved}/{total} sources approved)")
     return request
 
 

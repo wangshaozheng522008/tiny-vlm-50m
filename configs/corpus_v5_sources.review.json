@@ -19,11 +19,11 @@
           "verification": "Text licence reference; attribution and ShareAlike obligations apply."
         }
       ],
-      "commercial_use": "PENDING",
-      "redistribution": "PENDING",
+      "commercial_use": "NOT_APPROVED",
+      "redistribution": "NOT_APPROVED",
       "limitations": [
-        "No source-level human approval for corpus v5; public availability and project licence are insufficient.",
-        "Pin release, attribution, ShareAlike/portrait exceptions and redistribution obligations before admission."
+        "Approved only for the pinned V5 internal research scope; commercial use, external redistribution and public weight release are not approved.",
+        "Attribution/ShareAlike and other licence obligations remain in force; this is not a blanket legal clearance."
       ],
       "local_inventory": {
         "raw_sha256": "46f63cef5be5cd3c0eaa14c268169b78046c93b2e4b4413bb3432904021dae58",
@@ -48,10 +48,10 @@
         "source_name": "Chinese Wikipedia full pages-articles release",
         "source_uri": "https://zh.wikipedia.org/",
         "license": "CC-BY-SA-4.0",
-        "license_status": "REVIEW_REQUIRED",
-        "license_evidence": "",
-        "license_reviewer": "",
-        "license_reviewed_at": "",
+        "license_status": "APPROVED",
+        "license_evidence": "Human approval recorded in session 2026-11-26 for the pinned V5 internal-research scope; approval evidence is bound to source-approval.json.",
+        "license_reviewer": "wangshaozheng",
+        "license_reviewed_at": "2026-11-26",
         "category": "zh_encyclopedic",
         "language": "zh",
         "provenance_status": "VERIFIED",
@@ -75,10 +75,33 @@
         ],
         "notes": "Full 20261101 dump. Prior 1M/2M approvals covered only fixed samples; v5 expands to the full release and needs a fresh decision."
       },
-      "model_training": "PENDING",
-      "license_obligations": "PENDING",
-      "corpus_versions": [],
-      "upstream_snapshot_uri": "https://dumps.wikimedia.org/zhwiki/20261101/"
+      "model_training": "APPROVED_INTERNAL_RESEARCH_ONLY",
+      "license_obligations": "ATTRIBUTION_AND_SHAREALIKE_ACCEPTED",
+      "corpus_versions": [
+        "minillm-corpus-v5-language-10m-v1"
+      ],
+      "upstream_snapshot_uri": "https://dumps.wikimedia.org/zhwiki/20261101/",
+      "training_scope": {
+        "corpus_version": "minillm-corpus-v5-language-10m-v1",
+        "base_content_id": "7222651ef09e4e09c2d613474f50712e8233d1d4ff9017bda897e597ebdb6da5",
+        "effective_train_tokens": 10000848,
+        "category_token_ratios": {
+          "zh_general": 0.45,
+          "zh_encyclopedic": 0.3,
+          "zh_education": 0.15,
+          "en_general": 0.1,
+          "math_logic_code": 0.0
+        },
+        "decision": "APPROVED",
+        "public_weight_release": false,
+        "commercial_use": false,
+        "redistribution": false,
+        "model_training": true,
+        "reviewer": "wangshaozheng",
+        "reviewed_at": "2026-11-26",
+        "confirmation": "Confirmed in session on 2026-11-26: all six sources are approved for internal research training only; no commercial use, no external redistribution, no public weight release; attribution and ShareAlike/other licence obligations accepted; budget 10,000,848 at 45/30/15/10/0."
+      },
+      "notes": "V5 internal-research approval recorded 2026-11-26."
     },
     {
       "publisher": "Wikimedia contributors; individual copyright holders vary",
@@ -97,11 +120,11 @@
           "verification": "Wikinews text licence reference; attribution required."
         }
       ],
-      "commercial_use": "PENDING",
-      "redistribution": "PENDING",
+      "commercial_use": "NOT_APPROVED",
+      "redistribution": "NOT_APPROVED",
       "limitations": [
-        "No source-level human approval for corpus v5; public availability and project licence are insufficient.",
-        "Pin release, attribution, ShareAlike/portrait exceptions and redistribution obligations before admission."
+        "Approved only for the pinned V5 internal research scope; commercial use, external redistribution and public weight release are not approved.",
+        "Attribution/ShareAlike and other licence obligations remain in force; this is not a blanket legal clearance."
       ],
       "local_inventory": {
         "raw_sha256": "7c6c1a4c3c54f5a157a9be1c25bbaa76994e14f678b33d1d9d38a8d390d70671",
@@ -126,10 +149,10 @@
         "source_name": "Chinese Wikinews pages-articles release",
         "source_uri": "https://zh.wikinews.org/",
         "license": "CC-BY-2.5",
-        "license_status": "REVIEW_REQUIRED",
-        "license_evidence": "",
-        "license_reviewer": "",
-        "license_reviewed_at": "",
+        "license_status": "APPROVED",
+        "license_evidence": "Human approval recorded in session 2026-11-26 for the pinned V5 internal-research scope; approval evidence is bound to source-approval.json.",
+        "license_reviewer": "wangshaozheng",
+        "license_reviewed_at": "2026-11-26",
         "category": "zh_general",
         "language": "zh",
         "provenance_status": "VERIFIED",
@@ -153,10 +176,33 @@
         ],
         "notes": "Modern news prose. Fair-use media, if present, is outside the text-only extraction; legal review still required."
       },
-      "model_training": "PENDING",
-      "license_obligations": "PENDING",
-      "corpus_versions": [],
-      "upstream_snapshot_uri": "https://dumps.wikimedia.org/zhwikinews/20261101/"
+      "model_training": "APPROVED_INTERNAL_RESEARCH_ONLY",
+      "license_obligations": "ATTRIBUTION_ACCEPTED",
+      "corpus_versions": [
+        "minillm-corpus-v5-language-10m-v1"
+      ],
+      "upstream_snapshot_uri": "https://dumps.wikimedia.org/zhwikinews/20261101/",
+      "training_scope": {
+        "corpus_version": "minillm-corpus-v5-language-10m-v1",
+        "base_content_id": "7222651ef09e4e09c2d613474f50712e8233d1d4ff9017bda897e597ebdb6da5",
+        "effective_train_tokens": 10000848,
+        "category_token_ratios": {
+          "zh_general": 0.45,
+          "zh_encyclopedic": 0.3,
+          "zh_education": 0.15,
+          "en_general": 0.1,
+          "math_logic_code": 0.0
+        },
+        "decision": "APPROVED",
+        "public_weight_release": false,
+        "commercial_use": false,
+        "redistribution": false,
+        "model_training": true,
+        "reviewer": "wangshaozheng",
+        "reviewed_at": "2026-11-26",
+        "confirmation": "Confirmed in session on 2026-11-26: all six sources are approved for internal research training only; no commercial use, no external redistribution, no public weight release; attribution and other licence obligations accepted; budget 10,000,848 at 45/30/15/10/0."
+      },
+      "notes": "V5 internal-research approval recorded 2026-11-26."
     },
     {
       "publisher": "Wikimedia contributors; individual copyright holders vary",
@@ -175,11 +221,11 @@
           "verification": "Text licence reference; attribution and ShareAlike obligations apply."
         }
       ],
-      "commercial_use": "PENDING",
-      "redistribution": "PENDING",
+      "commercial_use": "NOT_APPROVED",
+      "redistribution": "NOT_APPROVED",
       "limitations": [
-        "No source-level human approval for corpus v5; public availability and project licence are insufficient.",
-        "Pin release, attribution, ShareAlike/portrait exceptions and redistribution obligations before admission."
+        "Approved only for the pinned V5 internal research scope; commercial use, external redistribution and public weight release are not approved.",
+        "Attribution/ShareAlike and other licence obligations remain in force; this is not a blanket legal clearance."
       ],
       "local_inventory": {
         "raw_sha256": "ead0492ed5a293f1258280a12452c9d5b80dd68781f0a5f6271c85aa36f164ef",
@@ -204,10 +250,10 @@
         "source_name": "Chinese Wikivoyage pages-articles release",
         "source_uri": "https://zh.wikivoyage.org/",
         "license": "CC-BY-SA-4.0",
-        "license_status": "REVIEW_REQUIRED",
-        "license_evidence": "",
-        "license_reviewer": "",
-        "license_reviewed_at": "",
+        "license_status": "APPROVED",
+        "license_evidence": "Human approval recorded in session 2026-11-26 for the pinned V5 internal-research scope; approval evidence is bound to source-approval.json.",
+        "license_reviewer": "wangshaozheng",
+        "license_reviewed_at": "2026-11-26",
         "category": "zh_general",
         "language": "zh",
         "provenance_status": "VERIFIED",
@@ -231,10 +277,33 @@
         ],
         "notes": "Modern travel/life description and practical knowledge. Some pages are lists or templates and may fail quality gates."
       },
-      "model_training": "PENDING",
-      "license_obligations": "PENDING",
-      "corpus_versions": [],
-      "upstream_snapshot_uri": "https://dumps.wikimedia.org/zhwikivoyage/20261101/"
+      "model_training": "APPROVED_INTERNAL_RESEARCH_ONLY",
+      "license_obligations": "ATTRIBUTION_AND_SHAREALIKE_ACCEPTED",
+      "corpus_versions": [
+        "minillm-corpus-v5-language-10m-v1"
+      ],
+      "upstream_snapshot_uri": "https://dumps.wikimedia.org/zhwikivoyage/20261101/",
+      "training_scope": {
+        "corpus_version": "minillm-corpus-v5-language-10m-v1",
+        "base_content_id": "7222651ef09e4e09c2d613474f50712e8233d1d4ff9017bda897e597ebdb6da5",
+        "effective_train_tokens": 10000848,
+        "category_token_ratios": {
+          "zh_general": 0.45,
+          "zh_encyclopedic": 0.3,
+          "zh_education": 0.15,
+          "en_general": 0.1,
+          "math_logic_code": 0.0
+        },
+        "decision": "APPROVED",
+        "public_weight_release": false,
+        "commercial_use": false,
+        "redistribution": false,
+        "model_training": true,
+        "reviewer": "wangshaozheng",
+        "reviewed_at": "2026-11-26",
+        "confirmation": "Confirmed in session on 2026-11-26: all six sources are approved for internal research training only; no commercial use, no external redistribution, no public weight release; attribution and ShareAlike/other licence obligations accepted; budget 10,000,848 at 45/30/15/10/0."
+      },
+      "notes": "V5 internal-research approval recorded 2026-11-26."
     },
     {
       "publisher": "Wikimedia contributors; individual copyright holders vary",
@@ -253,11 +322,11 @@
           "verification": "Text licence reference; attribution and ShareAlike obligations apply."
         }
       ],
-      "commercial_use": "PENDING",
-      "redistribution": "PENDING",
+      "commercial_use": "NOT_APPROVED",
+      "redistribution": "NOT_APPROVED",
       "limitations": [
-        "No source-level human approval for corpus v5; public availability and project licence are insufficient.",
-        "Pin release, attribution, ShareAlike/portrait exceptions and redistribution obligations before admission."
+        "Approved only for the pinned V5 internal research scope; commercial use, external redistribution and public weight release are not approved.",
+        "Attribution/ShareAlike and other licence obligations remain in force; this is not a blanket legal clearance."
       ],
       "local_inventory": {
         "raw_sha256": "492c9fff68fa854fbbbf5470e45c0985b769ef5b4f2adc8e40257b7050ac5849",
@@ -282,10 +351,10 @@
         "source_name": "Chinese Wikibooks pages-articles release",
         "source_uri": "https://zh.wikibooks.org/",
         "license": "CC-BY-SA-4.0",
-        "license_status": "REVIEW_REQUIRED",
-        "license_evidence": "",
-        "license_reviewer": "",
-        "license_reviewed_at": "",
+        "license_status": "APPROVED",
+        "license_evidence": "Human approval recorded in session 2026-11-26 for the pinned V5 internal-research scope; approval evidence is bound to source-approval.json.",
+        "license_reviewer": "wangshaozheng",
+        "license_reviewed_at": "2026-11-26",
         "category": "zh_education",
         "language": "zh",
         "provenance_status": "VERIFIED",
@@ -309,10 +378,33 @@
         ],
         "notes": "Educational prose. Prior 1M/2M approvals covered only a fixed sample; full release needs a fresh decision."
       },
-      "model_training": "PENDING",
-      "license_obligations": "PENDING",
-      "corpus_versions": [],
-      "upstream_snapshot_uri": "https://dumps.wikimedia.org/zhwikibooks/20261101/"
+      "model_training": "APPROVED_INTERNAL_RESEARCH_ONLY",
+      "license_obligations": "ATTRIBUTION_AND_SHAREALIKE_ACCEPTED",
+      "corpus_versions": [
+        "minillm-corpus-v5-language-10m-v1"
+      ],
+      "upstream_snapshot_uri": "https://dumps.wikimedia.org/zhwikibooks/20261101/",
+      "training_scope": {
+        "corpus_version": "minillm-corpus-v5-language-10m-v1",
+        "base_content_id": "7222651ef09e4e09c2d613474f50712e8233d1d4ff9017bda897e597ebdb6da5",
+        "effective_train_tokens": 10000848,
+        "category_token_ratios": {
+          "zh_general": 0.45,
+          "zh_encyclopedic": 0.3,
+          "zh_education": 0.15,
+          "en_general": 0.1,
+          "math_logic_code": 0.0
+        },
+        "decision": "APPROVED",
+        "public_weight_release": false,
+        "commercial_use": false,
+        "redistribution": false,
+        "model_training": true,
+        "reviewer": "wangshaozheng",
+        "reviewed_at": "2026-11-26",
+        "confirmation": "Confirmed in session on 2026-11-26: all six sources are approved for internal research training only; no commercial use, no external redistribution, no public weight release; attribution and ShareAlike/other licence obligations accepted; budget 10,000,848 at 45/30/15/10/0."
+      },
+      "notes": "V5 internal-research approval recorded 2026-11-26."
     },
     {
       "publisher": "Wikimedia contributors; individual copyright holders vary",
@@ -331,11 +423,11 @@
           "verification": "Text licence reference; attribution and ShareAlike obligations apply."
         }
       ],
-      "commercial_use": "PENDING",
-      "redistribution": "PENDING",
+      "commercial_use": "NOT_APPROVED",
+      "redistribution": "NOT_APPROVED",
       "limitations": [
-        "No source-level human approval for corpus v5; public availability and project licence are insufficient.",
-        "Pin release, attribution, ShareAlike/portrait exceptions and redistribution obligations before admission."
+        "Approved only for the pinned V5 internal research scope; commercial use, external redistribution and public weight release are not approved.",
+        "Attribution/ShareAlike and other licence obligations remain in force; this is not a blanket legal clearance."
       ],
       "local_inventory": {
         "raw_sha256": "88cc63bdf03a49e13b63f7e121cb216d538f3919b633e10b91cf65af7f4d42b7",
@@ -360,10 +452,10 @@
         "source_name": "Chinese Wikiversity pages-articles release",
         "source_uri": "https://zh.wikiversity.org/",
         "license": "CC-BY-SA-4.0",
-        "license_status": "REVIEW_REQUIRED",
-        "license_evidence": "",
-        "license_reviewer": "",
-        "license_reviewed_at": "",
+        "license_status": "APPROVED",
+        "license_evidence": "Human approval recorded in session 2026-11-26 for the pinned V5 internal-research scope; approval evidence is bound to source-approval.json.",
+        "license_reviewer": "wangshaozheng",
+        "license_reviewed_at": "2026-11-26",
         "category": "zh_education",
         "language": "zh",
         "provenance_status": "VERIFIED",
@@ -387,10 +479,33 @@
         ],
         "notes": "Concept explanations and course material. Some pages are stubs, project pages or technical outlines."
       },
-      "model_training": "PENDING",
-      "license_obligations": "PENDING",
-      "corpus_versions": [],
-      "upstream_snapshot_uri": "https://dumps.wikimedia.org/zhwikiversity/20261101/"
+      "model_training": "APPROVED_INTERNAL_RESEARCH_ONLY",
+      "license_obligations": "ATTRIBUTION_AND_SHAREALIKE_ACCEPTED",
+      "corpus_versions": [
+        "minillm-corpus-v5-language-10m-v1"
+      ],
+      "upstream_snapshot_uri": "https://dumps.wikimedia.org/zhwikiversity/20261101/",
+      "training_scope": {
+        "corpus_version": "minillm-corpus-v5-language-10m-v1",
+        "base_content_id": "7222651ef09e4e09c2d613474f50712e8233d1d4ff9017bda897e597ebdb6da5",
+        "effective_train_tokens": 10000848,
+        "category_token_ratios": {
+          "zh_general": 0.45,
+          "zh_encyclopedic": 0.3,
+          "zh_education": 0.15,
+          "en_general": 0.1,
+          "math_logic_code": 0.0
+        },
+        "decision": "APPROVED",
+        "public_weight_release": false,
+        "commercial_use": false,
+        "redistribution": false,
+        "model_training": true,
+        "reviewer": "wangshaozheng",
+        "reviewed_at": "2026-11-26",
+        "confirmation": "Confirmed in session on 2026-11-26: all six sources are approved for internal research training only; no commercial use, no external redistribution, no public weight release; attribution and ShareAlike/other licence obligations accepted; budget 10,000,848 at 45/30/15/10/0."
+      },
+      "notes": "V5 internal-research approval recorded 2026-11-26."
     },
     {
       "publisher": "Wikimedia contributors; individual copyright holders vary",
@@ -409,11 +524,11 @@
           "verification": "Work-level review required; public-domain status varies by work and jurisdiction."
         }
       ],
-      "commercial_use": "PENDING",
-      "redistribution": "PENDING",
+      "commercial_use": "NOT_APPROVED",
+      "redistribution": "NOT_APPROVED",
       "limitations": [
-        "No source-level human approval for corpus v5; public availability and project licence are insufficient.",
-        "Pin release, attribution, ShareAlike/portrait exceptions and redistribution obligations before admission."
+        "Approved only for the pinned V5 internal research scope; commercial use, external redistribution and public weight release are not approved.",
+        "Attribution/ShareAlike and other licence obligations remain in force; this is not a blanket legal clearance."
       ],
       "local_inventory": {
         "raw_sha256": "89de7544153da2b70e931ef65cc33fc6cf1391fdf00891879504e6597ec7f623",
@@ -438,10 +553,10 @@
         "source_name": "English Wikisource pages-articles release",
         "source_uri": "https://en.wikisource.org/",
         "license": "Public-domain works plus CC-BY-SA-4.0 contributions",
-        "license_status": "REVIEW_REQUIRED",
-        "license_evidence": "",
-        "license_reviewer": "",
-        "license_reviewed_at": "",
+        "license_status": "APPROVED",
+        "license_evidence": "Human approval recorded in session 2026-11-26 for the pinned V5 internal-research scope; approval evidence is bound to source-approval.json.",
+        "license_reviewer": "wangshaozheng",
+        "license_reviewed_at": "2026-11-26",
         "category": "en_general",
         "language": "en",
         "provenance_status": "VERIFIED",
@@ -465,10 +580,33 @@
         ],
         "notes": "English narrative/literary text. Prior approvals covered only a fixed sample; v5 expansion needs a fresh decision."
       },
-      "model_training": "PENDING",
-      "license_obligations": "PENDING",
-      "corpus_versions": [],
-      "upstream_snapshot_uri": "https://dumps.wikimedia.org/enwikisource/20261101/"
+      "model_training": "APPROVED_INTERNAL_RESEARCH_ONLY",
+      "license_obligations": "PUBLIC_DOMAIN_AND_ATTRIBUTION_SHAREALIKE_ACCEPTED",
+      "corpus_versions": [
+        "minillm-corpus-v5-language-10m-v1"
+      ],
+      "upstream_snapshot_uri": "https://dumps.wikimedia.org/enwikisource/20261101/",
+      "training_scope": {
+        "corpus_version": "minillm-corpus-v5-language-10m-v1",
+        "base_content_id": "7222651ef09e4e09c2d613474f50712e8233d1d4ff9017bda897e597ebdb6da5",
+        "effective_train_tokens": 10000848,
+        "category_token_ratios": {
+          "zh_general": 0.45,
+          "zh_encyclopedic": 0.3,
+          "zh_education": 0.15,
+          "en_general": 0.1,
+          "math_logic_code": 0.0
+        },
+        "decision": "APPROVED",
+        "public_weight_release": false,
+        "commercial_use": false,
+        "redistribution": false,
+        "model_training": true,
+        "reviewer": "wangshaozheng",
+        "reviewed_at": "2026-11-26",
+        "confirmation": "Confirmed in session on 2026-11-26: all six sources are approved for internal research training only; no commercial use, no external redistribution, no public weight release; attribution and ShareAlike/other licence obligations accepted; budget 10,000,848 at 45/30/15/10/0."
+      },
+      "notes": "V5 internal-research approval recorded 2026-11-26."
     }
   ]
 }
