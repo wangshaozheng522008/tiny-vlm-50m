@@ -2,6 +2,7 @@
 
 import argparse
 import json
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import numpy as np
@@ -81,6 +82,41 @@ def _record_predictions(handle, rows, experiment):
         handle.write(json.dumps({**experiment, **row}, ensure_ascii=False, allow_nan=False) + "\n")
 
 
+def verify_historical_greedy(benchmark, historical, current, historical_manifest, config, strategy, penalty):
+    """Require the same formal generation policy, task coverage and Greedy outputs."""
+    generation = asdict(config)
+    policy = historical_manifest["comparison_policy"]
+    if (generation != historical_manifest["generation"] or generation != policy["config"]
+            or strategy != {"temperature": 0.0, "top_k": 0, "top_p": 1.0}
+            or (config.temperature, config.top_k, penalty) != (0, 0, 1)):
+        raise ValueError("historical Greedy generation configuration differs")
+    expected_ids = {task["id"] for task in benchmark}
+    def by_id(rows, scope):
+        indexed = {}
+        for row in rows:
+            task_id = row["id"]
+            if task_id in indexed:
+                raise ValueError(f"{scope} Greedy predictions duplicate task {task_id}")
+            indexed[task_id] = row
+        if indexed.keys() != expected_ids:
+            missing = sorted(expected_ids - indexed.keys())
+            extra = sorted(indexed.keys() - expected_ids)
+            raise ValueError(f"{scope} Greedy task IDs differ: missing={missing[:10]}, extra={extra[:10]}")
+        return indexed
+
+    previous, observed = by_id(historical, "historical"), by_id(current, "current")
+    fields = ("generation_mode", "text_category", "prompt_token_ids", "generation_budget", "stop_ids",
+              "generated_token_ids", "stop_reason", "stop_token_id")
+    for task_id in sorted(expected_ids):
+        for field in fields:
+            a, b = previous[task_id], observed[task_id]
+            if field not in a or field not in b or a[field] != b[field]:
+                raise ValueError(f"historical Greedy mismatch for task {task_id}: {field}")
+    return {"status": "PASS", "matched_tasks": len(expected_ids), "compared_fields": list(fields),
+            "generation": generation, "sampling": {**strategy, "repetition_penalty": penalty},
+            "historical_predictions": historical_manifest["files"]["predictions.jsonl"]}
+
+
 def _tokenizer_validation(tokenizer, documents):
     examples = [
         ("zh", "我把杯子放在桌上，等水凉一点再喝。"),
@@ -112,6 +148,7 @@ def run_pilot_diagnostics(out, dataset, run, workspace, historical, device, benc
     assets = {"step0": initial, "step123": fp32, "int4": int4, "tokenizer": tokenizer_path,
               "state": run / "state.pt", "frozen_dataset": dataset / "dataset-manifest.json",
               "pilot_plan": workspace / "pilot-plan.json", "historical_evaluation": historical / "evaluation-manifest.json",
+              "historical_predictions": historical / "predictions.jsonl",
               "benchmark": PROJECT_ROOT / BENCHMARK, "continuations": CONTINUATIONS,
               "diagnostic_probes": PROBES, "formal_config": FORMAL_CONFIG}
     with report_directory(out) as directory:
@@ -120,9 +157,10 @@ def run_pilot_diagnostics(out, dataset, run, workspace, historical, device, benc
         frozen = verify_frozen(dataset)
         state, _, data, windows = replay_trained_windows(
             dataset, run, read_json(run / "train-summary.json"), frozen["content_id"])
-        checkpoint_records = verified_evaluation(historical)[0]
+        checkpoint_records, historical_manifest = verified_evaluation(historical)
         if (checkpoint_records["checkpoint"]["sha256"] != inputs["step123"]["sha256"]
                 or checkpoint_records["dataset"]["dataset_content_id"] != frozen["content_id"]
+                or historical_manifest["comparison_policy"]["benchmark_sha256"] != inputs["benchmark"]["sha256"]
                 or read_json(assets["pilot_plan"])["initial_checkpoint"] != inputs["step0"]
                 or state["global_step"] != 123):
             raise ValueError("historical evaluation, workspace and frozen corpus do not identify this Pilot")
@@ -169,7 +207,9 @@ def run_pilot_diagnostics(out, dataset, run, workspace, historical, device, benc
         software = verify_training_fixture()
         print("Running Step 0, Step 123 and INT4 inference", flush=True)
         inference, logits_by_model, sweep_results, full_results = {}, {}, [], []
-        real_eos_prompt = next((row["prompt_token_ids"] for row in records(historical / "predictions.jsonl")
+        historical_predictions = list(records(assets["historical_predictions"]))
+        historical_benchmark = [row for row in historical_predictions if row["kind"] == "benchmark"]
+        real_eos_prompt = next((row["prompt_token_ids"] for row in historical_predictions
                                 if row.get("stop_reason") == "eos"), None)
         for name in ("step0", "step123", "int4"):
             model, payload = load_evaluation_model(assets[name], tokenizer, device)
@@ -211,14 +251,17 @@ def run_pilot_diagnostics(out, dataset, run, workspace, historical, device, benc
                 chosen = choose_sampling_strategy(model_rows)
                 print(f"Full 300-task raw benchmark: greedy and {chosen} (seeds {SEEDS})", flush=True)
                 with (directory / "full-language-predictions.jsonl").open("w", encoding="utf-8") as handle:
-                    for strategy, seeds in (("greedy", (SEEDS[0],)), (chosen, SEEDS)):
+                    for strategy, seeds in (("greedy", (config.seed,)), (chosen, SEEDS)):
                         for seed in seeds:
                             experiment = {"strategy": strategy, "seed": seed, "parameters": STRATEGIES[strategy],
                                           "repetition_penalty": 1.0}
-                            predictions = batch_generations(
-                                model, tokenizer, benchmark,
-                                EvaluationConfig(**(read_json(FORMAL_CONFIG) | {"seed": seed})),
-                                STRATEGIES[strategy], 1.0, batch_size=benchmark_batch_size, scored=True)
+                            generation = replace(config, seed=seed)
+                            predictions = batch_generations(model, tokenizer, benchmark, generation, STRATEGIES[strategy],
+                                                            1.0, batch_size=benchmark_batch_size, scored=True)
+                            if strategy == "greedy":
+                                gate = verify_historical_greedy(benchmark, historical_benchmark, predictions,
+                                                                historical_manifest, generation, STRATEGIES[strategy], 1.0)
+                                write_json(directory / "historical-greedy-check.json", gate)
                             _record_predictions(handle, predictions, experiment)
                             full_results.append({**experiment, **generation_metrics(predictions)})
             del model

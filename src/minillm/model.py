@@ -80,12 +80,12 @@ def rotate_half(x: torch.Tensor) -> torch.Tensor:
 def apply_rope(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
     """Rotate (b, heads, t, head_dim) queries/keys by their absolute position.
 
-    cos/sin are (t, head_dim); the rotation is applied in fp32 and cast back so
-    fp16/bf16 autocast does not lose angle precision.
+    cos/sin are (t, head_dim) for shared positions or (b, t, head_dim) for
+    per-row positions. Apply the rotation in fp32 and cast back afterwards.
     """
     dtype = x.dtype
     x32 = x.float()
-    out = x32 * cos[None, None] + rotate_half(x32) * sin[None, None]
+    out = x32 * cos.unsqueeze(-3) + rotate_half(x32) * sin.unsqueeze(-3)
     return out.to(dtype)
 
 
@@ -329,8 +329,14 @@ class MiniLLM(nn.Module):
             )
 
         x = self.embed_tokens(input_ids)
-        cos = self.rope_cos[offset : offset + t]
-        sin = self.rope_sin[offset : offset + t]
+        if attention_mask is None:
+            cos = self.rope_cos[offset : offset + t]
+            sin = self.rope_sin[offset : offset + t]
+        else:
+            # Cache indices remain physical. Rotary positions count only visible
+            # tokens, including visible cached keys preceding the current chunk.
+            positions = (attention_mask.bool().cumsum(dim=1)[:, past_len:] - 1).clamp_min_(0)
+            cos, sin = self.rope_cos[positions], self.rope_sin[positions]
         mask = self._build_mask(t, past_len, attention_mask, input_ids.device)
 
         new_cache: list[tuple[torch.Tensor, torch.Tensor]] | None = [] if use_cache else None
@@ -397,6 +403,9 @@ class MiniLLM(nn.Module):
         With `use_cache=True` the prompt is prefilled once and each step only
         runs a single token through the decoder; with `use_cache=False` the whole
         prefix is recomputed every step (kept for equivalence tests).
+
+        Both left and right padding are supported with an attention mask. RoPE
+        uses visible-token positions; the context limit counts physical slots.
 
         `stop_token_ids` extends the stop set: generation stops as soon as any
         of those ids (or `eos_token_id`, when given) is sampled. Rows that have

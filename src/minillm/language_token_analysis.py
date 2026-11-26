@@ -3,6 +3,7 @@
 import math
 import unicodedata
 from collections import Counter
+from fractions import Fraction
 from itertools import islice
 from pathlib import Path
 
@@ -141,8 +142,19 @@ def expansion_budget(order, ratios, seq_len, *, batch_size, grad_accum, seed, to
     The whole-document/seeded-prefix release must be rebuilt and audited
     separately. A supply ceiling alone cannot qualify an extension run.
     """
-    raw = Counter()
-    groups = {c: [] for c in V4_CATEGORIES if ratios[c] > 0}
+    if ratios.keys() != set(V4_CATEGORIES):
+        raise ValueError("expansion ratios must name every v4 category")
+    exact = {category: Fraction(str(value)) for category, value in ratios.items()}
+    total_ratio = sum(exact.values())
+    allowed_deviation = Fraction(str(tolerance))
+    if (any(value < 0 for value in exact.values()) or abs(total_ratio - 1) > Fraction("0.000001")
+            or not 0 <= allowed_deviation <= 1):
+        raise ValueError("expansion ratios must sum to one and tolerance must be in [0, 1]")
+    # Honor the existing sum tolerance for floating-point input while keeping
+    # the normalized shares exact for all quota and capacity calculations.
+    active = {c: exact[c] / total_ratio for c in V4_CATEGORIES if exact[c] > 0}
+    raw = Counter(dict.fromkeys(V4_CATEGORIES, 0))
+    groups = {c: [] for c in active}
     for row in order:
         category = row["category"]
         raw[category] += row["tokens"]
@@ -154,20 +166,24 @@ def expansion_budget(order, ratios, seq_len, *, batch_size, grad_accum, seed, to
     # boundary positions depend on block placement, hence the separate raw bound.
     packed = supervision_by_category(
         ((c, raw[c]) for c in groups if raw[c]), seq_len)
-    active = {c: round(ratio * 100) for c, ratio in ratios.items() if ratio > 0}
-    effective_limits = {c: packed["by_category"][c] * 100 // percent for c, percent in active.items()}
-    raw_limits = {c: raw[c] * 100 // percent for c, percent in active.items()}
+    effective_limits = {c: packed["by_category"][c] // share for c, share in active.items()}
+    raw_limits = {c: raw[c] // share for c, share in active.items()}
     limiting = min(effective_limits, key=effective_limits.get)
     update_tokens = batch_size * grad_accum * (seq_len - 1)
     absolute_ceiling = min(raw_limits.values())
+    exact_ratio_multiple = math.lcm(*(share.denominator for share in active.values()))
+    strict_update_multiple = math.lcm(exact_ratio_multiple, update_tokens)
+
+    def within_tolerance(category, count, total):
+        return abs(Fraction(count, total) - active[category]) <= allowed_deviation
 
     def structural_preview(full_updates):
         required = full_updates * update_tokens
         planned_windows = full_updates * batch_size * grad_accum
-        targets = {c: (required * percent + 99) // 100 for c, percent in active.items()}
+        targets = {c: math.ceil(required * share) for c, share in active.items()}
         selected, cursor = [], 0
         for i, (category, rows) in enumerate(groups.items()):
-            start = cursor - math.ceil(cursor / seq_len)
+            start = cursor - (cursor + seq_len - 1) // seq_len
             last_category = i == len(groups) - 1
             for row in rows:
                 cursor += row["tokens"]
@@ -175,13 +191,13 @@ def expansion_budget(order, ratios, seq_len, *, batch_size, grad_accum, seed, to
                 end = ((cursor - 1) // seq_len) * seq_len if last_category else cursor
                 if last_category and end < planned_windows * seq_len:
                     continue
-                category_targets = end - math.ceil(end / seq_len) - start
+                category_targets = end - (end + seq_len - 1) // seq_len - start
                 if category_targets >= targets[category]:
                     break
         packing = supervision_by_category(((r["category"], r["tokens"]) for r in selected), seq_len)
         frozen_counts = packing["by_category"]
         release_feasible = packing["windows"] >= planned_windows and all(
-            frozen_counts[c] >= targets[c] and abs(frozen_counts[c] / packing["effective_tokens"] - ratios[c]) <= tolerance
+            frozen_counts[c] >= targets[c] and within_tolerance(c, frozen_counts[c], packing["effective_tokens"])
             for c in active)
         sampled = None
         if release_feasible:
@@ -189,7 +205,7 @@ def expansion_budget(order, ratios, seq_len, *, batch_size, grad_accum, seed, to
             windows = [window for batch in islice(sampler.batches(0), full_updates * grad_accum) for window in batch]
             sampled = category_consumption(selected, seq_len, windows)
             release_feasible = len(windows) == planned_windows and all(
-                abs(sampled["categories"][c]["consumed_share"] - ratios[c]) <= tolerance for c in active)
+                within_tolerance(c, sampled["categories"][c]["consumed_effective_tokens"], required) for c in active)
         return {"status": "STRUCTURALLY_FEASIBLE_PENDING_APPROVAL" if release_feasible else "PACKING_INFEASIBLE",
                 "updates": full_updates, "planned_effective_tokens": required, "target_by_category": targets,
                 "frozen_candidate": packing,
@@ -206,7 +222,7 @@ def expansion_budget(order, ratios, seq_len, *, batch_size, grad_accum, seed, to
             break
     requests = {}
     for budget in (2_000_000, 4_000_000):
-        full_updates = math.ceil(budget / update_tokens)
+        full_updates = (budget + update_tokens - 1) // update_tokens
         required = full_updates * update_tokens
         preview = structural_preview(full_updates)
         counts = preview["target_by_category"]
@@ -216,11 +232,20 @@ def expansion_budget(order, ratios, seq_len, *, batch_size, grad_accum, seed, to
                                  "preview": preview,
                                  "approval": "PENDING_NEW_HUMAN_SCOPE_APPROVAL", "updates_run": 0}
     return {"allocation": ratios, "frozen_release_share_tolerance": tolerance,
+            "exact_allocation": {c: str(active.get(c, 0)) for c in V4_CATEGORIES},
             "raw_by_category": dict(raw), "supervised_in_full_category_block_pack": packed["by_category"],
             "limiting_category": limiting, "measured_supply_ceiling": effective_limits[limiting],
             "measured_supply_ceiling_aligned_to_full_updates": effective_limits[limiting] // update_tokens * update_tokens,
             "absolute_raw_supply_upper_bound": absolute_ceiling,
+            "strict_exact_ratio_bounds": {
+                "raw_supply_upper_bound": absolute_ceiling,
+                "category_block_supervision_upper_bound": effective_limits[limiting],
+                "minimum_integral_ratio_tokens": exact_ratio_multiple,
+                "minimum_integral_ratio_full_update_tokens": strict_update_multiple,
+                "full_update_raw_upper_bound": absolute_ceiling // strict_update_multiple * strict_update_multiple,
+                "scope": "arithmetic bounds; feasibility requires whole-document selection and sampler replay"},
             "max_feasible_seeded_full_update_preview": maximum,
+            "tolerance_preview_policy": "retain nominal per-category frozen quotas and check both frozen and sampled shares against tolerance",
             "selection_policy": "whole-document category prefixes ordered by SHA256(seed, document ID)",
             "selection_and_sampler_seed": seed,
             "requests": requests, "status": "NOT_RUN",

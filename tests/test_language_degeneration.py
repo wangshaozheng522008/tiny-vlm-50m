@@ -2,6 +2,7 @@
 
 import json
 import math
+from dataclasses import asdict, replace
 
 import numpy as np
 import pytest
@@ -10,9 +11,11 @@ from torch.nn import functional as F
 
 from minillm.checkpoint import CheckpointError
 from minillm.data import PackedPretrainDataset
+from minillm.evaluation import EvaluationConfig
 from minillm.evaluation_contamination import contamination_audit
 from minillm.evaluation_windows import evaluate_indexed_windows, representative_windows
 from minillm.language_correctness import verify_training_fixture
+from minillm.language_diagnostics import verify_historical_greedy
 from minillm.language_memorization import original_corpus, run_memorization
 from minillm.language_token_analysis import expansion_budget
 from minillm.model import MiniLLM
@@ -81,6 +84,64 @@ def test_masked_prompt_keys_remain_hidden_during_cached_and_uncached_decode(nano
                for prompt in (inputs, changed) for cache in (True, False)]
     assert all(torch.equal(outputs[0], row) for row in outputs[1:])
     assert outputs[0][0] == initial.logits[0, 2].argmax()
+
+
+@pytest.mark.parametrize("use_cache", [True, False])
+def test_padding_keeps_every_generation_step_at_the_same_rotary_position(nano_cfg, monkeypatch, use_cache):
+    torch.manual_seed(42)
+    model = MiniLLM(nano_cfg).eval()
+    captured = []
+    def greedy(logits, temperature, top_k, generator):
+        captured.append(logits.clone())
+        return logits.argmax(dim=-1, keepdim=True)
+    monkeypatch.setattr(model, "_sample", greedy)
+
+    def decode(ids, mask=None):
+        captured.clear()
+        result = model.generate(torch.tensor(ids), attention_mask=None if mask is None else torch.tensor(mask),
+                                max_new_tokens=5, use_cache=use_cache)
+        return result[:, len(ids[0]):], torch.stack(captured)
+
+    first, first_logits = decode([[11, 13, 17]])
+    second, second_logits = decode([[19, 23]])
+    expected = torch.cat([first, second])
+    expected_logits = torch.cat([first_logits, second_logits], dim=1)
+    for ids, masks in (([[0, 0, 11, 13, 17], [0, 0, 0, 19, 23]], [[0, 0, 1, 1, 1], [0, 0, 0, 1, 1]]),
+                       ([[11, 13, 17, 0, 0], [19, 23, 0, 0, 0]], [[1, 1, 1, 0, 0], [1, 1, 0, 0, 0]])):
+        padded, padded_logits = decode(ids, masks)
+        torch.testing.assert_close(padded_logits, expected_logits, atol=1e-6, rtol=1e-5)
+        assert torch.equal(padded, expected)
+
+
+@pytest.mark.parametrize("change", [None, "id", "duplicate", "generated_token_ids", "stop_reason",
+                                    "stop_token_id", "generation_budget", "seed", "top_p", "penalty"])
+def test_historical_greedy_gate_requires_identical_tasks_policy_and_stops(change):
+    config = EvaluationConfig()
+    manifest = {"generation": asdict(config), "comparison_policy": {"config": asdict(config)},
+                "files": {"predictions.jsonl": {"sha256": "historical", "bytes": 123}}}
+    task = {"id": "first", "generation_mode": "raw", "text_category": "zh", "prompt_token_ids": [11],
+            "generation_budget": 64, "stop_ids": [2], "generated_token_ids": [13, 2],
+            "stop_reason": "eos", "stop_token_id": 2}
+    tasks = [task, {**task, "id": "second"}]
+    current = [row.copy() for row in reversed(tasks)]
+    strategy, penalty = {"temperature": 0.0, "top_k": 0, "top_p": 1.0}, 1.0
+    if change == "seed":
+        config = replace(config, seed=43)
+    elif change == "top_p":
+        strategy[change] = 0.9
+    elif change == "penalty":
+        penalty = 1.1
+    elif change == "duplicate":
+        current[1]["id"] = current[0]["id"]
+    elif change is not None:
+        current[0][change] = None if change != "id" else "unexpected"
+
+    if change is None:
+        result = verify_historical_greedy(tasks, tasks, current, manifest, config, strategy, penalty)
+        assert result["status"] == "PASS" and result["matched_tasks"] == 2
+    else:
+        with pytest.raises(ValueError, match="Greedy"):
+            verify_historical_greedy(tasks, tasks, current, manifest, config, strategy, penalty)
 
 
 def test_cross_entropy_matches_known_values_and_full_1024_window(tmp_path, nano_cfg):
@@ -176,5 +237,21 @@ def test_expansion_preview_respects_category_ceilings_and_existing_approval():
     preview = result["max_feasible_seeded_full_update_preview"]
     assert preview["planned_effective_tokens"] <= result["absolute_raw_supply_upper_bound"]
     assert preview["planned_effective_tokens"] == preview["sampled_training_mix"]["effective_tokens"]
+    assert result["strict_exact_ratio_bounds"]["full_update_raw_upper_bound"] == 140
+    assert preview["planned_effective_tokens"] == 182
     assert result["requests"]["2000000"]["preview"]["status"] == "PACKING_INFEASIBLE"
     assert not result["approved_trainable_extension_tokens"]
+
+
+def test_expansion_budget_preserves_sub_percent_ratios_and_integral_limits():
+    ratios = {"zh_general": .4525, "zh_encyclopedic": .30, "zh_education": .145,
+              "en_general": .10, "math_logic_code": .0025}
+    order = [{"document_id": category, "category": category, "tokens": 100} for category in ratios]
+    report = expansion_budget(order, ratios, 8, batch_size=1, grad_accum=2, seed=42, tolerance=0)
+    rounded = report["requests"]["2000000"]
+    assert report["exact_allocation"]["math_logic_code"] == "1/400"
+    assert report["absolute_raw_supply_upper_bound"] == 220
+    assert rounded["target_by_category"]["math_logic_code"] == (rounded["rounded_effective_tokens"] + 399) // 400
+    assert report["strict_exact_ratio_bounds"]["minimum_integral_ratio_full_update_tokens"] == 2800
+    assert report["strict_exact_ratio_bounds"]["full_update_raw_upper_bound"] == 0
+    assert report["max_feasible_seeded_full_update_preview"] is None
