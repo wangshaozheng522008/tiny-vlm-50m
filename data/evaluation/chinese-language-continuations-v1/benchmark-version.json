@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "version": "chinese-language-continuations-v1",
+  "files": {
+    "prompts.jsonl": {
+      "sha256": "58e4c767bc982a63f028571b507de80a03a895a5031778bd9bdd633ecbdfce38",
+      "records": 5
+    }
+  }
+}

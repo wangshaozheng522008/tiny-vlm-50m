@@ -36,6 +36,7 @@ def compare_evaluations(directories, out, *, allow_incomparable=False):
             old = baseline.get("candidate_likelihood", {}).get("categories", {}).get(category, {}).get("accuracy")
             candidate_changes[category] = {**value, "delta": value["accuracy"]-old if comparable and old is not None and value["accuracy"] is not None else None}
         comparisons.append({"evaluation_id":report["evaluation_id"],"checkpoint":report["checkpoint"],
+            "train_language_model":report.get("train_language_model"),
             "language_model":lm,"loss_delta":lm["loss"]-base_lm["loss"] if comparable and lm and base_lm else None,
             "scores":changes,"candidate_likelihood":candidate_changes,
             "candidate_boundary_audit":report.get("candidate_likelihood",{}).get("boundary_audit"),
@@ -51,10 +52,12 @@ def compare_evaluations(directories, out, *, allow_incomparable=False):
     with report_directory(out) as directory:
         write_json(directory/"comparison.json",result)
         lines=["# Checkpoint comparison","",f"Comparable: {comparable}","",
-               "| Checkpoint | Step | Tokens seen | Loss | PPL | Loss delta |","|---|---:|---:|---:|---:|---:|"]
+               "| Checkpoint | Step | Tokens seen | Train loss | Val loss | Val PPL | Val loss delta |",
+               "|---|---:|---:|---:|---:|---:|---:|"]
         for row in comparisons:
             checkpoint=row["checkpoint"];lm=row["language_model"] or {}
-            lines.append(f"| {html.escape(checkpoint['path'])} | {checkpoint['global_step']} | {checkpoint['tokens_seen']} | {lm.get('loss')} | {lm.get('perplexity')} | {row['loss_delta']} |")
+            train = row["train_language_model"] or {}
+            lines.append(f"| {html.escape(checkpoint['path'])} | {checkpoint['global_step']} | {checkpoint['tokens_seen']} | {train.get('loss')} | {lm.get('loss')} | {lm.get('perplexity')} | {row['loss_delta']} |")
         for mode in ("raw","chat"):
             lines.extend(["",f"## {mode} accuracy and baseline delta","","| Category | "+" | ".join(str(i+1) for i in range(len(comparisons)))+" |",
                           "|---|"+"---:|"*len(comparisons)])
