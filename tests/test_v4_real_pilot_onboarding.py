@@ -15,7 +15,7 @@ from minillm.corpus_utils import CorpusError, file_info, identity, json_bytes, w
 from minillm.corpus_v4 import CorpusV4Pipeline, build_registry, inventory, load_config, verify_frozen
 from minillm.v4_pilot_readiness import pilot_readiness
 from minillm.v4_pilot_sampling import (PILOT_VERSION, SAMPLE_FILE, SAMPLE_MANIFEST,
-                                      prepare_sample, verify_sample)
+                                      prepare_sample, reuse_verified_sample_replays, verify_sample)
 from minillm.v4_sources import load_source_review
 from minillm.wiki_dump import extract_dump
 from test_v4_source_onboarding import reviewed_fixture_entry
@@ -150,6 +150,35 @@ def test_sample_determinism_family_identity_and_duplicate_accounting(tmp_path):
     assert manifest["inputs"][str(raw)] == file_info(raw)
     with pytest.raises(CorpusError, match="already exists"):
         prepare_sample([raw], tmp_path / "first", entry=entry, seed=42, basis_points=5000)
+
+
+def test_reused_replay_rechecks_source_and_sample_hashes(tmp_path, monkeypatch):
+    from minillm import v4_pilot_sampling as sampling
+
+    raw = tmp_path / "input.jsonl"
+    _write_rows(raw, [{"id": "one", "text": "原创抽样正文"}])
+    out = tmp_path / "sample"
+    manifest = prepare_sample([raw], out, entry=_entry(raw), seed=42, basis_points=10_000)
+    original_replay = sampling._verify_reproduction
+    calls = []
+
+    def count_replay(*args):
+        calls.append(args[0])
+        original_replay(*args)
+
+    monkeypatch.setattr(sampling, "_verify_reproduction", count_replay)
+    with reuse_verified_sample_replays():
+        for _ in range(2):
+            assert verify_sample(out / SAMPLE_MANIFEST, reproduce=True) == manifest
+        assert calls == [out / SAMPLE_FILE]
+        for path in (raw, out / SAMPLE_FILE):
+            original = path.read_bytes()
+            path.write_bytes(b"x" + original[1:])
+            with pytest.raises(CorpusError, match="SHA256/size mismatch"):
+                verify_sample(out / SAMPLE_MANIFEST, reproduce=True)
+            path.write_bytes(original)
+    assert verify_sample(out / SAMPLE_MANIFEST, reproduce=True) == manifest
+    assert calls == [out / SAMPLE_FILE, out / SAMPLE_FILE]
 
 
 @pytest.mark.parametrize("problem", ["invalid-json", "empty", "source-conflict", "conflicting-id"])

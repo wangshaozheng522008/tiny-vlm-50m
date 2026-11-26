@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare, build, probe, execute or evaluate the independently approved 2M Pilot."""
+"""Prepare or run the independently approved 2M Pilot and its paired evaluation."""
 import argparse
 from pathlib import Path
 import sys
@@ -10,18 +10,37 @@ from minillm import v4_language_scaling as scaling
 from minillm.assessment_io import read_json, report_directory, write_json
 from minillm.corpus_utils import CorpusError
 from minillm.evaluation import EvaluationConfig
+from minillm.v4_pilot_sampling import reuse_verified_sample_replays
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("stage", choices=("prepare", "build", "probe", "execute", "evaluate"))
+    parser.add_argument("stage", choices=("prepare", "build", "probe", "execute", "evaluate", "run"))
     parser.add_argument("--out", type=Path, help="fresh report directory")
     parser.add_argument("--dataset", type=Path, default=scaling.OUTPUT,
                         help="independent output directory for a new 2M build plan")
     parser.add_argument("--source-registry", type=Path, help="human-reviewed 2M source registry for build")
     parser.add_argument("--contamination-decisions", type=Path, help="reviewed decisions for the fresh formal scan")
     parser.add_argument("--resume", choices=("state.pt", "state.prev.pt"), help="resume this same 245-step run")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+    with reuse_verified_sample_replays():
+        if args.stage == "run":
+            if not args.source_registry or args.out or args.resume:
+                parser.error("run requires a reviewed source registry and fresh default reports; use individual stages to resume")
+            for stage in ("build", "probe", "execute", "evaluate"):
+                print(f"[2M Pilot] {stage}", flush=True)
+                result = run_stage(argparse.Namespace(**{**vars(args), "stage": stage}), parser)
+                if result:
+                    return result
+                if stage in ("probe", "execute"):
+                    import torch
+
+                    torch.cuda.empty_cache()
+            return 0
+        return run_stage(args, parser)
+
+
+def run_stage(args, parser):
     output = args.out or scaling.REPORT / args.stage
     dataset = args.dataset.resolve()
     protected = (scaling.BASE, scaling.WORKSPACE,
