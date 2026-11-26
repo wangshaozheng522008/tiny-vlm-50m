@@ -60,13 +60,16 @@ def test_new_approval_scope_and_pinned_inventory(monkeypatch):
         "effective_train_tokens": scaling.TARGET, "reviewer": "software fixture",
         "reviewed_at": "2026-11-26", "confirmation": "software fixture only"},
         "v4_source": {"category": "zh_general", "language": "zh", "family_policy": "document",
-                      "priority": 1, "transformation_history": [], "license_status": "APPROVED",
+                      "transformation_history": [], "license_status": "APPROVED",
                       "license_reviewer": "software fixture", "license_reviewed_at": "2026-11-26"},
         "release": "software fixture", "local_inventory": {"files": {"/tmp/fixture": {"bytes": 18, "sha256": "a"*64}}}}
     scaling.validate_scope(entry)
     old = {"source_id": "fixture", "source_review": {"entry": entry}}
     monkeypatch.setattr(scaling, "base_manifest", lambda *names: {"license_sources": {"sources": [old]}})
     scaling.validate_source_set({"sources": [old]})
+    changed_priority = {**entry, "v4_source": {**entry["v4_source"], "priority": 1}}
+    with pytest.raises(CorpusError, match="split policy"):
+        scaling.validate_source_set({"sources": [{**old, "source_review": {"entry": changed_priority}}]})
     changed = {**entry, "local_inventory": {"files": {"/tmp/fixture": {"bytes": 18, "sha256": "b"*64}}}}
     with pytest.raises(CorpusError, match="snapshot"):
         scaling.validate_source_set({"sources": [{**old, "source_review": {"entry": changed}}]})

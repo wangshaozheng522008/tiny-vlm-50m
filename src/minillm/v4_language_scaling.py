@@ -78,8 +78,9 @@ def validate_source_set(registry):
         old = previous[name]
         if (entry["local_inventory"]["files"] != old["local_inventory"]["files"]
                 or entry["release"] != old["release"]
+                or entry["v4_source"].get("priority", 0) != old["v4_source"].get("priority", 0)
                 or any(entry["v4_source"][field] != old["v4_source"][field]
-                       for field in ("category", "language", "family_policy", "priority", "transformation_history"))):
+                       for field in ("category", "language", "family_policy", "transformation_history"))):
             raise CorpusError(f"2M source snapshot or split policy differs for {name}")
 
 
