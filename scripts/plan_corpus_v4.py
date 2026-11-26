@@ -85,6 +85,8 @@ def main(argv=None) -> int:
                                       , formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--config", default="configs/corpus_v4.yaml")
     parser.add_argument("--source-registry", help="local reviewed registry for this configuration")
+    parser.add_argument("--v5-approval", type=Path, help="recorded V5 source approval")
+    parser.add_argument("--v5-request", type=Path, help="request bound to the recorded V5 approval")
     parser.add_argument("--demo", action="store_true",
                         help="run the synthetic fixture demonstration and mark every artifact DEMO_ONLY")
     parser.add_argument("--out", default=None,
@@ -139,7 +141,8 @@ def main(argv=None) -> int:
     out = Path(args.out or ("reports/corpus-v4-demo" if args.demo else
                            f"artifacts/corpus/{config['corpus_version']}"))
     registry, inputs = _registry(config, args.demo)
-    pipeline = CorpusV4Pipeline(out, config, registry, inputs, demo=args.demo)
+    pipeline = CorpusV4Pipeline(out, config, registry, inputs, demo=args.demo,
+                                v5_approval=args.v5_approval, v5_request=args.v5_request)
     pipeline._assert_writable()
     write_json(out / "status-report.json", report)
 
@@ -165,9 +168,9 @@ def main(argv=None) -> int:
     pipeline.split()
     if args.tokenizer:
         pipeline.tokenize(Path(args.tokenizer))
-    elif pipeline.scaling:
+    elif pipeline.scaling or pipeline.v5:
         if args.decision or args.baseline:
-            raise CorpusError("the 2M profile uses the pinned historical tokenizer decision")
+            raise CorpusError("this profile uses the pinned historical tokenizer decision")
         pipeline.tokenize()
     else:
         pipeline.train_tokenizers()

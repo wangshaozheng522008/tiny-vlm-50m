@@ -254,7 +254,7 @@ PR #2 的游标、RNG 和严格 Resume 规则保持不变。
 （中文 80%、英文 10%、数学/逻辑/代码 10%）、13 条可解释质量规则、精确与近似去重、
 按 family/cluster 的划分、冻结评测污染审计，以及 24,576 / 32,768 Tokenizer 候选。
 设计见 [语料 v4 设计](docs/corpus-v4-design.md)，实际数量、缺口和未完成的人类审核见
-[语料 v4 结果](docs/corpus-v4-results.md)。
+[语料 v4 结果](docs/corpus-v4-results.md)。V5 千万 Token 语言语料的审批、冻结结果与实际 Sampler 预算见 [V5 语料说明](docs/v5-language-corpus-10m.md)。
 
 PR #10 的当前来源清单、只读暂存、分阶段候选评估和人工定版流程见
 [来源审核与接入](docs/corpus-v4-source-review.md)、[Tokenizer 比较](docs/tokenizer-v4-selection.md)

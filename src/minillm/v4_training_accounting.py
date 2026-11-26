@@ -12,25 +12,34 @@ from .train import _validate_progress
 from .training_manifest import dataset_identity
 
 
-def category_consumption(documents, seq_len, windows):
-    """Count document overlaps with the label interval of each sampled window."""
-    packing = supervision_by_category(
-        ((row["category"], row["tokens"]) for row in documents), seq_len)
+def window_token_counts(documents, seq_len, windows, field):
+    """Attribute distinct complete windows' supervised targets to an index field."""
     ends = [0]
     for row in documents:
         ends.append(ends[-1] + row["tokens"])
     windows = list(windows)
     if len(windows) != len(set(windows)) or any(
-            type(window) is not int or not 0 <= window < packing["windows"] for window in windows):
+            type(window) is not int or not 0 <= window < (ends[-1] - 1) // seq_len for window in windows):
         raise ValueError("sampled windows must be unique complete Train windows")
-    consumed = dict.fromkeys(packing["by_category"], 0)
+    consumed = {}
     for window in windows:
         start, end = window * seq_len + 1, (window + 1) * seq_len
         doc = bisect_right(ends, start) - 1
         while start < end:
             stop = min(ends[doc + 1], end)
-            consumed[documents[doc]["category"]] += stop - start
+            label = documents[doc][field]
+            consumed[label] = consumed.get(label, 0) + stop - start
             start, doc = stop, doc + 1
+    return consumed
+
+
+def category_consumption(documents, seq_len, windows):
+    """Count document overlaps with the label interval of each sampled window."""
+    packing = supervision_by_category(
+        ((row["category"], row["tokens"]) for row in documents), seq_len)
+    windows = list(windows)
+    counts = window_token_counts(documents, seq_len, windows, "category")
+    consumed = {category: counts.get(category, 0) for category in packing["by_category"]}
     total = len(windows) * (seq_len - 1)
     if sum(consumed.values()) != total:
         raise ValueError("sampler and category counts disagree")

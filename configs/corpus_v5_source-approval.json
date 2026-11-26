@@ -1,0 +1,87 @@
+{
+  "corpus_version": "minillm-corpus-v5-language-10m-v1",
+  "decision": "APPROVED",
+  "reviewer": "wangshaozheng",
+  "recorded_at": "2026-11-26",
+  "verbatim_human_confirmation": "User: 6个老远我都审批通过了，你帮我写上。 Confirmed choice: 确认，仅写入审批并重跑 prepare。",
+  "effective_train_tokens": 10000848,
+  "category_token_ratios": {
+    "zh_general": 0.45,
+    "zh_encyclopedic": 0.3,
+    "zh_education": 0.15,
+    "en_general": 0.1,
+    "math_logic_code": 0.0
+  },
+  "sources": [
+    {
+      "source_id": "candidate-zh-wikipedia",
+      "release": "zhwiki-20261101-pages-articles",
+      "files": {
+        "/home/voyah/work_space/git_ws/min_llm/data/raw/candidate-zh-wikipedia/zhwiki-20261101-pages.jsonl": {
+          "bytes": 2977599196,
+          "sha256": "46f63cef5be5cd3c0eaa14c268169b78046c93b2e4b4413bb3432904021dae58"
+        }
+      },
+      "decision": "APPROVED"
+    },
+    {
+      "source_id": "candidate-zh-wikinews",
+      "release": "zhwikinews-20261101-pages-articles",
+      "files": {
+        "/home/voyah/work_space/git_ws/min_llm/data/raw/candidate-zh-wikinews/zhwikinews-20261101-pages.jsonl": {
+          "bytes": 21124282,
+          "sha256": "7c6c1a4c3c54f5a157a9be1c25bbaa76994e14f678b33d1d9d38a8d390d70671"
+        }
+      },
+      "decision": "APPROVED"
+    },
+    {
+      "source_id": "candidate-zh-wikivoyage",
+      "release": "zhwikivoyage-20261101-pages-articles",
+      "files": {
+        "/home/voyah/work_space/git_ws/min_llm/data/raw/candidate-zh-wikivoyage/zhwikivoyage-20261101-pages.jsonl": {
+          "bytes": 16997337,
+          "sha256": "ead0492ed5a293f1258280a12452c9d5b80dd68781f0a5f6271c85aa36f164ef"
+        }
+      },
+      "decision": "APPROVED"
+    },
+    {
+      "source_id": "candidate-zh-wikibooks",
+      "release": "zhwikibooks-20261101-pages-articles",
+      "files": {
+        "/home/voyah/work_space/git_ws/min_llm/data/raw/candidate-zh-wikibooks/zhwikibooks-20261101-pages.jsonl": {
+          "bytes": 43106014,
+          "sha256": "492c9fff68fa854fbbbf5470e45c0985b769ef5b4f2adc8e40257b7050ac5849"
+        }
+      },
+      "decision": "APPROVED"
+    },
+    {
+      "source_id": "candidate-zh-wikiversity",
+      "release": "zhwikiversity-20261101-pages-articles",
+      "files": {
+        "/home/voyah/work_space/git_ws/min_llm/data/raw/candidate-zh-wikiversity/zhwikiversity-20261101-pages.jsonl": {
+          "bytes": 14816839,
+          "sha256": "88cc63bdf03a49e13b63f7e121cb216d538f3919b633e10b91cf65af7f4d42b7"
+        }
+      },
+      "decision": "APPROVED"
+    },
+    {
+      "source_id": "candidate-en-wikisource",
+      "release": "enwikisource-20261101-pages-articles",
+      "files": {
+        "/home/voyah/work_space/git_ws/min_llm/data/raw/candidate-en-wikisource/enwikisource-20261101-pages.jsonl": {
+          "bytes": 1998203187,
+          "sha256": "89de7544153da2b70e931ef65cc33fc6cf1391fdf00891879504e6597ec7f623"
+        }
+      },
+      "decision": "APPROVED"
+    }
+  ],
+  "approval_request": {
+    "bytes": 10723,
+    "sha256": "11b390ff14804535c574c510405675276f262f10d8041bd5d9c6fbc7f77569b3"
+  }
+}
