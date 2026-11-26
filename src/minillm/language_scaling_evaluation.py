@@ -8,22 +8,24 @@ from pathlib import Path
 
 import torch
 
-from .assessment_io import environment, publish_manifest, read_json, records, report_directory
-from .checkpoint import load_training_state
+from .assessment_io import environment, publish_manifest, read_json, records, report_directory, verified_evaluation
+from .checkpoint import CheckpointError, load_training_state
 from .corpus_budget import read_token_index
 from .corpus_utils import file_info, verify_file
 from .data import EpochBatchSampler, PackedPretrainDataset
 from .evaluation import EvaluationConfig, load_evaluation_model, load_tasks
 from .evaluation_windows import evaluate_indexed_windows, indexed_train_plan, representative_windows
-from .language_diagnostics import BENCHMARK, CONTINUATIONS, FORMAL_CONFIG, PROBES, _record_predictions
+from .language_diagnostics import (BENCHMARK, CONTINUATIONS, FORMAL_CONFIG, HISTORICAL_FINAL, PROBES,
+                                  _record_predictions, verify_historical_greedy)
 from .language_generation_analysis import (SEEDS, STRATEGIES, batch_generations, generation_metrics,
                                            quantization_comparison, trace_predictions)
 from .language_token_analysis import vocabulary
+from .pilot_lineage import _validate_v2
 from .quantize import save_quantized
 from .tokenizer import MiniLLMTokenizer
 from .train import _validate_progress, lr_at
 from .training_manifest import dataset_identity, write_json
-from .training_milestones import verify_milestone
+from .training_milestones import require_identical_weights, verify_milestone, verify_model_metadata
 from .v4_admission import validate_v4_pilot_policy
 from .v4_language_scaling import (BASE, BASE_ID, FINGERPRINT, HISTORICAL, HISTORICAL_FILE, INITIAL, INITIAL_FILE,
                                   OUTPUT, ROOT, TARGET, TRAINING_CONFIG, VERSION, base_manifest, verify_pinned_release)
@@ -33,6 +35,32 @@ BASELINE = "historical_step123"
 FINAL = "step245"
 DECODE = ("greedy", "standard_sampling", "high_temperature", "nucleus")
 HUMAN_CRITERIA = ("fluency", "semantic_coherence", "context_relevance", "fact_correctness", "meaningless_repetition")
+HISTORICAL_EVALUATION_FILES = {
+    "evaluation-manifest.json": {"bytes": 11068, "sha256": "4b37c5f95a558efdd78ba4b3007b20184f6bc210754552cc7f3204ce937a8791"},
+    "evaluation.json": {"bytes": 7374, "sha256": "5848b5375c2857ab747c0849a540a240a28432734126a07bc52b83b8ad083c08"},
+    "predictions.jsonl": {"bytes": 498274, "sha256": "783ab9e8e3d2370d3200b54e302b6a3c2aa278ec1bb9fe7289380196546859f8"},
+}
+
+
+def load_historical_greedy(directory):
+    for name, info in HISTORICAL_EVALUATION_FILES.items():
+        verify_file(directory / name, info)
+    report, manifest = verified_evaluation(directory)
+    policy = manifest["comparison_policy"]
+    if (report["checkpoint"]["sha256"] != HISTORICAL_FILE["sha256"]
+            or report["checkpoint"]["global_step"] != 123
+            or report["dataset"]["dataset_content_id"] != BASE_ID
+            or manifest["tokenizer_fingerprint"] != FINGERPRINT
+            or policy["benchmark_sha256"] != file_info(ROOT / BENCHMARK)["sha256"]):
+        raise ValueError("historical formal evaluation does not identify PR #16 Step 123")
+    predictions = [row for row in records(directory / "predictions.jsonl") if row["kind"] == "benchmark"]
+    return predictions, manifest
+
+
+def check_scaling_historical_greedy(benchmark, current, historical, manifest, config, strategy, penalty):
+    result = verify_historical_greedy(benchmark, historical, current, manifest, config, strategy, penalty)
+    return {**result, "historical_evaluation_id": manifest["evaluation_id"],
+            "historical_checkpoint": HISTORICAL_FILE, "historical_files": HISTORICAL_EVALUATION_FILES}
 
 
 def evaluation_data(config, *, original=BASE):
@@ -51,18 +79,70 @@ def evaluation_data(config, *, original=BASE):
     return data, index, plan
 
 
+def _verify_step_state(state, manifest, data, sampler, step):
+    if state["manifest"] != manifest:
+        raise CheckpointError(f"checkpoint {step}: training manifest differs")
+    _validate_progress(state, manifest, data, sampler)
+    if (state["global_step"], state["samples_seen"], state["tokens_seen"]) != (step, step * 8, step * 8184):
+        raise CheckpointError(f"checkpoint {step}: committed step, samples or supervision tokens differ")
+
+
+def _verify_pilot_model(model, state, lineage, context):
+    verify_model_metadata(model, state, context=context)
+    requests = {lineage["initial_launch"]["request_id"]} | {
+        row["request_id"] for row in lineage["resume_history"] if row["checkpoint_step"] <= state["global_step"]}
+    if (model.get("pilot_initialization") != lineage["initialization"] or model.get("pilot_request_id") not in requests
+            or model.get("seq_len") != state["manifest"]["training"]["seq_len"]):
+        raise CheckpointError(f"{context}: checkpoint initialization or pilot lineage differs")
+
+
+def _verify_final_publication(run, manifest, summary, milestone_state, data, sampler, lineage):
+    paths = {"training-manifest.json": run / "training-manifest.json", "train-summary.json": run / "train-summary.json",
+             "pilot-lineage.json": run / "pilot-lineage.json", "state.pt": run / "state.pt", "model.pt": run / "model.pt"}
+    for step in (0, 123, 245):
+        name = f"milestones/step-{step}/manifest.json"
+        paths[name] = run / name
+    for filename in ("state.pt", "model.pt"):
+        name = f"milestones/step-245/{filename}"
+        paths[name] = run / name
+    final = load_training_state(paths["state.pt"], mmap=True)
+    _verify_step_state(final, manifest, data, sampler, 245)
+    model = torch.load(paths["model.pt"], map_location="cpu", mmap=True, weights_only=False)
+    _verify_pilot_model(model, final, lineage, "published model.pt")
+    if any(summary.get(key) != model[key] for key in ("pilot_initialization", "pilot_request_id")):
+        raise CheckpointError("published model.pt departure from the train summary lineage")
+    require_identical_weights(milestone_state["model"], final["model"], "published state.pt")
+    require_identical_weights(milestone_state["model"], model["model"], "published model.pt")
+    return {"status": "PASS", "files": {name: file_info(path) for name, path in paths.items()},
+            "training_state": {key: final[key] for key in ("global_step", "samples_seen", "tokens_seen")}
+            | {"stop_reason": summary["stop_reason"], "scheduler_total_steps": manifest["training"]["scheduler_total_steps"]},
+            "run_id": manifest["run_id"], "dataset_content_id": manifest["dataset"]["train"]["dataset_content_id"],
+            "tokenizer_fingerprint": manifest["tokenizer_fingerprint"], "initialization": lineage["initialization"],
+            "model_config": manifest["model_config"],
+            "tensor_comparison": {"status": "EXACT", "tensors": len(final["model"]),
+                                  "compared_fields": ["name", "shape", "dtype", "values"]}}
+
+
 def _completed_nodes(run, dataset):
     summary = read_json(run / "train-summary.json")
     manifest = read_json(run / "training-manifest.json")
     policy = manifest["training"]
     training = read_json(TRAINING_CONFIG)
-    if (summary["global_step"], summary["tokens_seen"], summary["stop_reason"],
-            policy["scheduler_total_steps"], policy["milestone_steps"], manifest["tokenizer_fingerprint"]) != (
-            245, TARGET, "target_reached", 245, [0, 123, 245], FINGERPRINT):
+    if (summary["global_step"], summary["samples_seen"], summary["tokens_seen"], summary["stop_reason"],
+            policy["target_optimizer_updates"], policy["scheduler_total_steps"], policy["milestone_steps"],
+            manifest["tokenizer_fingerprint"]) != (245, 1960, TARGET, "target_reached", 245, 245, [0, 123, 245], FINGERPRINT):
         raise ValueError("a completed 245-step 2M training state is required")
     data = PackedPretrainDataset(dataset / "train.bin", 1024)
-    if dataset_identity(data, manifest["model_config"]["ignore_index"])[0] != manifest["dataset"]["train"]:
+    val = PackedPretrainDataset(dataset / "val.bin", 1024)
+    frozen = read_json(dataset / "dataset-manifest.json")
+    if (frozen["corpus_version"] != VERSION or frozen["content_id"] != manifest["dataset"]["train"]["dataset_content_id"]
+            or frozen["tokenizer_fingerprint"] != FINGERPRINT
+            or any(dataset_identity(split_data, manifest["model_config"]["ignore_index"])[0] != manifest["dataset"][split]
+                   for split, split_data in (("train", data), ("val", val)))):
         raise ValueError("training dataset and recorded run differ")
+    lineage = _validate_v2(read_json(run / "pilot-lineage.json"), manifest, run)
+    if lineage["initialization"] != {"sha256": INITIAL_FILE["sha256"], "kind": "weights_only"}:
+        raise ValueError("training lineage does not identify the pinned PR #16 initialization")
     sampler = EpochBatchSampler(len(data), training["batch_size"], training["seed"])
     index = read_token_index([dataset / "train.token-index.jsonl"])["records"]
     nodes, audits = {BASELINE: HISTORICAL}, {}
@@ -73,27 +153,21 @@ def _completed_nodes(run, dataset):
         directory = run / "milestones" / f"step-{step}"
         receipt = verify_milestone(directory, manifest, step=step, tokens=step * 8184)
         state = load_training_state(directory / "state.pt", mmap=True)
-        _validate_progress(state, manifest, data, sampler)
+        _verify_step_state(state, manifest, data, sampler, step)
         path = directory / "model.pt"
         model = torch.load(path, map_location="cpu", mmap=True, weights_only=False)
-        if (state["global_step"], state["samples_seen"], state["tokens_seen"],
-                model["step"], model["tokens_seen"], model["tokenizer_fingerprint"], model["config"]) != (
-                step, step * 8, step * 8184, step, step * 8184, FINGERPRINT, manifest["model_config"]):
-            raise ValueError(f"checkpoint {step} differs from its committed training state")
-        if (model["pilot_initialization"] != {"sha256": INITIAL_FILE["sha256"], "kind": "weights_only"}
-                or model["model"].keys() != state["model"].keys()
-                or any(not torch.equal(t, state["model"][name]) for name, t in model["model"].items())):
-            raise ValueError(f"checkpoint {step} has a different initialization or weights")
-        if step == 0 and (initial["model"].keys() != model["model"].keys()
-                          or any(not torch.equal(t, initial["model"][name]) for name, t in model["model"].items())):
-            raise ValueError("this run did not start from the pinned PR #16 initialization")
+        _verify_pilot_model(model, state, lineage, f"milestone {step}")
+        require_identical_weights(state["model"], model["model"], f"milestone {step}")
+        if step == 0:
+            require_identical_weights(initial["model"], model["model"], "pinned PR #16 initialization")
         windows = [window for batch in islice(sampler.batches(0), step * policy["grad_accum"]) for window in batch]
         consumption = category_consumption(index, 1024, windows)
         if consumption["effective_tokens"] != state["tokens_seen"]:
             raise ValueError("observed sampler does not reproduce the train state")
         audits[f"step{step}"] = {"checkpoint": receipt, "consumption": consumption}
         nodes[f"step{step}"] = path
-    return nodes, audits, manifest
+    final_proof = _verify_final_publication(run, manifest, summary, state, data, sampler, lineage)
+    return nodes, audits, manifest, final_proof
 
 
 def _curves(run, directory, manifest):
@@ -172,11 +246,12 @@ def evaluate_scaling(out, *, dataset=OUTPUT):
     torch.set_num_threads(1)
     device = torch.device("cuda")
     run = ROOT / read_json(TRAINING_CONFIG)["out"]
-    nodes, audits, manifest = _completed_nodes(run, dataset)
+    nodes, audits, manifest, final_proof = _completed_nodes(run, dataset)
     historical = read_json(HISTORICAL.parent / "training-manifest.json")
     if historical["dataset"]["train"]["dataset_content_id"] != BASE_ID:
         raise ValueError("historical schedule is from a different 1M run")
 
+    previous_greedy, historical_evaluation = load_historical_greedy(ROOT / HISTORICAL_FINAL)
     config = EvaluationConfig(**read_json(FORMAL_CONFIG))
     data, index, window_plan = evaluation_data(config)
     tokenizer = MiniLLMTokenizer.load(dataset / "tokenizer.json")
@@ -193,6 +268,7 @@ def evaluate_scaling(out, *, dataset=OUTPUT):
     with report_directory(out) as directory:
         write_json(directory / "common-lm-windows.json", window_plan)
         write_json(directory / "checkpoint-and-consumption.json", audits)
+        write_json(directory / "final-checkpoint-consistency.json", final_proof)
         write_json(directory / "comparison-policy.json", {
             "config": read_json(FORMAL_CONFIG), "decoding": {name: STRATEGIES[name] for name in DECODE},
             "seeds": list(SEEDS), "repetition_penalty": 1.0, "batch_size": 24,
@@ -209,11 +285,14 @@ def evaluate_scaling(out, *, dataset=OUTPUT):
         with (directory / "predictions.jsonl").open("w", encoding="utf-8") as handle:
             for name in loop:
                 path = fp4 if name == "step245_int4" else nodes[name]
+                if name == FINAL:
+                    verify_file(path, audits[FINAL]["checkpoint"]["files"]["model.pt"])
                 model, payload = load_evaluation_model(path, tokenizer, device)
                 if model.cfg.to_dict() != manifest["model_config"]:
                     raise ValueError("comparison model configuration differs")
                 step, tokens = payload["step"], payload["tokens_seen"]
                 if name == FINAL:
+                    verify_file(path, audits[FINAL]["checkpoint"]["files"]["model.pt"])
                     save_quantized(fp4, model.cpu(), bits=4, group_size=128, tokenizer_fingerprint=FINGERPRINT,
                                    metadata=payload)
                     model.to(device)
@@ -233,6 +312,10 @@ def evaluate_scaling(out, *, dataset=OUTPUT):
                         generation = replace(config, seed=seed)
                         scored = batch_generations(model, tokenizer, benchmark, generation, STRATEGIES[strategy],
                                                    1.0, batch_size=24, scored=True)
+                        if name == BASELINE and strategy == "greedy":
+                            proof = check_scaling_historical_greedy(benchmark, scored, previous_greedy,
+                                                                   historical_evaluation, generation, STRATEGIES[strategy], 1.0)
+                            write_json(directory / "historical-greedy-check.json", proof)
                         for row in scored:
                             if row["score"]["correct"] is None:
                                 row["human_review"] = {"status": "PENDING", "criteria": list(HUMAN_CRITERIA)}

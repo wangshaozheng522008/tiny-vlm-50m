@@ -7,9 +7,10 @@ from pathlib import Path
 import torch
 
 from .assessment_io import read_json, report_directory
-from .checkpoint import CheckpointError, atomic_write, load_training_state
+from .checkpoint import CheckpointError, atomic_torch_save, atomic_write, load_training_state
 from .corpus_utils import file_info, sha256, verify_file
-from .train import save_model_checkpoint
+from .pilot_lineage import unseal
+from .train import _tokens_at_cursor, _validate_progress, save_model_checkpoint
 from .training_manifest import write_json
 
 
@@ -22,6 +23,162 @@ def verify_milestone(path, manifest, *, step, tokens):
     for name in ("state.pt", "model.pt"):
         verify_file(path / name, receipt["files"][name])
     return receipt
+
+
+def require_identical_weights(expected, actual, context):
+    if not isinstance(actual, dict) or actual.keys() != expected.keys():
+        raise CheckpointError(f"{context}: tensor names/count differ")
+    for name, tensor in expected.items():
+        other = actual[name]
+        if (not isinstance(other, torch.Tensor) or tensor.shape != other.shape
+                or tensor.dtype != other.dtype or not torch.equal(tensor, other)):
+            raise CheckpointError(f"{context}: tensor {name} differs in shape, dtype or values")
+
+
+def verify_model_metadata(model, state, *, context):
+    expected = {key: state[key] for key in ("architecture", "arch_version", "config",
+                                           "tokenizer_fingerprint", "tokenizer_vocab_size")}
+    expected.update(step=state["global_step"], tokens_seen=state["tokens_seen"], mode=state["manifest"]["mode"])
+    if not isinstance(model, dict) or any(model.get(key) != value for key, value in expected.items()):
+        raise CheckpointError(f"{context}: checkpoint counters, model config or tokenizer differ")
+    if model.get("training_run_id", state["manifest"]["run_id"]) != state["manifest"]["run_id"]:
+        raise CheckpointError(f"{context}: checkpoint training run differs")
+
+
+def write_best_status(out, loss, record):
+    status = "AVAILABLE" if record else "NO_VALIDATION" if loss is None else "UNAVAILABLE"
+    write_json(out / "best-checkpoint-status.json", {"status": status, "historical_best_loss": loss,
+                                                     "checkpoint": record})
+
+
+def _best_reference(state, dataset, sampler):
+    loss = state["best_loss"]
+    recorded = state.get("best_checkpoint")
+    if recorded is None:
+        step = next((row["step"] for row in state["history"] if row["loss"] == loss), None)
+    else:
+        step = recorded.get("step") if isinstance(recorded, dict) else None
+    if type(step) is not int or not 0 <= step <= state["global_step"] or loss is None:
+        return None
+    manifest, plan = state["manifest"], state["manifest"]["training"]
+    epoch, update = divmod(step, plan["optimizer_updates_per_epoch"])
+    samples = min(update * plan["grad_accum"] * plan["batch_size"], len(dataset))
+    tokens = _tokens_at_cursor(manifest, dataset, sampler, epoch, samples)
+    reference = {"step": step, "tokens_seen": tokens, "val_loss": loss}
+    if recorded is not None and any(recorded.get(key) != value for key, value in reference.items()):
+        return None
+    return {**reference, "file": recorded.get("file") if recorded is not None else None}
+
+
+def _best_state(out, state, reference, dataset, sampler):
+    step, tokens = reference["step"], reference["tokens_seen"]
+    if step == state["global_step"]:
+        return state
+    manifest = state["manifest"]
+    milestone = out / "milestones" / f"step-{step}"
+    if milestone.is_dir():
+        verify_milestone(milestone, manifest, step=step, tokens=tokens)
+        candidates = (milestone / "state.pt",)
+    else:
+        candidates = (out / "state.pt", out / "state.prev.pt")
+    for path in candidates:
+        if not path.is_file():
+            continue
+        try:
+            candidate = load_training_state(path, mmap=True)
+            if (candidate["manifest"] == manifest and (candidate["global_step"], candidate["tokens_seen"]) == (step, tokens)
+                    and (path.parent == milestone or any(row["step"] == step and row["loss"] == reference["val_loss"]
+                                                         for row in candidate["history"]))):
+                _validate_progress(candidate, manifest, dataset, sampler)
+                return candidate
+        except CheckpointError:
+            continue
+    return None
+
+
+def reconcile_best_checkpoint(out, state, checkpoint, dataset, sampler):
+    """Reconcile the published best without altering the committed validation history."""
+    manifest = state["manifest"]
+    reference = _best_reference(state, dataset, sampler)
+    best = out / "best.pt"
+    lineage_path = out / "pilot-lineage.json"
+    lineage = unseal(read_json(lineage_path)) if lineage_path.is_file() else None
+    if lineage is not None and lineage["training_manifest"] != manifest:
+        raise CheckpointError("best checkpoint recovery lineage differs from the resumed run")
+    anchor = _best_state(out, state, reference, dataset, sampler) if reference else None
+    try:
+        published = read_json(out / "best-checkpoint-status.json")
+    except (OSError, ValueError):
+        published = None
+
+    def validated(path):
+        if reference is None or not path.is_file():
+            return None
+        info = file_info(path)
+        if reference["file"] is not None and info != reference["file"]:
+            # A prior repair can serialize the same trusted weights with a new SHA.
+            if (path != best or anchor is None or published != {"status": "AVAILABLE",
+                    "historical_best_loss": reference["val_loss"], "checkpoint": {**reference, "file": info}}):
+                return None
+        try:
+            model = torch.load(path, map_location="cpu", mmap=True, weights_only=False)
+        except Exception:
+            # torch.load can raise multiple format errors for a partial save.
+            return None
+        try:
+            verify_model_metadata(model, {**state, "global_step": reference["step"],
+                                          "tokens_seen": reference["tokens_seen"]}, context=str(path))
+            if model["val_loss"] != reference["val_loss"]:
+                return None
+            if lineage is not None:
+                request = model.get("pilot_request_id")
+                allowed = {lineage["initial_launch"]["request_id"]} | {
+                    row["request_id"] for row in lineage["resume_history"] if row["checkpoint_step"] <= reference["step"]}
+                if (model.get("pilot_initialization") != lineage["initialization"]
+                        or (request not in allowed and not (request is None and model.get("training_run_id") == manifest["run_id"]))):
+                    return None
+            if anchor is not None:
+                require_identical_weights(anchor["model"], model["model"], str(path))
+            elif reference["file"] != info and not (reference["file"] is None and lineage is not None and path == best):
+                return None
+            return {**reference, "file": info}
+        except (CheckpointError, KeyError):
+            # An unreadable inference artifact must not block an otherwise valid state recovery.
+            return None
+
+    record = validated(best)
+    if record is None and best.is_file():
+        info = file_info(best)
+        archive = out / "recovery" / f"best-step-{state['global_step']}-{info['sha256']}"
+        if not archive.exists():
+            with report_directory(archive) as directory:
+                os.link(best, directory / best.name)
+                write_json(directory / "manifest.json", {"run_id": manifest["run_id"],
+                           "checkpoint": file_info(checkpoint), "recovered_step": state["global_step"],
+                           "discarded_best": info})
+        verify_file(archive / best.name, info)
+        best.unlink()
+    if record is None and reference:
+        for path in sorted((out / "recovery").glob("best-step-*/best.pt")):
+            record = validated(path)
+            if record is not None:
+                os.link(path, best)
+                break
+        if record is None and anchor is not None:
+            payload = {key: anchor[key] for key in ("architecture", "arch_version", "config", "model",
+                                                     "tokenizer_fingerprint", "tokenizer_vocab_size")}
+            payload.update(step=reference["step"], tokens_seen=reference["tokens_seen"],
+                           val_loss=reference["val_loss"], mode=manifest["mode"], training_run_id=manifest["run_id"])
+            policy = manifest["dataset"]["train"].get("text_policy", "identity-v1")
+            if policy != "identity-v1":
+                payload["text_policy"] = policy
+            if lineage is not None:
+                payload["pilot_initialization"] = lineage["initialization"]
+                payload["seq_len"] = manifest["training"]["seq_len"]
+            atomic_torch_save(payload, best)
+            record = {**reference, "file": file_info(best)}
+    write_best_status(out, state["best_loss"], record)
+    return record or state.get("best_checkpoint")
 
 
 def save_milestone(out, model, tokenizer, manifest, *, step, tokens, extra):

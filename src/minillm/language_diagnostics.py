@@ -91,6 +91,8 @@ def verify_historical_greedy(benchmark, historical, current, historical_manifest
             or (config.temperature, config.top_k, penalty) != (0, 0, 1)):
         raise ValueError("historical Greedy generation configuration differs")
     expected_ids = {task["id"] for task in benchmark}
+    if len(expected_ids) != len(benchmark):
+        raise ValueError("formal Greedy benchmark contains duplicate task IDs")
     def by_id(rows, scope):
         indexed = {}
         for row in rows:
@@ -108,11 +110,13 @@ def verify_historical_greedy(benchmark, historical, current, historical_manifest
     fields = ("generation_mode", "text_category", "prompt_token_ids", "generation_budget", "stop_ids",
               "generated_token_ids", "stop_reason", "stop_token_id")
     for task_id in sorted(expected_ids):
+        if previous[task_id].get("generation_mode") != "raw" or observed[task_id].get("generation_mode") != "raw":
+            raise ValueError(f"historical Greedy mismatch for task {task_id}: generation_mode")
         for field in fields:
             a, b = previous[task_id], observed[task_id]
             if field not in a or field not in b or a[field] != b[field]:
                 raise ValueError(f"historical Greedy mismatch for task {task_id}: {field}")
-    return {"status": "PASS", "matched_tasks": len(expected_ids), "compared_fields": list(fields),
+    return {"status": "PASS", "matched_tasks": len(expected_ids), "compared_fields": ["id", *fields],
             "generation": generation, "sampling": {**strategy, "repetition_penalty": penalty},
             "historical_predictions": historical_manifest["files"]["predictions.jsonl"]}
 
