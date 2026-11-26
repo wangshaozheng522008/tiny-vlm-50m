@@ -72,7 +72,8 @@ def implementation_sha256() -> str:
     names = ("corpus_v4.py", "corpus.py", "corpus_quality.py", "corpus_dedup.py",
              "corpus_contamination.py", "corpus_budget.py", "tokenizer_v4.py",
              "data.py", "text_policy.py", "tokenizer.py", "v4_sources.py", "v4_tokenizer_decision.py",
-             "v4_language_pilot.py", "v4_language_scaling.py", "v4_pilot_sampling.py")
+             "v4_language_pilot.py", "v4_language_scaling.py", "v4_pilot_sampling.py",
+             "v5_language_corpus.py", "corpus_versions.py", "v4_training_accounting.py", "v4_admission.py")
     return identity({name: sha256(Path(__file__).with_name(name)) for name in names})
 
 DEFAULT_RUNTIME = {"sqlite_cache_mib": 16, "commit_every": 1000, "buffer_bytes": 1048576}
@@ -678,7 +679,7 @@ def _split_isolation_check(directory: Path, *, verified_files: dict | None = Non
 
 class CorpusV4Pipeline:
     def __init__(self, out: Path, config: dict, registry: dict, inputs: list[dict], *,
-                 demo: bool = False, log=print):
+                 demo: bool = False, log=print, v5_approval=None, v5_request=None):
         self.out = Path(out).resolve()
         self.config = config
         self.registry = registry
@@ -727,6 +728,10 @@ class CorpusV4Pipeline:
         if source_reviews:
             plan["source_review_policy"] = {"schema_version": 2, "corpus_version": config["corpus_version"],
                                              "require_complete_reviews": True}
+        if self.v5:
+            from .v5_language_corpus import formal_inputs
+
+            plan["v5_inputs"] = formal_inputs(config, registry, v5_approval, v5_request)
         plan["plan_key"] = identity(plan)
         if not demo:
             from .v4_sources import validate_source_plan
@@ -735,7 +740,7 @@ class CorpusV4Pipeline:
         owner = self.out / ".v4" / "plan.json"
         if owner.exists():
             previous = json.loads(owner.read_text(encoding="utf-8"))
-            if previous.get("plan_key") != plan["plan_key"]:
+            if previous != plan:
                 raise CorpusError("corpus v4 inputs/policies changed; select a new --out (frozen inputs are never overwritten)")
             self.plan = previous
         else:
@@ -791,6 +796,14 @@ class CorpusV4Pipeline:
         sources = {source["source_id"]: source for source in self.registry["sources"]}
         documents = 0
         records_seen = 0
+        candidate_files = []
+        candidates = {}
+        if self.v5:
+            from .v5_language_corpus import CANDIDATE_LINEAGE, CANDIDATE_REPORT, replay_formal_candidates
+
+            for candidate in replay_formal_candidates(self.out, self.plan, log=self.log):
+                candidates.setdefault(candidate["input_path"], []).append(candidate)
+            candidate_files = [self.out / name for name in (CANDIDATE_REPORT, CANDIDATE_LINEAGE)]
         with database_output(path, cache_mib=self.runtime["sqlite_cache_mib"]) as db:
             db.executescript("""
                 CREATE TABLE docs(
@@ -807,10 +820,10 @@ class CorpusV4Pipeline:
             """)
             for item in self.inputs:
                 source = sources[item["source_id"]]
-                try:
+                if self.v5:
+                    records = (record for record in candidates.get(str(Path(item["path"]).resolve()), []))
+                else:
                     records = stream_corpus_records(item["path"], max_record_bytes=quality["max_record_bytes"])
-                except (OSError, ValueError) as exc:
-                    raise CorpusError(f"cannot read {item['path']}: {exc}") from exc
                 try:
                     for ordinal, record in enumerate(records, 1):
                         records_seen += 1
@@ -823,11 +836,18 @@ class CorpusV4Pipeline:
                             _count(db, "counts", source["source_id"], "missing_text")
                             continue
                         content_sha = hashlib.sha256(raw.encode("utf-8", errors="surrogatepass")).hexdigest()
-                        line_number = record.get("_line", ordinal)
-                        document_id = identity({
-                            "source_id": source["source_id"], "file_sha256": item["sha256"],
-                            "line": line_number, "content_sha256": content_sha})
-                        parent = record.get("parent_id")
+                        if self.v5:
+                            if record["source_id"] != source["source_id"] or record["input_sha256"] != item["sha256"]:
+                                raise CorpusError("candidate provenance differs from approved input")
+                            line_number = record["input_line"]
+                            document_id = record["document_id"]
+                            parent = record["parent_document_id"]
+                        else:
+                            line_number = record.get("_line", ordinal)
+                            document_id = identity({
+                                "source_id": source["source_id"], "file_sha256": item["sha256"],
+                                "line": line_number, "content_sha256": content_sha})
+                            parent = record.get("parent_id")
                         if parent is not None:
                             if not isinstance(parent, (str, int)) or len(str(parent)) > 512:
                                 _count(db, "counts", source["source_id"], "invalid_parent_id")
@@ -860,6 +880,11 @@ class CorpusV4Pipeline:
                             metadata.update(source_id=source["source_id"],
                                             source_review_sha256=source["source_review"]["sha256"],
                                             input_file_sha256=item["sha256"])
+                        if self.v5:
+                            from .v5_language_corpus import _lineage
+
+                            metadata["transformation_history"].append(_lineage(record))
+                            metadata["candidate_language"] = record["language"]
                         db.execute(
                             "INSERT INTO docs VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                             (document_id, source["source_id"], source["source_name"],
@@ -880,7 +905,7 @@ class CorpusV4Pipeline:
             stats = {"documents": documents, "records_seen": records_seen,
                      "by_source_reason": [dict(row) for row in db.execute(
                          "SELECT * FROM counts ORDER BY source_id, reason")]}
-        return stats, [path]
+        return stats, [path, *candidate_files]
 
     # ------------------------------------------------------------------ quality
 
@@ -919,8 +944,6 @@ class CorpusV4Pipeline:
                 CREATE TABLE quality_counts(source_id TEXT, reason TEXT, action TEXT, n INTEGER,
                     PRIMARY KEY(source_id, reason, action));
             """)
-            if self.v5:
-                self._split_overlong_quality(db, policy["max_chars"])
             processed = 0
             cursor = db.execute("SELECT document_id FROM docs ORDER BY document_id")
             while batch := cursor.fetchmany(1000):
@@ -950,60 +973,25 @@ class CorpusV4Pipeline:
             stats["rules_version"] = QUALITY_RULES_VERSION
         return stats, [path, queue, report_path]
 
-    def _split_overlong_quality(self, db, max_chars):
-        """V5 only: split overlong source documents at paragraph/sentence edges."""
-        from .v5_language_corpus import split_long_text
-
-        limit = max(1000, max_chars - 1024)
-        ids = [row[0] for row in db.execute("SELECT document_id FROM docs ORDER BY document_id")]
-        split_documents = 0
-        for document_id in ids:
-            row = db.execute("SELECT * FROM docs WHERE document_id=?", (document_id,)).fetchone()
-            text = row["raw_text"]
-            if len(text) <= max_chars:
-                continue
-            parts = split_long_text(text, limit)
-            if len(parts) <= 1:
-                continue
-            metadata = json.loads(row["metadata"])
-            db.execute("DELETE FROM docs WHERE document_id=?", (document_id,))
-            for part_index, part in enumerate(parts):
-                part_id = f"{document_id}::p{part_index:04d}"
-                part_meta = {**metadata, "parent_document_id": document_id,
-                             "part_index": part_index, "part_count": len(parts),
-                             "v5_split_part": True}
-                encoded = part.encode("utf-8", errors="surrogatepass")
-                db.execute("""INSERT INTO docs(document_id, source_id, source_name, source_uri,
-                    license, license_evidence, license_status, provenance_status, collection_version,
-                    declared_category, declared_language, document_family_id, priority, file_sha256,
-                    line_number, content_sha256, raw_text, raw_bytes, metadata)
-                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                           (part_id, row["source_id"], row["source_name"], row["source_uri"],
-                            row["license"], row["license_evidence"], row["license_status"],
-                            row["provenance_status"], row["collection_version"],
-                            row["declared_category"], row["declared_language"],
-                            row["document_family_id"], row["priority"], row["file_sha256"],
-                            row["line_number"],
-                            hashlib.sha256(encoded).hexdigest(), part, len(encoded),
-                            _safe_json(part_meta)))
-            split_documents += 1
-        db.commit()
-        return split_documents
-
     def _review_one(self, db, row, policy, policy_sha, text_policy):
         document_id = row["document_id"]
         raw = row["raw_text"]
-        language = detect_language(raw)
-        category = row["declared_category"]
-        if category == "auto":
-            category = infer_category(language, raw)
-        normalized = normalise(raw, language, strip_html=policy["strip_html"])
-        normalized = apply_text_policy(normalized, text_policy, category=language)
-        normalized_language = detect_language(normalized)
-        if normalized_language != language:
-            language = normalized_language
+        if self.v5:
+            language = json.loads(row["metadata"])["candidate_language"]
+            category = row["declared_category"]
+            normalized = raw
+        else:
+            language = detect_language(raw)
+            category = row["declared_category"]
+            if category == "auto":
+                category = infer_category(language, raw)
             normalized = normalise(raw, language, strip_html=policy["strip_html"])
             normalized = apply_text_policy(normalized, text_policy, category=language)
+            normalized_language = detect_language(normalized)
+            if normalized_language != language:
+                language = normalized_language
+                normalized = normalise(raw, language, strip_html=policy["strip_html"])
+                normalized = apply_text_policy(normalized, text_policy, category=language)
         findings = evaluate_quality(normalized, language=language, category=category, policy=policy)
         action = aggregate_action(findings)
         flags = [finding.to_dict() for finding in findings]
@@ -2202,7 +2190,7 @@ class CorpusV4Pipeline:
         tokenization = self.stats["tokenized"]
         budget = self.stats["budget"]
         contamination = self.stats.get("contamination") or {}
-        return {
+        payload = {
             "stage_hashes": self._stage_hashes(),
             "v4": {
                 "corpus_version": self.config["corpus_version"],
@@ -2223,6 +2211,9 @@ class CorpusV4Pipeline:
             },
             "files": files,
         }
+        if self.v5:
+            payload["v5_inputs"] = self.plan["v5_inputs"]
+        return payload
 
     def _manifest_files(self) -> dict[str, dict]:
         files = {}
@@ -2233,6 +2224,10 @@ class CorpusV4Pipeline:
             "contamination-report.json", "budget-report.json"]
         if self.balanced:
             required.extend((SELECTED_TRAIN, SELECTION_REPORT))
+        if self.v5:
+            from .v5_language_corpus import V5_FILES
+
+            required.extend(V5_FILES)
         for name in required:
             path = self.out / name
             if not path.is_file():
@@ -2397,6 +2392,18 @@ class CorpusV4Pipeline:
                "allowed_knowledge_hits": contamination["stats"]["allowed_knowledge_hits"],
                "unreviewed_high_risk": contamination.get("decisions", {}).get("unreviewed_high_risk")})
 
+        if self.v5:
+            from .v5_language_corpus import FORMAL_SCREENING_REPORT, SAMPLER_REPORT, formal_audit_checks
+
+            try:
+                sampler, formal_checks = formal_audit_checks(self.out, self.plan)
+                write_json(self.out / SAMPLER_REPORT, sampler)
+                for name, (passed, detail) in formal_checks.items():
+                    check(name, "PASS" if passed else "FAIL", detail)
+                write_json(self.out / FORMAL_SCREENING_REPORT, {name: checks[name] for name in formal_checks})
+            except (CorpusError, OSError, KeyError, ValueError) as exc:
+                check("v5_generation_evidence", "FAIL", {"error": str(exc)})
+
         try:
             manifest = self.build_manifest(freeze_status="NOT_ASSESSED")
             files_ok = all((self.out / name).is_file() and file_info(self.out / name) == info
@@ -2428,7 +2435,7 @@ class CorpusV4Pipeline:
                                   "guarantee; licence review, contamination dispositions and world-knowledge "
                                   "quality remain human responsibilities.")}
         write_json(self.out / "audit-report.json", report)
-        if self.balanced:
+        if self.balanced and (not self.v5 or report["status"] == "READY"):
             write_json(self.out / AUDIT_RECEIPT, audit_receipt(self.out, self.plan, report))
         self.stats["audit"] = report
         self._done.add("audit")
@@ -2474,6 +2481,8 @@ class CorpusV4Pipeline:
         published_audit = json.loads((self.out / "audit-report.json").read_text(encoding="utf-8"))
         if audit != published_audit:
             raise CorpusError("audit does not match the published audit report")
+        if self.v5 and audit["status"] != "READY":
+            raise CorpusError(f"V5 audit blocked: {audit['blockers']}")
         if self.demo:
             freeze_status, dataset_status = "NOT_READY", "DEMO_ONLY"
         elif audit["status"] == "READY":
@@ -2494,13 +2503,20 @@ class CorpusV4Pipeline:
         if freeze_status == "READY" and manifest["content_id"] != audit.get("checks", {}).get(
                 "manifest_completeness", {}).get("detail", {}).get("content_id"):
             raise CorpusError("dataset identity changed since audit; audit again")
+        if self.v5 and freeze_status == "READY":
+            from .v4_admission import _validate_v4_pilot_policy
+
+            policy = _validate_v4_pilot_policy(self.out, prospective_manifest=manifest)
+            if not policy["ok"]:
+                write_json(self.out / "dataset-manifest.json", {**manifest, "freeze_status": "NOT_READY"})
+                raise CorpusError(f"V5 formal admission failed: {policy['errors']}")
         write_json(self.out / "dataset-manifest.json", manifest)
         if self.demo:
             atomic_write(self.out / "DEMO_ONLY", lambda handle: handle.write(json_bytes({
                 "dataset_status": "DEMO_ONLY", "freeze_status": "NOT_READY",
                 "reason": "synthetic fixtures exercise the pipeline but are not a trainable corpus"})))
         if freeze_status == "READY":
-            if self.balanced:
+            if self.balanced and not self.v5:
                 from .v4_language_pilot import verify_language_release
 
                 verify_language_release(self.out, self.plan, manifest)
@@ -2519,8 +2535,12 @@ class CorpusV4Pipeline:
 
 def verify_frozen(directory: str | Path) -> dict:
     """Refuse anything but a formally READY, hash-verified, frozen dataset."""
+    return _verify_frozen(directory)
+
+
+def _verify_frozen(directory, *, prospective_manifest=None):
     directory = Path(directory)
-    manifest = json.loads((directory / "dataset-manifest.json").read_text(encoding="utf-8"))
+    manifest = prospective_manifest or json.loads((directory / "dataset-manifest.json").read_text(encoding="utf-8"))
     if manifest.get("schema_version") != 1 or manifest.get("freeze_status") != "READY" \
             or manifest.get("dataset_status") != "FORMAL":
         raise CorpusError("dataset is not formally frozen (freeze_status/dataset_status)")
@@ -2586,7 +2606,7 @@ def verify_frozen(directory: str | Path) -> dict:
             or split_info.get("sha256") != manifest["identity"].get("v4", {}).get("split_manifest_sha256") \
             or split_info.get("sha256") != split_check["detail"].get("split_manifest_sha256"):
         raise CorpusError("frozen dataset lacks complete passing split isolation evidence")
-    if not (directory / "FROZEN").is_file():
+    if prospective_manifest is None and not (directory / "FROZEN").is_file():
         raise CorpusError("missing FROZEN marker")
     if any(is_language({"corpus_version": value}) for value in (
             manifest["corpus_version"], source_plan.get("corpus_version"),
@@ -2594,11 +2614,12 @@ def verify_frozen(directory: str | Path) -> dict:
         from .v4_language_pilot import verify_language_release
 
         directory = directory.resolve()
-        freeze = json.loads((directory / "freeze.json").read_text(encoding="utf-8"))
-        marker = json.loads((directory / "FROZEN").read_text(encoding="utf-8"))
-        if (freeze["manifest_sha256"] != sha256(directory / "dataset-manifest.json")
-                or freeze["content_id"] != manifest["content_id"] or marker != {"content_id": manifest["content_id"]}):
-            raise CorpusError("language Pilot freeze record differs from the manifest")
+        if prospective_manifest is None:
+            freeze = json.loads((directory / "freeze.json").read_text(encoding="utf-8"))
+            marker = json.loads((directory / "FROZEN").read_text(encoding="utf-8"))
+            if (freeze["manifest_sha256"] != sha256(directory / "dataset-manifest.json")
+                    or freeze["content_id"] != manifest["content_id"] or marker != {"content_id": manifest["content_id"]}):
+                raise CorpusError("language Pilot freeze record differs from the manifest")
         verify_language_release(directory, source_plan, manifest)
     if manifest["license_review_status"] != "APPROVED":
         raise CorpusError("frozen dataset lacks approved licence review")

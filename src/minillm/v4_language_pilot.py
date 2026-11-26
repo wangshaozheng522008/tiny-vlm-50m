@@ -113,6 +113,13 @@ def select_train(directory, config, tokenizer):
         tokens = len(tokenizer.encode_document(row["text"], category=row["language"]))
         groups[row["category"]].append((identity([seed, doc_id]), tokens, row))
         full_order.append((row["category"], tokens))
+    if config["corpus_version"] == V5_VERSION:
+        from .v5_language_corpus import CANDIDATE_REPORT
+
+        with (directory / CANDIDATE_REPORT).open(encoding="utf-8") as handle:
+            candidate_policy = json.load(handle)["inputs"]["candidate_policy"]
+        caps = {spec["source_id"]: Fraction(str(spec["max_source_share"]))
+                for spec in candidate_policy["sources"]}
     selected = []
     index = []
     cursor = 0
@@ -125,7 +132,10 @@ def select_train(directory, config, tokenizer):
         target = quotas[category]
         start = _supervised_through(cursor, seq_len)
         cutoff = None
-        for _, tokens, row in sorted(groups[category], key=lambda entry: (entry[0], entry[2]["document_id"])):
+        ordered = sorted(groups[category], key=lambda entry: (entry[0], entry[2]["document_id"]))
+        if config["corpus_version"] == V5_VERSION:
+            ordered = _v5_source_prefix(ordered, caps, target, seq_len)
+        for _, tokens, row in ordered:
             cursor += tokens
             selected.append(row)
             index.append({key: row[key] for key in ("document_id", "category", "language", "source_id")}
@@ -149,7 +159,30 @@ def select_train(directory, config, tokenizer):
               "minimum_packed_effective_tokens": (
                   (targets["effective_train_tokens"] + seq_len - 2) // (seq_len - 1) * (seq_len - 1)),
               "fraction_tolerance": LANGUAGE_TOLERANCE}
+    if config["corpus_version"] == V5_VERSION:
+        report["algorithm"] = "seeded-source-quota-prefix-v1"
     return selected, report
+
+
+def _v5_source_prefix(ordered, caps, target, seq_len):
+    # Use the midpoint of the permitted shares to leave room for sampler variation.
+    from collections import Counter
+
+    present = {row["source_id"] for _, _, row in ordered}
+    if len(present) <= 1:
+        return ordered
+    total_cap = sum(caps[source] for source in present)
+    raw_target = ceil(target * Fraction(seq_len, seq_len - 1))
+    quotas = {source: ceil(raw_target * caps[source] / total_cap) for source in present}
+    selected = Counter()
+    prefix = []
+    for entry in ordered:
+        _, tokens, row = entry
+        source = row["source_id"]
+        if selected[source] < quotas[source]:
+            prefix.append(entry)
+            selected[source] += tokens
+    return prefix
 
 
 def verify_train_selection(directory, config, tokenizer, *, verify_bin=False):
@@ -186,6 +219,10 @@ def verify_train_selection(directory, config, tokenizer, *, verify_bin=False):
 def audit_receipt(directory, plan, report):
     names = ("audit-report.json", "budget-report.json", "contamination-report.json", SELECTION_REPORT,
              "tokenization-report.json", "split-manifest.json", "train.bin", "val.bin", "test.bin")
+    if plan["corpus_version"] == V5_VERSION:
+        from .v5_language_corpus import V5_FILES
+
+        names += V5_FILES
     return {"plan_key": plan["plan_key"], "status": report["status"],
             "files": {name: file_info(directory / name) for name in names}}
 
@@ -283,5 +320,5 @@ def verify_language_release(directory, plan, manifest):
         raise CorpusError("language Pilot requires passing Audit bound to the release identity")
     if config["corpus_version"] == V5_VERSION:
         from .v5_language_corpus import verify_release
-        verify_release(directory)
+        verify_release(directory, manifest=manifest)
     return True

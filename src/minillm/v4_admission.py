@@ -26,7 +26,11 @@ def _pilot_policy(config):
         from .v4_language_pilot import LANGUAGE_TOLERANCE
 
         policy["contamination"] = {k: v for k, v in policy["contamination"].items() if k != "decisions"}
-        policy["train_selection"] = {"fraction_tolerance": LANGUAGE_TOLERANCE, "algorithm": "seeded-category-prefix-v1"}
+        from .corpus_versions import V5_VERSION
+
+        algorithm = ("seeded-source-quota-prefix-v1" if config["corpus_version"] == V5_VERSION
+                     else "seeded-category-prefix-v1")
+        policy["train_selection"] = {"fraction_tolerance": LANGUAGE_TOLERANCE, "algorithm": algorithm}
     return policy
 
 
@@ -37,7 +41,11 @@ def validate_v4_pilot_policy(dataset_dir, approved_config_path=None):
     hash. Production preflight pins the repository configuration. CPU fixtures
     may select an explicit independent test profile.
     """
-    from .corpus_v4 import V4_SCHEMA_VERSION, implementation_sha256, load_config, verify_frozen
+    return _validate_v4_pilot_policy(dataset_dir, approved_config_path)
+
+
+def _validate_v4_pilot_policy(dataset_dir, approved_config_path=None, *, prospective_manifest=None):
+    from .corpus_v4 import V4_SCHEMA_VERSION, implementation_sha256, load_config, _verify_frozen
     from .corpus_quality import QUALITY_RULES_VERSION
     from .corpus_dedup import NearDupPolicy
     from .corpus_contamination import load_benchmark_items
@@ -61,7 +69,7 @@ def validate_v4_pilot_policy(dataset_dir, approved_config_path=None):
             report["status"] = "BLOCKED_POLICY_MISMATCH"
             report["errors"] = ["generation policy differs from the approved versioned Pilot policy"]
             return report
-        frozen = verify_frozen(directory)
+        frozen = _verify_frozen(directory, prospective_manifest=prospective_manifest)
         recorded = frozen["identity"]["v4"]
         report["status"] = "BLOCKED_POLICY_MISMATCH"
 
@@ -77,18 +85,14 @@ def validate_v4_pilot_policy(dataset_dir, approved_config_path=None):
         require(plan["corpus_version"] == actual["corpus_version"] == frozen["corpus_version"]
                 == recorded["corpus_version"] and plan["dataset_name"] == actual["dataset_name"]
                 == frozen["dataset_name"], "Pilot version identity mismatch")
-        from .v4_language_scaling import BASE_ID, BASE_IMPLEMENTATION
-        compatible = {implementation_sha256()}
-        if frozen["content_id"] == BASE_ID:
-            compatible.add(BASE_IMPLEMENTATION)
         require(plan["implementation_sha256"] == recorded["implementation_sha256"]
-                and recorded["implementation_sha256"] in compatible,
+                and implementation_compatible(frozen, implementation_sha256()),
                 "generation implementation identity mismatch")
         require(plan["registry"] == frozen["license_sources"] and plan["registry"]["sha256"]
                 == recorded["source_manifest_sha256"], "generation source registry binding mismatch")
         from .v4_sources import requires_source_review, validate_source_plan
-        validate_source_plan(plan, frozen["license_sources"], require=requires_source_review(approved),
-                             verify_inputs=True)
+        # _verify_frozen already reproduced the reviewed source bytes and historical samples.
+        validate_source_plan(plan, frozen["license_sources"], require=requires_source_review(approved))
 
         quality_hash = identity({"rules_version": QUALITY_RULES_VERSION, "quality": approved["quality"]})
         require(policies["quality_policy_sha256"] == recorded["cleaning_policy_sha256"] == quality_hash,
@@ -161,7 +165,7 @@ def validate_v4_pilot_policy(dataset_dir, approved_config_path=None):
                 and budget["content_id"] == identity({k: budget[k] for k in (
                     "target_effective_train_tokens", "seq_len", "category_token_ratios", "categories",
                     "tokenizer_fingerprint", "status")}), "Pilot budget review identity mismatch")
-        audit = audit_v4_dataset(directory)
+        audit = _audit_v4_dataset(directory, frozen)
         require(audit["ok"], "; ".join(audit["errors"]))
         review = read_json(directory / "audit-report.json")
         required_checks = ("license_review", "cleaning_policy", "dedup_policy", "split_isolation",
@@ -172,10 +176,11 @@ def validate_v4_pilot_policy(dataset_dir, approved_config_path=None):
                 and all(c["status"] == "PASS" for c in review["checks"].values())
                 and review["checks"]["manifest_completeness"]["detail"]["content_id"] == frozen["content_id"],
                 "Pilot review is not bound to this frozen dataset identity")
-        freeze = read_json(directory / "freeze.json")
-        require(freeze["content_id"] == read_json(directory / "FROZEN")["content_id"] == frozen["content_id"]
-                and freeze["manifest_sha256"] == file_info(directory / "dataset-manifest.json")["sha256"],
-                "Pilot freeze record identity mismatch")
+        if prospective_manifest is None:
+            freeze = read_json(directory / "freeze.json")
+            require(freeze["content_id"] == read_json(directory / "FROZEN")["content_id"] == frozen["content_id"]
+                    and freeze["manifest_sha256"] == file_info(directory / "dataset-manifest.json")["sha256"],
+                    "Pilot freeze record identity mismatch")
         report.update(ok=True, status="POLICY_MATCH", content_id=frozen["content_id"],
                       plan_key=plan["plan_key"], config_sha256=plan["config_sha256"])
     except (FileNotFoundError, KeyError) as exc:
@@ -185,6 +190,20 @@ def validate_v4_pilot_policy(dataset_dir, approved_config_path=None):
     return report
 
 
+def implementation_compatible(manifest, current):
+    from .corpus_versions import V4_1M_VERSION, V4_2M_VERSION
+    from .v4_language_scaling import (BASE_ID, BASE_IMPLEMENTATION, SCALING_CONTENT_ID,
+                                      SCALING_IMPLEMENTATION)
+
+    historical = {
+        (V4_1M_VERSION, BASE_ID): BASE_IMPLEMENTATION,
+        (V4_2M_VERSION, SCALING_CONTENT_ID): SCALING_IMPLEMENTATION,
+    }
+    recorded = manifest["identity"]["v4"]["implementation_sha256"]
+    key = (manifest["corpus_version"], manifest["content_id"])
+    return recorded == historical.get(key, current)
+
+
 def audit_v4_dataset(directory, *, manifest=None, tokenizer_path=None,
                      retokenize=False, verify_inputs=False, require_source_review=False):
     """Verify the original V4 gate, plus its source and train-only evidence.
@@ -192,15 +211,25 @@ def audit_v4_dataset(directory, *, manifest=None, tokenizer_path=None,
     This is an adapter, not an alternative way to freeze a corpus. It never
     accepts demo data or upgrades an unassessed/failed V4 audit.
     """
-    from .corpus_v4 import build_registry, verify_frozen
+    from .corpus_v4 import verify_frozen
 
-    directory = Path(directory)
-    report = {"ok": False, "errors": [], "checks": {}, "splits": {}}
     try:
         frozen = verify_frozen(directory)
         if manifest is not None and manifest != frozen:
             raise CorpusError("supplied V4 manifest differs from the frozen manifest")
-        manifest = frozen
+    except Exception as exc:
+        return {"ok": False, "errors": [str(exc)], "checks": {}, "splits": {}}
+    return _audit_v4_dataset(directory, frozen, tokenizer_path=tokenizer_path, retokenize=retokenize,
+                             verify_inputs=verify_inputs, require_source_review=require_source_review)
+
+
+def _audit_v4_dataset(directory, manifest, *, tokenizer_path=None, retokenize=False,
+                      verify_inputs=False, require_source_review=False):
+    from .corpus_v4 import build_registry
+
+    directory = Path(directory)
+    report = {"ok": False, "errors": [], "checks": {}, "splits": {}}
+    try:
         recorded = manifest["identity"]["v4"]
         registry = manifest["license_sources"]
         registry_hash = identity({k: v for k, v in registry.items() if k != "sha256"})
@@ -213,7 +242,7 @@ def audit_v4_dataset(directory, *, manifest=None, tokenizer_path=None,
             raise CorpusError("included sources are not all approved with verified provenance")
         from .v4_sources import validate_source_plan
         source_reviews = validate_source_plan(read_json(directory / ".v4/plan.json"), registry,
-                                              require=require_source_review, verify_inputs=True)
+                                              require=require_source_review)
         if source_reviews:
             report["checks"]["source_reviews"] = source_reviews
         report["checks"]["source_approval"] = "APPROVED"
@@ -245,9 +274,16 @@ def audit_v4_dataset(directory, *, manifest=None, tokenizer_path=None,
         if selected is None or selection.get("mode") not in ("EXPLICIT_CONFIG", "HUMAN_REVIEWED"):
             raise CorpusError("V4 tokenizer has no explicit reviewed train-only selection")
         metadata = selected["metadata"]
+        from .corpus_versions import V4_2M_VERSION, V5_VERSION
+
+        training_origin = manifest
+        if manifest["corpus_version"] in (V4_2M_VERSION, V5_VERSION):
+            from .v4_language_scaling import base_manifest
+
+            training_origin = base_manifest("train.text.jsonl", "split-manifest.json", "tokenizer.json")
         if (metadata.get("demo_only") is not False
-                or metadata["train_split_sha256"] != manifest["files"]["train.text.jsonl"]["sha256"]
-                or metadata["split_manifest_sha256"] != recorded["split_manifest_sha256"]
+                or metadata["train_split_sha256"] != training_origin["files"]["train.text.jsonl"]["sha256"]
+                or metadata["split_manifest_sha256"] != training_origin["identity"]["v4"]["split_manifest_sha256"]
                 or metadata["fingerprint"] != tok.fingerprint
                 or metadata["special_token_ids"] != tok.special_ids
                 or metadata["text_policy"] != recorded["text_policy"]):

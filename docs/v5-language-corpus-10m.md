@@ -1,57 +1,136 @@
 # V5 千万 Token 中文语料扩充与冻结
 
-**状态：`READY_FOR_BUILD`（6/6 来源已获人工批准，范围仅内部研究；正式冻结与 GPU 训练未运行）**
+本次复审以 PR #19 的 `7b5d787f0a3001890d06bcd4a30018a9f65c7a3c` 为基准，目标版本为 `minillm-corpus-v5-language-10m-v1`。训练配比为中文通用 45%、百科 30%、教育 15%、英文 10%，各类别容差 ±1 个百分点，数学/代码为 0%。沿用 86,528,640 参数模型、24,576 词表和原有 INT4 算法。GPU 训练未启动。
 
-本 PR 交付 `minillm-corpus-v5-language-10m-v1` 的可复现候选库存、审批门禁、10M 训练预算预览和测试。6 个来源已于 2026-11-26 获人类批准（仅内部研究），审批记录和 evidence 已生成；但本 PR **没有**执行正式 build，也没有启动 GPU 训练。因此 `FROZEN`、`freeze.json` 和正式 `dataset-manifest.json` 均不存在，候选语料仍不是可训练数据集。
+## 正式构建结果
 
-| 项目 | 结果 |
-|---|---|
-| 候选 inventory 状态 | `CANDIDATE_INVENTORY_READY` |
-| 来源审批 | **6/6 `APPROVED`**（`wangshaozheng`，2026-11-26，仅内部研究） |
-| 候选清单 content id | `3ed83ea299a6439e0b5bb279089ee642415e3578fa299be9f1f062cf7bb1e93f` |
-| 候选清单文件状态 | `CANDIDATE_ONLY_NOT_TRAINABLE` |
-| 清理后唯一候选 | 30,209 篇 / 28,661,960 tokens / 49,841,686 字符 |
-| 12–15M 候选选包 | 13,994,640 effective tokens（原始 14,009,038） |
-| 15M 候选冲刺目标 | 13,994,640 / 15,000,000（差 1,005,360；`INSUFFICIENT_CORPUS`） |
-| 10M 冻结预排 | 10,569,551 raw / 10,558,383 effective；预留 4% val/test 后约 10,136,047 effective |
-| 10,000,848 预算 | 1,222 次完整优化器更新 × 8,184 supervised tokens |
-| 正式冻结 | `NOT_RUN` / `READY_FOR_BUILD` |
-| GPU 训练 | `NOT_RUN` |
-| 历史 1M / 2M 语料 | 未修改 |
-| 历史 Val / Test | 未修改 |
+正式 Build、完整 Audit、Finalize 和 `verify_frozen()` 已通过，`validate_v4_pilot_policy()` 返回 `POLICY_MATCH`。发布状态为 `READY` / `FROZEN`。正式内容 ID 为 `2a688379c66d701d41cede75961ca71af0dbb8254c2a5c065220b19ee4ea54ce`。实现指纹为 `19348de69ff70357e6f0bf001e249b6bf29aeb1bfcce2ef575d777397fdb3cd1`。
+本机工作目录为 `artifacts/corpus/minillm-corpus-v5-language-10m-v1-reviewed-final`。
 
-`CANDIDATE_INVENTORY_READY` 指 10M 目标已有足够、配比合格的候选供给；15M 候选冲刺仍为 `INSUFFICIENT_CORPUS`，不能把 13.99M 说成 15M。来源审批已记录，但正式冻结尚未执行，因此不存在 `FROZEN` 或可训练数据集。
+确定性抽样取得 44,525 篇原始文档。质量阶段切分 401 篇长文，排除 68 个精确重复并保留 30,565 个候选部分。近似去重排除 279 个候选部分，历史交叉去重随后排除 77 个（精确 76，近似 1）。逐个核对文档 ID 后确认原候选排除的 77 篇均在重放的排除名单中。来源配额选择得到 19,997 个候选部分、14,009,038 个原始 Token。
 
-复现命令：
+历史交叉扫描索引包含 276 篇独立历史文档和 354 个语言索引条目。正式 Train、Val、Test 的历史精确/近似命中数分别为 0、0、0。正式污染审计状态为 `CHECKED_NO_HITS`，扫描 19,206 篇 Train 候选，高风险命中 0，允许的常识命中 2，扫描截断数为 0。新 Val/Test 来自 V5 家族与近似簇隔离切分。完整 Audit 的 15 项检查全部通过，14,916 篇 BIN 文档通过逐篇全量重编码。
+
+| 切分 | BIN 中的文档 | 原始 Token | BIN 字节数 |
+|---|---:|---:|---:|
+| Train | 14,125 | 10,024,394 | 20,048,788 |
+| Val | 395 | 221,595 | 443,190 |
+| Test | 396 | 268,571 | 537,142 |
+
+Train 压包有 **9,789 个独立完整窗口**，对应 **10,014,147 个有效监督目标**。
+
+## 实际 Sampler 预算
+
+1024 个输入 Token 产生 1023 个监督目标。优化器每次更新消费 8 个不同窗口，共 8,184 个监督目标。以下读实际 Train BIN 和 Token Index，使用种子 42 重放第一轮打乱。耗时以 PR #18 的 T1200 实测 245 步、1,531.928 秒线性估算。最低存储按 uint16 Train BIN 计算。
+
+| 预算 | 更新步数 | 目标监督 Token | 需要窗口 | 窗口缺口 | 预计小时 | 最低 Train BIN 字节 | 可行性 |
+|---|---:|---:|---:|---:|---:|---:|---|
+| 4M | 489 | 4,001,976 | 3,912 | 0 | 0.849 | 8,011,778 | `FEASIBLE` |
+| 10M | 1,222 | 10,000,848 | 9,776 | 0 | 2.122 | 20,021,250 | `FEASIBLE` |
+| 50M | 6,110 | 50,004,240 | 48,880 | 39,091 | 10.612 | 100,106,242 | `BLOCKED` |
+| 100M | 12,219 | 100,000,296 | 97,752 | 87,963 | 21.223 | 200,196,098 | `BLOCKED` |
+
+| 类别 | 完整 Train 库存 | 4M 实际消费 | 10M 实际消费 |
+|---|---:|---:|---:|
+| 中文通用 | 4,505,158 (44.988%) | 1,788,204 (44.683%) | 4,495,951 (44.956%) |
+| 中文百科 | 3,000,872 (29.966%) | 1,190,028 (29.736%) | 2,998,826 (29.986%) |
+| 中文教育 | 1,500,741 (14.986%) | 608,406 (15.203%) | 1,500,741 (15.006%) |
+| 英文通用 | 1,007,376 (10.060%) | 415,338 (10.378%) | 1,005,330 (10.052%) |
+| 数学/代码 | 0 (0.000%) | 0 (0.000%) | 0 (0.000%) |
+
+| 来源 | 类别内上限 | 完整 Train 库存 | 4M 实际消费 | 10M 实际消费 |
+|---|---:|---:|---:|---:|
+| `candidate-en-wikisource` | 100% | 1,007,376 (100.000%) | 415,338 (100.000%) | 1,005,330 (100.000%) |
+| `candidate-zh-wikibooks` | 65% | 818,576 (54.545%) | 312,484 (51.361%) | 818,576 (54.545%) |
+| `candidate-zh-wikinews` | 60% | 2,253,158 (50.013%) | 885,893 (49.541%) | 2,247,098 (49.980%) |
+| `candidate-zh-wikipedia` | 100% | 3,000,872 (100.000%) | 1,190,028 (100.000%) | 2,998,826 (100.000%) |
+| `candidate-zh-wikiversity` | 55% | 682,165 (45.455%) | 295,922 (48.639%) | 682,165 (45.455%) |
+| `candidate-zh-wikivoyage` | 60% | 2,252,000 (49.987%) | 902,311 (50.459%) | 2,248,853 (50.020%) |
+
+来源表的百分比以各自所属类别为分母。各类别缺口、窗口顺序 SHA256 和完整计数可在 `v5-sampler-budget.json` 核对。
+
+## 文件校验
+
+| 文件 | 字节 | SHA256 |
+|---|---:|---|
+| `budget-report.json` | 3,026 | `30168c4653ab117428fb05e2248c30ef94bffdef186e140fb6365f9d32c00b71` |
+| `contamination-report.json` | 5,110 | `5c439f43f441f36051ebe843edd27d272bc0dcc8abf131f83260790c6085d34b` |
+| `dedup-report.json` | 1,635 | `57eae8d6e873c78977d1e6458500eb6c1aa838d23c0ba3c9d125cbad8b7544db` |
+| `quality-report.json` | 4,490 | `2e6664df89c5e6fcff59a2f1ad1a322213f5cf130d9ade759848a7bbf44422b4` |
+| `split-assignment.jsonl` | 4,094,820 | `c3c7e4bd8de423f5404dd3b1ab6c4a16f49eba1d53dca14f434e03b46a3e9131` |
+| `split-manifest.json` | 1,963 | `0eef5248b8e1d6307465bf6249d32d884a1dd2a8023d1be1e35f8e0617227825` |
+| `test.bin` | 537,142 | `c6e4288a3f8d4fd6642686c1320e6a7ae4dcc3c1734a64fd7f3c7ea46f9c9c78` |
+| `test.text.jsonl` | 2,154,228 | `6360c36427cea328d3927085a6ed6767bee776f61db0172b2d9299715ab570e4` |
+| `test.token-index.jsonl` | 66,069 | `4860eef7be06ef7707b90b370154328bd55f30393772d4e079ab1e5194d2d27e` |
+| `tokenization-report.json` | 6,917 | `149b7cb712df62f7cad77a9a778360358e19e618b150699e211cfca131d765d0` |
+| `tokenizer-candidates.json` | 5,469 | `394da1ed9441920300713b78679a836f7b06b44b9b08c97f254da5931698460f` |
+| `tokenizer-evaluation.json` | 33,240 | `699fdf3fc6f4be162ff3cd85b4a625b6555ff6432fcba111b30798acf7e522e0` |
+| `tokenizer-selection.json` | 1,510 | `1c57a8bc194f33e6b6ff59dc535f2664103d5189ca69524941054c5619c73121` |
+| `tokenizer.json` | 932,773 | `fb8ac32998348837ef7108bba5df9a8648d5295450f0ddb8fc2ff250ebc42b8d` |
+| `train-selection.json` | 2,239,018 | `83fcdb55f4fc4e754251522745cd21c6a732fc71e22cfebbbf84d1568ed1bb1f` |
+| `train.bin` | 20,048,788 | `b08ec1b79fb2f724dacb3920fc8eab7eb9fcd83c9881c3356f8417781b6b852e` |
+| `train.selected.jsonl` | 77,870,114 | `fc3338e0af1ef667727e8857fdb103f308b95377d3d0a3acaf49d45311f75014` |
+| `train.text.jsonl` | 105,720,168 | `eb3ff6314938905578afa1be435dc29131a1c367c59495668fd5240dd08333c4` |
+| `train.token-index.jsonl` | 2,364,454 | `33ab36ca901a297361b822faa7c06f2dbdbb0c3773e5831730036359c0ff828a` |
+| `v5-candidate-lineage.jsonl` | 22,952,524 | `76e3d811148e75fde9139dfb4bdf0e1cea36f34029d3ad8b6fed94171441225e` |
+| `v5-candidate-selection.json` | 35,363 | `352de6f8b9fba3d583f93401195c55c56747d170c3f7c7c889c008a102ece11e` |
+| `v5-formal-screening.json` | 10,197 | `7470ef63d36740ad1f1978addf24c4d3ad9edf111d26c3fa76666418bea04cb3` |
+| `v5-sampler-budget.json` | 12,058 | `6701308ab339885b47073bc94d81369be3ba34db7d4bfa2d206d772e096f8044` |
+| `val.bin` | 443,190 | `93679de521ea1ee6405b402027b54a73ebcdf5ceb055e71c7be3c43aa7937f17` |
+| `val.text.jsonl` | 1,976,073 | `8b7fbb1ac0ae56d1595f78618bffdeeb97bcc3b74b997ba03d618b647f42417a` |
+| `val.token-index.jsonl` | 65,818 | `05270ffbf62d5f0d393585b8bf06fd1de2059cd90a6a871dd24d0f0f1b36fcac` |
+| `audit-report.json` | 14,050 | `cd5cc48ae0effc439b97fd346d3d4da716075a4ac1eadeafb2bbe4fca7b6f8e9` |
+| `dataset-manifest.json` | 58,587 | `c0b8af697ba34e6e0161eaa51b5c5ccecd422e40c08cb318f96e239a8c689bf0` |
+| `freeze.json` | 323 | `1437fcb948aa35219e3caf74bf7622ef93cf481cb3fcacd394e827cf5d5a994e` |
+| `FROZEN` | 82 | `33aebf373c99aa9574dbc9ab8a0237557a1b9fdc55c4b254590b8a01baa392af` |
+
+## 复核命令
+
+在仓库根目录使用本机审批登记所指的只读来源快照。重建时将 `FRESH_OUTPUT` 设为新的空目录，复核命令读取本次冻结目录。
 
 ```bash
-.venv/bin/python scripts/prepare_v5_language_corpus.py inventory
-.venv/bin/python scripts/prepare_v5_language_corpus.py prepare
-.venv/bin/python -m pytest -q -o addopts='' tests/test_v5_language_corpus.py
+.venv/bin/python scripts/prepare_v5_language_corpus.py build \
+  --dataset "$FRESH_OUTPUT" \
+  --approval configs/corpus_v5_source-approval.json \
+  --request configs/corpus_v5_source-approval-request.json
+.venv/bin/python scripts/plan_corpus_v4.py --verify artifacts/corpus/minillm-corpus-v5-language-10m-v1-reviewed-final
 ```
 
-`inventory` 只写 `reports/` 下的候选报告，不写 `FROZEN`；`prepare` 生成审批请求，并在 6/6 来源批准后写 `READY_FOR_BUILD` 状态，仍不写 `FROZEN`。`build` 需要 `--approval` 和 `--request`，没有完整人类批准文件时会在构造正式管线前失败。
+原始语料、二进制和本机报告均保存在 Git 忽略目录。
 
-## 1. 目标与不变量
+## 复审修复
 
-- **目标**：10,000,848 个 effective supervised tokens，按完整优化器更新口径为 1,222 × 8,184。`seq_len=1024`；每个窗口贡献 1,023 个监督目标；1 次更新 = 8 个窗口。
-- **类别比例**（容差 ±1 个百分点）：中文通用 45%、中文百科 30%、中文教育 15%、英文通用 10%、数学/代码 0%。不放宽质量阈值来凑 token，不使用重复采样或重复窗口。
-- **模型**：参数量保持 86,528,640；不修改架构、位置编码、训练循环或 INT4 量化策略。INT4 产物仍要求 ≤50 MB。
-- **Tokenizer**：复用 PR #16 冻结 tokenizer，vocab 24,576，fingerprint `845a24b9f21458b1d2161c60dfc8a77d5ed40235ece7ef46891677e423727b8a`；不重新训练、不改变词表。
-- **范围**：本 PR 不包含数学、代码、逻辑推理语料，也不运行正式 GPU 训练。
-- **兼容性**：1M content id `7222651ef09e4e09c2d613474f50712e8233d1d4ff9017bda897e597ebdb6da5`，2M content id `dcf709c91a5499f9a3b430c935ce5ede08d8abbad1456bf89cbeea7bcb92f8d1`；两者均保持字节不变。
-- **新验证/测试集**：V5 配置使用 `family_cluster_hash`、96/2/2 分组切分，从 V5 候选组中独立生成；不复用历史 train/val/test，只复用冻结 tokenizer。正式切分在审批后的 freeze 阶段生成，本 PR 不提交任何候选训练数据。
-- **历史固定评测**：`data/evaluation/chinese-language-v1/tasks.jsonl` 等 7 个 frozen asset 仍参与污染审计；历史 Val/Test 仍用于交叉去重，不替换、不扩写。
+| 问题 | 修复 |
+|---|---|
+| P1 正式冻结调用链 | V5 从本模块调用 `validate_source_set()`。正式 Build、Audit、Finalize、`verify_frozen()` 和准入通过同一端到端回归覆盖。 |
+| P1 候选与正式流程 | 正式 Ingest 从批准快照重放确定性抽样、规范化、长文边界切分、质量过滤、精确及近似去重、历史交叉去重、污染筛查和来源配额选择。候选文档谱系记录来源、原始位置、父文档/切片、哈希和转换。Audit 将 Train、Val、Test 与谱系逐篇对账，并重新扫描历史重复。 |
+| P1 审批与发布 | 保留六条原始审批记录。构建计划绑定审批人、日期、确认内容、请求范围、输入快照、文件 SHA256、候选配置及历史评测身份。通用入口执行同一核验。Finalize 在写入正式 READY 与 FROZEN 前执行完整准入，`verify_frozen()` 复验审批和来源。 |
+| P1 历史兼容 | 准入只接受当前实现指纹，或历史版本、内容 ID 与原实现指纹的精确组合。Tokenizer 复用时，训练来源按 PR #16 的冻结 Train 证据验证。 |
+| P2 预算 | 候选预算标记为 `ESTIMATED`。正式预算从实际 Train BIN 与 Token Index 重放种子 42 的 `EpochBatchSampler`，按类别和来源统计实际监督目标。 |
+| P2 实现与缓存 | `implementation_sha256()` 纳入 `v5_language_corpus.py`、`corpus_versions.py`、训练计数及准入实现。候选配置、来源配额、历史配置与审批身份参与构建计划和阶段键。 |
 
-## 2. 来源清单与审批状态
+审批人 `wangshaozheng` 于 2026-11-26 确认六个来源仅用于内部研究训练。商业使用、对外再分发和公开权重均未获授权。来源快照与许可义务见[来源登记](../configs/corpus_v5_sources.review.json)。请求和确认记录见[审批请求](../configs/corpus_v5_source-approval-request.json)、[审批证据](../configs/corpus_v5_source-approval.json)。
 
-> “上述来源仅为候选，不代表已经批准。”
->
-> “新增来源及扩大既有来源使用范围必须取得人工审批。”
->
-> “未经批准不得进入正式冻结语料，不得伪造审批记录。”
+## 历史兼容与评测
 
-六个来源已于 **2026-11-26** 由 `wangshaozheng` 在本会话确认批准，审批范围**仅限内部研究训练**：不商用、不再分发、不公开权重。审批字段写入每个来源的 `training_scope`，审批证据绑定到 `configs/corpus_v5_source-approval.json`（运行期副本在 `reports/v5-language-corpus-10m-v1/approval/source-approval.json`）。这不等于商用、再分发或公开权重许可；任何新来源（例如 FineWeb2、Wikidata）或扩大既有来源使用范围仍需重新审批。
+| 版本 | 内容 ID | 原始实现 SHA256 | 冻结 Manifest SHA256 |
+|---|---|---|---|
+| PR #16 1M | `7222651ef09e4e09c2d613474f50712e8233d1d4ff9017bda897e597ebdb6da5` | `15b8beb04ed88b91f96d70b59df72022dc995fea9bb50b0a8eda195e5359255d` | `6160624ea9962eff0d07a4aa976f8b82e9a7cfc36ba84773c9dbd4d55a7791c7` |
+| PR #18 2M | `dcf709c91a5499f9a3b430c935ce5ede08d8abbad1456bf89cbeea7bcb92f8d1` | `afbbcc5899127874ccab4291af6c00aa8f5e8d7d9cf6180d8858ac121a753965` | `cf98c062a2c03fddf1b5641684a714fe0725d6eab0e469b323d50836111cba4e` |
+
+使用真实资产运行 `verify_frozen()` 和 `validate_v4_pilot_policy()`，1M 与 2M 均通过冻结复验并返回 `POLICY_MATCH`。两份冻结 Manifest 分别校验。1M 和 2M 的 Val/Test 文本、BIN、Token Index 以及 Tokenizer 各自字节相同，交叉去重索引对相同的历史文档只建一次。共用 Tokenizer 指纹为 `845a24b9f21458b1d2161c60dfc8a77d5ed40235ece7ef46891677e423727b8a`。
+
+| 两份历史语料共用的文件 | SHA256 |
+|---|---|
+| `tokenizer.json` | `fb8ac32998348837ef7108bba5df9a8648d5295450f0ddb8fc2ff250ebc42b8d` |
+| `val.text.jsonl` | `25229b9cd18b7cb1c7c064a8334388afaa6a782db4592c532edf6ca5dbe9364d` |
+| `test.text.jsonl` | `b58cb2c04ca9024a347ddc64001afe05b4db16d56bc3511f88062179253615c4` |
+| `val.bin` | `eaa0a3ca78a4371cde39f29cf0397a35183ba81fc8dc00cd8ace58e734b7ac10` |
+| `test.bin` | `d4133d8142a8d8d5689afd3fb83c3c31cf4594bd7590aa150ba4a41dbc14048f` |
+| `val.token-index.jsonl` | `4ae574e47c3c039ab8efd2876ea9351c3b20ed5f95e1e905ad164c4eaebf607b` |
+| `test.token-index.jsonl` | `fb66ff418ee7b66f471b724ffe06d866c7b196fe54a630ca8f9c0518cefc0a43` |
+
+## 批准来源
 
 | 来源 | 类别 | 发布快照 / 上游 | 许可 | 审批状态 | 商用 / 再分发 / 训练 |
 |---|---|---|---|---|---|
@@ -62,238 +141,13 @@
 | `candidate-zh-wikiversity` | `zh_education` | `zhwikiversity-20261101-pages-articles` / https://dumps.wikimedia.org/zhwikiversity/20261101/ | CC-BY-SA-4.0 | `APPROVED`（内部研究） | `NOT_APPROVED` / `NOT_APPROVED` / `APPROVED_INTERNAL_RESEARCH_ONLY` |
 | `candidate-en-wikisource` | `en_general` | `enwikisource-20261101-pages-articles` / https://dumps.wikimedia.org/enwikisource/20261101/ | Public-domain works plus CC-BY-SA-4.0 contributions | `APPROVED`（内部研究） | `NOT_APPROVED` / `NOT_APPROVED` / `APPROVED_INTERNAL_RESEARCH_ONLY` |
 
-来源登记与证据在 [`configs/corpus_v5_sources.review.json`](../configs/corpus_v5_sources.review.json)。每个来源记录 source URL、release/version、license、本地 raw JSONL 与 `.xml.bz2` 的 SHA256/字节数、文档数、字符数、估算 tokens、转换历史、`upstream_snapshot_uri`、许可参考链接、审批人/日期、`training_scope` 和许可义务。原始 dump、JSONL 和缓存均不提交；登记中的路径是生成机的本地绝对路径。
+## 测试
 
-| 来源 | 文档数 | 原始字符数 | 估算 tokens（字符/1.422 等） | 输入 JSONL SHA256 |
-|---|---:|---:|---:|---|
-| `candidate-zh-wikipedia` | 1,562,728 | 1,095,459,302 | 770,365,589 | `46f63cef5be5cd3c0eaa14c268169b78046c93b2e4b4413bb3432904021dae58` |
-| `candidate-zh-wikinews` | 18,659 | 6,491,950 | 4,627,345 | `7c6c1a4c3c54f5a157a9be1c25bbaa76994e14f678b33d1d9d38a8d390d70671` |
-| `candidate-zh-wikivoyage` | 5,598 | 6,156,468 | 4,432,476 | `ead0492ed5a293f1258280a12452c9d5b80dd68781f0a5f6271c85aa36f164ef` |
-| `candidate-zh-wikibooks` | 7,668 | 17,809,379 | 11,775,973 | `492c9fff68fa854fbbbf5470e45c0985b769ef5b4f2adc8e40257b7050ac5849` |
-| `candidate-zh-wikiversity` | 3,555 | 6,359,645 | 4,396,018 | `88cc63bdf03a49e13b63f7e121cb216d538f3919b633e10b91cf65af7f4d42b7` |
-| `candidate-en-wikisource` | 169,732 | 1,937,748,972 | 518,017,908 | `89de7544153da2b70e931ef65cc33fc6cf1391fdf00891879504e6597ec7f623` |
+| 测试 | 结果 |
+|---|---|
+| 全量 `OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 .venv/bin/python -m pytest -q -o addopts='' -rs` | 1,078 通过，1 跳过，10 个 Web 用例首次运行因沙箱禁止监听本机回环端口而在初始化时报错 |
+| 获准监听后运行 `.venv/bin/python -m pytest -q -o addopts='' -rs tests/test_web.py` | 11 通过，覆盖全量运行中报错的 10 项 |
+| `.venv/bin/python -m pytest -q -o addopts='' -rs tests/test_v5_language_corpus.py` | 21 通过，含真实 1M/2M 复验和准入 |
+| `SYNTHETIC=1 bash scripts/smoke_test.sh` | CPU Smoke Test 通过，覆盖预训练、SFT、INT4 导出及加载生成 |
 
-`en-wikisource` 同时包含公有领域作品和 CC-BY-SA 贡献。本次批准只覆盖内部研究训练；署名、同条件分享和逐作品版权状态仍须在对外使用前重新审查，不能因为“多数是公有领域”就推定整包可商用或可再分发。
-
-### 2.1 审批材料
-
-`prepare` 生成：
-
-- [`configs/corpus_v5_source-approval-request.json`](../configs/corpus_v5_source-approval-request.json)：6 个来源、文件 SHA256、10,000,848 预算、45/30/15/10/0 比例、内部研究用途、非商用、非再分发、非公开发布权重。
-- [`configs/corpus_v5_source-approval.json`](../configs/corpus_v5_source-approval.json)：审批证据，包含 `reviewer=wangshaozheng`、`recorded_at=2026-11-26`、逐字会话确认、精确预算/比例、六个来源的 release/文件 SHA256，以及 request 的 `sha256`/`bytes` 绑定。
-- `reports/v5-language-corpus-10m-v1/prepare/source-review.approved.json`：六个已批准来源的运行期登记副本。
-- `reports/v5-language-corpus-10m-v1/prepare/status.json`：`READY_FOR_BUILD`，`approved_sources: 6`，`pending_sources: []`，`formal_freeze: NOT_RUN`。
-
-当前 request SHA256 为 `11b390ff14804535c574c510405675276f262f10d8041bd5d9c6fbc7f77569b3`，approval evidence SHA256 为 `ae78f214d8fe839f085caba8de3f8780744cb96ceb06702c1aac1c56a6377248`。`validate_approval` 会拒绝占位 reviewer、错误版本、错误文件集合、被篡改的 request 和任何仍是 `REVIEW_REQUIRED` 的来源。
-
-`build` 在 `validate_approval` 之前不会构造正式管线；只有 `READY_FOR_BUILD` 和匹配的 approval evidence 才能继续。复现构建命令：
-
-```bash
-.venv/bin/python scripts/prepare_v5_language_corpus.py build \
-  --approval configs/corpus_v5_source-approval.json \
-  --request configs/corpus_v5_source-approval-request.json
-```
-
-正式 `verify_frozen` 还会重新检查 source review、预算、污染审计、tokenizer 复用、stage key 和 `FROZEN` 身份。**本 PR 尚未执行 build，因此没有正式冻结语料。**
-
-## 3. 候选库存：采样、清洗、去重
-
-### 3.1 确定性采样与断点恢复
-
-- 采样排序键：`sha256(seed \0 source_id \0 record_id)`；`seed=42`；每个来源独立配额，不按行号或文件顺序取样。
-- 大文件流式读取，每 1,000 条写状态，输出 `.part`，完成后原子改名为 `.jsonl`；恢复时从已提交字节继续。
-- 状态绑定输入路径、SHA256、sample rate、seed 和输出字节数；输入变化会拒绝恢复。
-- `download_resumable` 使用 HTTP Range，校验 206/Content-Range 和官方 SHA1；不完整下载不会发布为目标文件。
-
-### 3.2 清洗与长文切分
-
-44,525 篇被采样文档（34,098,688 sampled tokens）中，有 401 篇超过 20,000 字符上限。它们只在段落/句子边界切分，切分后 45,615 个候选片段；拼接结果逐字节等于原文，未改写、未截断、未丢段。长文切分是“保留整篇/整段”的实现，不是降低质量阈值。
-
-质量 KEEP 30,633 个片段；其中 68 个精确重复先被 exact-hash 去掉，剩 30,565 个片段（28,844,180 tokens）进入近重复。质量动作（按片段计）：
-
-| 动作 | 数量 | 处理 |
-|---|---:|---|
-| `KEEP` | 30,633 | 进入候选 |
-| `REJECT` | 13,676 | 垃圾/空短/重复字符/重复段落 |
-| `REVIEW` | 1,306 | 排除出候选供给；不是批准 |
-
-主要规则触发：`empty_or_short` 13,607、`language_mismatch` 441、`pii_contacts` 532、`punctuation_density` 350、`boilerplate_noise` 100、`digit_density` 77、`extreme_length` 0（切分后不再触发）、`html_residue` 5、`repeated_characters` 40、`repeated_paragraph` 29。`REVIEW` 全部不进入候选，也不被当作“人工批准”。
-
-| 来源 | 采样率 | 采样文档 | 采样 tokens | 保留片段 | 保留 tokens | REVIEW 文档 | REJECT 文档 |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| `candidate-zh-wikipedia` | 0.005 | 7,678 | 3,662,518 | 6,425 | 3,508,108 | 45 | 1,215 |
-| `candidate-zh-wikinews` | 1.0 | 18,659 | 4,626,387 | 9,048 | 4,507,655 | 60 | 9,552 |
-| `candidate-zh-wikivoyage` | 1.0 | 5,598 | 4,432,261 | 4,090 | 3,158,419 | 173 | 1,370 |
-| `candidate-zh-wikibooks` | 1.0 | 7,668 | 11,751,385 | 6,272 | 10,146,215 | 614 | 1,069 |
-| `candidate-zh-wikiversity` | 1.0 | 3,555 | 4,395,216 | 3,070 | 3,542,482 | 160 | 405 |
-| `candidate-en-wikisource` | 0.008 | 1,367 | 5,230,921 | 1,660 | 3,981,301 | 254 | 65 |
-| **合计** |  | **44,525** | **34,098,688** | **30,565** | **28,844,180** | **1,306** | **13,676** |
-
-注意：`candidate-zh-wikinews` 的 9,552 个 REJECT 主要是短讯/占位页；`candidate-en-wikisource` 的 REVIEW 主要是长作品中的 PII/模板信号，切分后已尽量保留可用部分，但仍不把 REVIEW 当训练数据。
-
-### 3.3 近重复、历史交叉与污染
-
-- MinHash-LSH：128 bins、32 bands × 4 rows、threshold 0.85、5-gram（zh）/3-gram（en）；30,565 → 30,286，删除 279 篇近重复，`candidate_truncations=0`。
-- 历史 Val/Test 交叉：276 篇历史文档（1M 的 val/test；2M 文件字节相同），检查 30,286 篇候选；删除 76 篇 exact + 1 篇 near，共 77 篇。历史文件 SHA256 未变：val `25229b9c…4d`、test `b58cb2c0…c4`。
-- 正式评测污染：7 个 frozen assets、686 个 benchmark items、1,295 个 variants；扫描 30,209 篇；`CHECKED_NO_HITS`、high-risk hits 0、删除 0、6 个低风险 `ANSWER_ONLY`/`SHORT_KNOWLEDGE_OVERLAP` 保留并记录。这是有界词法审计，不是语义证明；6 个低风险命中不代表可以跳过未来/未知 benchmark 的审计。
-- 清洁审计后：30,209 篇、28,661,960 tokens、49,841,686 字符。
-
-## 4. 类别供给与 10M 冻结预排
-
-### 4.1 候选选包（12–15M 建议区间）
-
-按 15M 目标比例选包，得到 **13,994,640 effective tokens**（14,009,038 raw），在建议的 12–15M 候选区间内；15M 冲刺目标差 1,005,360 effective（类别缺口合计 1,007,079，但 zh_education 超额 1,719）。缺口主要是 zhwiki 只能供 3,500,670（目标 4,500,000），缺口 999,330；英文差 2,187，中文通用差 5,562。
-
-| 类别 | 候选有效 tokens | 15M 目标 | 缺口 | 10M 配额 | 10M 余量 |
-|---|---:|---:|---:|---:|---:|
-| `zh_general` | 6,744,438 | 6,750,000 | 5,562 | 4,500,382 | +2,244,056 |
-| `zh_encyclopedic` | 3,500,670 | 4,500,000 | 999,330 | 3,000,255 | +500,415 |
-| `zh_education` | 2,251,719 | 2,250,000 | 0 | 1,500,128 | +751,591 |
-| `en_general` | 1,497,813 | 1,500,000 | 2,187 | 1,000,085 | +497,728 |
-| `math_logic_code` | 0 | 0 | 0 | 0 | 0 |
-| **合计** | **13,994,640** | **15,000,000** | **1,005,360**（净额） | **10,000,848** | **+3,993,792** |
-
-候选选包的单来源占比：zhwiki 25.0%、wikinews 28.9%、wikivoyage 19.3%、en-wikisource 10.7%、wikibooks 10.4%、wikiversity 5.6%。没有任何单来源超过 30%。
-
-### 4.2 10M 冻结预排（为 96/2/2 预留）
-
-正式切分是 96% train / 2% val / 2% test；不能把 10M 候选直接当作 10M train。预排先按 `10,000,848 / 0.96` 预留，另加 1% 与每类 10 个窗口的 packing 余量，选 10,558,383 effective tokens；按 4% holdout 估算，train 约 **10,136,047** effective tokens，覆盖 10,000,848 并留 135,199 余量。正式切分按 family cluster 分组，实际 train 数量可能略有出入；冻结门禁会要求精确预算，预排不是冻结结果。
-
-| 类别 | 预排有效 tokens | 预排占比 | 10M 配额 | 4% holdout 后供给 |
-|---|---:|---:|---:|---:|
-| `zh_general` | 4,747,155 | 44.961% | 4,500,382 | 4,557,268 |
-| `zh_encyclopedic` | 3,163,652 | 29.963% | 3,000,255 | 3,037,105 |
-| `zh_education` | 1,587,048 | 15.031% | 1,500,128 | 1,523,566 |
-| `en_general` | 1,060,528 | 10.044% | 1,000,085 | 1,018,106 |
-| `math_logic_code` | 0 | 0% | 0 | 0 |
-| **合计** | **10,558,383** | **100%** | **10,000,848** | **10,136,047** |
-
-- 比例偏差：-0.039pp / -0.037pp / +0.031pp / +0.044pp，全部在 ±1pp 内。
-- 预排报告是在审批前生成的，`budget_for` 状态为 `READY_FOR_TRAINING`（仅指 token 数学余量），其 `blocking_conditions` 记录的是当时的 `LICENSE_REVIEW_NOT_APPROVED` 和 `CONTAMINATION_NOT_CLEARED`。当前来源审批已清除 license 条件，但正式冻结仍需 build 阶段重新审计污染；候选报告本身**不是可训练状态**。
-- 该预排不产生 split 文件、不产生 train.bin、不产生 `FROZEN`。
-
-### 4.3 来源集中度与语言风格
-
-10M 预排的来源占比（按 raw tokens）：
-
-| 来源 | tokens | 占比 |
-|---|---:|---:|
-| `candidate-zh-wikipedia` | 3,166,744 | 29.96% |
-| `candidate-zh-wikinews` | 2,847,010 | 26.94% |
-| `candidate-zh-wikivoyage` | 1,904,786 | 18.02% |
-| `candidate-en-wikisource` | 1,062,411 | 10.05% |
-| `candidate-zh-wikibooks` | 1,032,523 | 9.77% |
-| `candidate-zh-wikiversity` | 556,077 | 5.26% |
-
-单来源最高 29.96%，低于 30% 的内部预警线；中文通用仅由 wikinews/wikivoyage 两源构成，二者合计 44.96%，仍低于 50%。这不是永久配额，正式审批可以收紧。
-
-中文部分的 `chinese_style` 启发式统计（只用于报告，不作为过滤门槛）：
-
-| 风格 | 文档数 | tokens | 占中文 tokens |
-|---|---:|---:|---:|
-| 现代汉语 | 12,808 | 8,144,652 | 85.67% |
-| 混合 | 461 | 304,920 | 3.21% |
-| 古汉语倾向 | 116 | 30,345 | 0.32% |
-| 未判定 | 1,413 | 1,027,223 | 10.80% |
-
-古汉语倾向占比很低，不存在“靠古汉语/文言文凑量”的问题；英文 1,062,411 tokens 单独计入 `en_general`，不计入中文风格比例。“未判定”主要是短文本/传统字混排，未从质量门禁中放行任何 REVIEW 文档。
-
-## 5. 数据管线与门禁
-
-### 5.1 流程
-
-1. **INGESTED**：只接受已登记的本地 JSONL；逐文件 SHA256/字节数校验；流式读取，不把全量 raw 载入内存。V5 的 `max_record_bytes` 为 8 MiB，仅为容纳长篇作品的安全上限；它不是质量阈值，也不放行 REVIEW。
-2. **NORMALIZED**：保留段落与 EOS；HTML 清理、Unicode/空白规范化；不做摘要或改写。
-3. **QUALITY_REVIEWED**：V4 规则集 `corpus-quality-v4.1`；短/空、重复字符、重复段落、HTML 残留、模板/广告、标点密度、数字密度、PII、语言不匹配、异常字符；REVIEW 排除，REJECT 丢弃。
-4. **长文切分**：候选 inventory 在归一化后切分；正式 V5 quality 阶段在评估前对 ingested 行调用 `_split_overlong_quality`，同样只在段落/句子边界切分并保留原 `document_family_id`。两条路径都验证拼接字节一致；切分不是质量豁免，切分后的片段仍逐条过全部质量规则。
-5. **DEDUPLICATED**：exact content hash + MinHash-LSH 近重复；跨来源。
-6. **SPLIT**：`family_cluster_hash`，96/2/2，`verify_near_cross_split=true`；从 V5 组独立生成，不复用历史 split。
-7. **TOKENIZER_EVALUATED / TOKENIZED**：复用冻结 tokenizer；V5 不训练 tokenizer，不写新的 tokenizer 决策。
-8. **AUDITED / FROZEN**：预算精确检查、污染审计、source approval、stage key、manifest、`FROZEN` 身份检查；任何一项失败都拒绝冻结。
-
-### 5.2 V4 复用方式
-
-V5 只在 `corpus_version == minillm-corpus-v5-language-10m-v1` 时进入新分支：
-
-- `CorpusV4Pipeline` 的 `v5` 分支复用冻结 tokenizer 的 `tokenizer-selection.json`、evaluation/candidates 副本；`train_tokenizers`/`evaluate_tokenizers`/`record_tokenizer_decision` 明确拒绝。
-- Tokenizer selection stage key 绑定 `split` 和 `BASE_ID`（1M content id），因此 1M/2M 的历史行为不变。
-- `verify_frozen` 对 V5 重新计算同一 stage key，并在语言 release 末尾调用 `v5.verify_release`；1M/2M 不进入该分支。
-- `v4_sources` 对 V5 调用 `v5.validate_scope` / `v5.validate_source_set`；V4 的 1M/2M 路径不改变。
-- `v4_language_pilot.is_language`/`language_config` 增加 V5；1M/2M 的 quota 公式和发布校验保持原样。
-
-### 5.3 可追溯性
-
-每个候选片段保留：`document_id`、`parent_document_id`、`part_index`、`part_count`、`source_id`、`source_record_id`、`revision_id`、`source_url`、`input_path`、`input_sha256`、`sample_rank`、`language`、`category`、`tokens`、`characters`、`content_hash`、`chinese_style`。`sample_source` 的 `.state.json` 记录输入身份和已提交字节；`candidate-manifest.json` 记录 inventory 和所有报告的 SHA256。
-
-## 6. 训练预算预览（不运行训练）
-
-基准：PR #18 的 2M 实测 **245 updates / 1,531.928 s = 6.252767 s/update**。以下是按 8,184 supervised tokens/update 的完整优化器更新口径外推，不是训练承诺； `available_windows` 已扣除 4% val/test holdout。
-
-| 预算 | 完整更新数 | supervised tokens | 需要窗口 | 可用窗口 | 窗口缺口 | 类别缺口 | 预计时间 | 磁盘（估算） | 可行性 |
-|---|---:|---:|---:|---:|---:|---|---:|---:|---|
-| 4M | 489 | 4,001,976 | 3,912 | 9,898 | 0 | 0 | 50.96 min | ≈6.4 GB | ✅ |
-| 10M | 1,222 | 10,000,848 | 9,776 | 9,898 | 0 | 0 | 2 h 7 min | ≈6.4 GB | ✅ |
-| 50M | 6,110 | 50,004,240 | 48,880 | 9,898 | 38,982 | zh_general 17,944,640；zh_encyclopedic 11,964,167；zh_education 5,977,070；en 3,982,318 | 10 h 37 min | ≈6.4 GB | ❌ 不足 |
-| 100M | 12,219 | 100,000,296 | 97,752 | 9,898 | 87,854 | zh_general 40,442,866；zh_encyclopedic 26,962,984；zh_education 13,476,479；en 8,981,924 | 21 h 13 min | ≈6.4 GB | ❌ 不足 |
-
-说明：
-
-- 4M 与 10M 的类别余量均为正；10M 的 `zh_encyclopedic` 余量最小（预排 3,163,652 vs 配额 3,000,255），这是审批时最需要关注的类别。
-- 50M/100M 不是“再采样一遍”能解决：唯一窗口只有 9,898，禁止重复窗口；需要新增已审批来源或扩大已批准来源的 scope。
-- 磁盘是按 2M run 实测 6.4 GB（含 `model.pt`、`best.pt`、`state.pt`、`state.prev.pt` 与 milestones）估算；若大预算增加 milestone 数量，磁盘会更高。四次预览的总量约 25.6 GB，不含原始语料与中间缓存。
-- 时间只外推计算/更新开销；不包含数据加载、评测、checkpoint 写入的波动。GPU 训练不在本 PR 范围内。
-
-## 7. 冻结身份、历史兼容与验证集
-
-- **冻结 tokenizer**：`artifacts/corpus/v4-language-pilot-first-training-reviewed/tokenizer.json`；vocab 24,576；fingerprint `845a24b9…b8a`；V5 receipt 的 `reused_from_content_id` 为 1M content id。
-- **1M/2M 不变**：未重写 `artifacts/corpus/v4-language-pilot-first-training-reviewed/` 或 `artifacts/corpus/minillm-corpus-v4-language-pilot-2m-v1/`；两者仍可被 `verify_frozen` 独立验证。
-- **历史 Val/Test 不变**：1M val/test SHA256 `25229b9c…364d` / `b58cb2c0…15c4`；2M manifest 记录相同文件。V5 交叉审计删除 77 篇重复，而不是修改历史文件。
-- **新 Val/Test**：V5 config 的 96/2/2 `family_cluster_hash` 会在正式 freeze 时生成新的 V5 val/test；它们来自 V5 候选组，不复用历史 split，且会再次与历史 val/test 和 7 个 frozen benchmark 做污染审计。由于正式 build 尚未执行，本 PR 不生成也不提交这些集合。
-- **冻结门禁**：`verify_frozen` 要求 `freeze_status=READY`、`dataset_status=FORMAL`、content id/文件一致、stage keys 一致、source plan 一致、tokenizer selection 一致、split isolation PASS、`FROZEN` 标记、license/contamination/budget 通过。V5 额外要求 source approval 和 10,000,848 的精确预算。
-- 当前 `freeze_status=READY_FOR_BUILD`；审批已完成，但正式 build/freeze 尚未执行，不存在 `FROZEN` 文件，`freeze.json` 和正式 `dataset-manifest.json` 也未生成。
-
-## 8. 测试与复现
-
-新增 `tests/test_v5_language_corpus.py`（15 项）覆盖：
-
-- 来源审批/许可门禁：pending、旧 `corpus_versions`、错误预算、占位 reviewer、未批准的 scope 全部拒绝；6 类正类别必须覆盖，`math_logic_code` 必须为 0。
-- 审批证据：request 文件身份、逐来源 release/文件 SHA256、reviewer/日期/逐字确认；篡改 request 或文件集合会失败。
-- 大文件流式与断点恢复：Range/206、SHA1 校验、`.part` 恢复、错误 SHA1 不发布。
-- 确定性采样/配额：seed 绑定、resume 后顺序稳定、输入变化拒绝、source cap 生效。
-- 跨版本去重/污染：exact + near 历史重复删除、历史 doc id 稳定性、contamination 接口。
-- 精确 token 预算：`training_preview` 的 1,222 × 8,184、9,776 窗口、4M/10M 可行、100M 不可行。
-- 长文切分：候选路径与正式 `_split_overlong_quality` 行切分都只在边界切、拼接字节一致、每段 ≤20,000 字符、family 不变。
-- 1M/2M 兼容：`is_language` 仍识别历史 profile；V4 回归测试 166 项通过。
-- 批准状态：6/6 approved 时 `prepare` 输出 `READY_FOR_BUILD`、`source-review.approved.json` 和 `APPROVED_READY_FOR_BUILD` request；仍有 pending 时保持 fail-closed。
-- 冻结身份：V5 tokenizer reuse receipt 与 source approval 绑定的代码路径；正式 freeze 由审批后的 build 验证。
-
-本机执行结果（详见 PR 描述）：
-
-```text
-.venv/bin/python -m pytest -q -o addopts='' tests/test_v5_language_corpus.py
-# 15 passed
-
-.venv/bin/python -m pytest -q -o addopts=''
-# 1082 passed, 1 skipped in 1273.93s (0:21:13)
-
-SYNTHETIC=1 bash scripts/smoke_test.sh
-# == smoke test passed ==
-# 434,816 params; INT4 0.24 MB / 50 MB; reload + generate OK
-```
-
-## 9. 已知问题与扩充计划
-
-1. **正式冻结尚未执行（P0 后续）**。审批已记录（仅内部研究），`prepare` 已到 `READY_FOR_BUILD`；下一步是用匹配的 approval evidence 运行 `build`，再验证 `verify_frozen`。正式冻结前不得进入训练。
-2. **15M 候选冲刺差 1.0M**。主要缺 zhwiki（3.50M vs 4.50M）。若审批允许扩大 zhwiki 使用范围，将 sample_rate 从 0.005 提高到约 0.007，可补 ~1.0M；这会扩大既有来源使用范围，必须重新审批，不能在候选阶段自动做。
-3. **10M 的 zh_encyclopedic 余量最小**（预排 3.16M vs 配额 3.00M）。正式 split 的组粒度可能使 train 侧略低于预排；冻结门禁会拒绝不足，届时优先补 zhwiki，而不是降低比例或重复窗口。
-4. **REVIEW/REJECT 比例仍高**：wikinews 的 9,552 个 REJECT 包含大量短讯/占位/模板信号；wikibooks/wikivoyage/enwikisource 的 REVIEW 包含 PII、模板、标点/长度信号。后续可改进规则解释和来源特定预处理，但不得把 REVIEW 直接转为 KEEP。
-5. **污染审计是词法的**。已清除 high-risk 命中，保留 6 个低风险 answer-only 命中；不能证明对未知/未来 benchmark 无语义污染。新增 benchmark 时必须重跑。
-6. **50M/100M 不可行**。唯一窗口 9,898，远低于 48,880/97,752；需要新增已审批来源（例如 FineWeb2 需单独审批，不能用“无需审批”推定）或扩大已批准来源 scope。不要在训练时重复采样。
-7. **无 GPU 训练**。本 PR 只交付候选库存、预算预览和门禁；4M/10M 的可行性是 token 数学与时间外推，不是训练结果。
-
-## 10. 交付边界
-
-- 新增：`src/minillm/v5_language_corpus.py`、`src/minillm/corpus_versions.py`、`configs/corpus_v5_language_10m.yaml`、`configs/corpus_v5_candidates.json`、`configs/corpus_v5_sources.review.json`、`configs/corpus_v5_source-approval.json`、`configs/corpus_v5_source-approval-request.json`、`configs/corpus_v5_historical-eval.json`、`scripts/prepare_v5_language_corpus.py`、`tests/test_v5_language_corpus.py`。
-- 修改：`corpus_v4.py`、`v4_language_pilot.py`、`v4_sources.py`、`v4_tokenizer_decision.py` 的 V5 分支；1M/2M 路径保持原行为。
-- 不提交：`data/raw/`、`artifacts/`、`reports/`、`runs/`、任何 `.bin`/`.pt`/大缓存。候选报告在 `reports/v5-language-corpus-10m-v1/`，已被 `.gitignore` 排除。
-- 不合并：PR 保持打开，等待人类审批和后续 freeze/训练 PR。
+全量测试中唯一跳过的是 `tests/test_evaluation.py` 的可选 CUDA 等价性探针，本次在 CPU 上验证。合并两次测试结果后，1,088 项通过，1 项跳过。

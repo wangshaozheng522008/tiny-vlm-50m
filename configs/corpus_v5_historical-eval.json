@@ -2,7 +2,7 @@
   "schema_version": 1,
   "corpus_version": "minillm-corpus-v5-language-10m-v1",
   "base_content_id": "7222651ef09e4e09c2d613474f50712e8233d1d4ff9017bda897e597ebdb6da5",
-  "note": "PR16/PR18 frozen val and test files are byte-identical; the 2M manifest records the same SHA256. Keeping one pair avoids double-counting the same held-out documents.",
+  "note": "Both trusted releases are checked independently; identical documents share one cross-dedup index entry.",
   "sets": [
     {
       "name": "v4-language-pilot-1m-val",
@@ -17,6 +17,22 @@
       "split": "test",
       "path": "artifacts/corpus/v4-language-pilot-first-training-reviewed/test.text.jsonl",
       "manifest": "artifacts/corpus/v4-language-pilot-first-training-reviewed/dataset-manifest.json",
+      "file": "test.text.jsonl",
+      "language": "zh"
+    },
+    {
+      "name": "v4-language-pilot-2m-val",
+      "split": "val",
+      "path": "artifacts/corpus/minillm-corpus-v4-language-pilot-2m-v1/val.text.jsonl",
+      "manifest": "artifacts/corpus/minillm-corpus-v4-language-pilot-2m-v1/dataset-manifest.json",
+      "file": "val.text.jsonl",
+      "language": "zh"
+    },
+    {
+      "name": "v4-language-pilot-2m-test",
+      "split": "test",
+      "path": "artifacts/corpus/minillm-corpus-v4-language-pilot-2m-v1/test.text.jsonl",
+      "manifest": "artifacts/corpus/minillm-corpus-v4-language-pilot-2m-v1/dataset-manifest.json",
       "file": "test.text.jsonl",
       "language": "zh"
     }

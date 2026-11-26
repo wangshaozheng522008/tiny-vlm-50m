@@ -23,6 +23,7 @@ import os
 import re
 import sqlite3
 import time
+from tempfile import TemporaryDirectory
 import urllib.error
 import urllib.request
 from collections import Counter, defaultdict
@@ -49,6 +50,17 @@ CORPUS_CONFIG = ROOT / "configs/corpus_v5_language_10m.yaml"
 CANDIDATE_CONFIG = ROOT / "configs/corpus_v5_candidates.json"
 HISTORICAL_CONFIG = ROOT / "configs/corpus_v5_historical-eval.json"
 SOURCE_REGISTRY = ROOT / "configs/corpus_v5_sources.review.json"
+APPROVAL = ROOT / "configs/corpus_v5_source-approval.json"
+APPROVAL_REQUEST = ROOT / "configs/corpus_v5_source-approval-request.json"
+APPROVAL_SHA256 = "ae78f214d8fe839f085caba8de3f8780744cb96ceb06702c1aac1c56a6377248"
+SOURCE_REGISTRY_SHA256 = "772bd78a8bb1fa7a4ced04c6f9a923f5fd529fc0c3797a067dcd3fb9822cd944"
+CANDIDATE_REPORT = "v5-candidate-selection.json"
+CANDIDATE_LINEAGE = "v5-candidate-lineage.jsonl"
+SAMPLER_REPORT = "v5-sampler-budget.json"
+FORMAL_SCREENING_REPORT = "v5-formal-screening.json"
+V5_FILES = (CANDIDATE_REPORT, CANDIDATE_LINEAGE, SAMPLER_REPORT, FORMAL_SCREENING_REPORT)
+V5_AUDIT_CHECKS = ("v5_approval", "v5_candidate_selection", "v5_historical_dedup",
+                   "v5_source_quota", "v5_sampler_budget")
 BASE = ROOT / "artifacts/corpus/v4-language-pilot-first-training-reviewed"
 BASE_2M = ROOT / "artifacts/corpus/minillm-corpus-v4-language-pilot-2m-v1"
 OUTPUT = ROOT / "artifacts/corpus" / V5_VERSION
@@ -199,8 +211,13 @@ def validate_scope(entry):
     for key, value in expected.items():
         if scope.get(key) != value:
             raise CorpusError(f"v5 human scope {key} differs from the pinned budget")
-    if scope.get("public_weight_release") not in (True, False):
-        raise CorpusError("v5 scope must state whether public weight release is approved")
+    if (any(scope.get(key) is not False for key in (
+            "public_weight_release", "commercial_use", "redistribution"))
+            or scope.get("model_training") is not True
+            or entry.get("commercial_use") != "NOT_APPROVED"
+            or entry.get("redistribution") != "NOT_APPROVED"
+            or entry.get("model_training") != "APPROVED_INTERNAL_RESEARCH_ONLY"):
+        raise CorpusError("v5 scope must be limited to internal research training")
     reviewer = _require_text(scope.get("reviewer"), "v5 scope reviewer")
     reviewed = _iso_date(scope.get("reviewed_at"), "v5 scope reviewed_at")
     _require_text(scope.get("confirmation"), "v5 human confirmation")
@@ -212,8 +229,6 @@ def validate_scope(entry):
         raise CorpusError("v5 scope reviewer differs from the source licence reviewer")
     if reviewed != licensed:
         raise CorpusError("v5 scope date differs from the source licence review date")
-    if scope["public_weight_release"] and not scope.get("redistribution_decision"):
-        raise CorpusError("public weight release requires an explicit redistribution decision")
     return scope
 
 
@@ -228,6 +243,8 @@ def validate_source_set(registry):
         if not isinstance(record, dict):
             raise CorpusError(f"v5 source {source.get('source_id')} lacks source_review evidence")
         entry = record.get("entry")
+        if not isinstance(entry, dict):
+            raise CorpusError("v5 source_review entry is missing")
         validate_scope(entry)
         if entry["v4_source"].get("source_id") != source.get("source_id"):
             raise CorpusError("v5 source_review id mismatch")
@@ -374,10 +391,13 @@ def sample_source(spec: dict, config: dict, sampled_dir: str | Path,
     part = output.with_name(output.name + ".part")
     state_path = sampled_dir / f"{source_id}.state.json"
     input_info = file_info(path)
+    sampling_key = identity([config["seed"], spec, input_info, sha256(Path(__file__))])
     state = read_json(state_path) if state_path.is_file() else None
     if state is not None:
         if state.get("input") != input_info or state.get("source_id") != source_id:
             raise CorpusError(f"{source_id}: input changed since the sampling checkpoint")
+        if state.get("sampling_key") != sampling_key:
+            raise CorpusError(f"{source_id}: sampling policy changed; select a fresh sample directory")
         offset = state["offset"]
         output_bytes = state["output_bytes"]
         produced = state["records_kept"]
@@ -397,12 +417,12 @@ def sample_source(spec: dict, config: dict, sampled_dir: str | Path,
         offset = produced = seen = malformed = 0
         part.write_bytes(b"")
     threshold = _threshold(spec["sample_rate"])
-    commit_every = config["commit_every"]
+    commit_every = config.get("commit_every", 1000)
     started = time.monotonic()
+    resumed = state is not None
     with path.open("rb") as source, part.open("ab") as sink:
         source.seek(offset)
         while True:
-            line_start = source.tell()
             line = source.readline()
             if not line:
                 break
@@ -450,7 +470,7 @@ def sample_source(spec: dict, config: dict, sampled_dir: str | Path,
             if produced % commit_every == 0:
                 sink.flush()
                 os.fsync(sink.fileno())
-                state = {"schema_version": 1, "source_id": source_id, "input": input_info,
+                state = {"schema_version": 1, "source_id": source_id, "input": input_info, "sampling_key": sampling_key,
                          "offset": offset, "records_seen": seen, "records_kept": produced,
                          "malformed": malformed, "output_bytes": sink.tell(), "complete": False}
                 write_json(state_path, state)
@@ -458,7 +478,7 @@ def sample_source(spec: dict, config: dict, sampled_dir: str | Path,
         sink.flush()
         os.fsync(sink.fileno())
         output_bytes = sink.tell()
-    state = {"schema_version": 1, "source_id": source_id, "input": input_info,
+    state = {"schema_version": 1, "source_id": source_id, "input": input_info, "sampling_key": sampling_key,
              "offset": offset, "records_seen": seen, "records_kept": produced,
              "malformed": malformed, "output_bytes": output_bytes, "complete": completed}
     if completed:
@@ -469,7 +489,7 @@ def sample_source(spec: dict, config: dict, sampled_dir: str | Path,
         write_json(state_path, state)
     log(f"[v5 sample] {source_id}: {produced}/{seen} records, {output_bytes} bytes")
     return {"source_id": source_id, "status": "COMPLETE" if completed else "PARTIAL",
-            "resumed": state is not None, "records_seen": seen, "records_kept": produced,
+            "resumed": resumed, "records_seen": seen, "records_kept": produced,
             "malformed": malformed, "output": file_info(output) if completed else None,
             "output_bytes": output_bytes, "seconds": time.monotonic() - started}
 
@@ -483,13 +503,10 @@ def sample_all(config: dict, review: dict, sampled_dir: str | Path, *, stop_afte
         if entry is None:
             raise CorpusError(f"candidate source {spec['source_id']} is absent from the review registry")
         source = entry["v4_source"]
-        declared = Path(spec["path"]).resolve()
-        if declared != Path(source["paths"][0]).resolve():
+        declared = (ROOT / spec["path"]).resolve()
+        if declared != (ROOT / source["paths"][0]).resolve():
             raise CorpusError(f"{spec['source_id']}: candidate path differs from the reviewed path")
-        if source["category"] != spec.get("category"):
-            spec = {**spec, "category": source["category"]}
-        else:
-            spec = {**spec, "category": source["category"]}
+        spec = {**spec, "path": str(declared), "category": source["category"]}
         results.append(sample_source(spec, config, sampled_dir, stop_after=stop_after, log=log))
     return results
 
@@ -625,6 +642,7 @@ def prepare_candidates(rows: list[dict], config: dict, tokenizer: MiniLLMTokeniz
         if len(parts) > 1:
             split_documents += 1
         document_tokens = 0
+        raw_sha256 = hashlib.sha256(row["text"].encode("utf-8")).hexdigest()
         for part_index, part in enumerate(parts):
             candidate_parts += 1
             tokens = len(tokenizer.encode_document(part, category=detected))
@@ -650,7 +668,7 @@ def prepare_candidates(rows: list[dict], config: dict, tokenizer: MiniLLMTokeniz
             clean.append({
                 **{key: row[key] for key in ("source_id", "category", "language_hint",
                                              "source_url", "revision_id", "source_record_id",
-                                             "sample_rank", "input_path", "input_sha256")},
+                                             "sample_rank", "input_path", "input_sha256", "input_line")},
                 "document_id": part_id,
                 "parent_document_id": row["document_id"],
                 "part_index": part_index,
@@ -662,6 +680,8 @@ def prepare_candidates(rows: list[dict], config: dict, tokenizer: MiniLLMTokeniz
                 "quality_action": action,
                 "quality_rules": sorted({f.rule_id for f in findings}),
                 "content_hash": digest,
+                "raw_text_sha256": raw_sha256,
+                "normalized_text_sha256": hashlib.sha256(part.encode("utf-8")).hexdigest(),
                 "chinese_style": chinese_style(part) if detected == "zh" else None,
             })
         stats["sampled_tokens"] += document_tokens
@@ -745,60 +765,76 @@ def load_historical(config_path: str | Path = HISTORICAL_CONFIG) -> dict:
     sets = config.get("sets")
     if not isinstance(sets, list) or not sets:
         raise CorpusError("v5 historical evaluation sets are required")
+    if config.get("base_content_id") != BASE_ID:
+        raise CorpusError("v5 historical evaluation base differs")
+    from .corpus_versions import V4_1M_VERSION, V4_2M_VERSION
+    from .v4_language_scaling import BASE_MANIFEST, SCALING_CONTENT_ID, SCALING_MANIFEST
+
+    expected = {
+        (BASE / "dataset-manifest.json").resolve(): (V4_1M_VERSION, BASE_ID, BASE_MANIFEST),
+        (BASE_2M / "dataset-manifest.json").resolve(): (V4_2M_VERSION, SCALING_CONTENT_ID, SCALING_MANIFEST),
+    }
+    coverage = set()
     loaded = []
     for item in sets:
-        required = {"name", "split", "path", "manifest", "file", "language"}
-        if not isinstance(item, dict) or set(item) != required:
-            raise CorpusError("historical set fields must be exactly name/split/path/manifest/file/language")
-        if item["split"] not in ("val", "test") or item["language"] not in ("zh", "en"):
-            raise CorpusError("historical set split/language must be val/test and zh/en")
+        if set(item) != {"name", "split", "path", "manifest", "file", "language"}:
+            raise CorpusError("invalid historical set fields")
         path = (ROOT / item["path"]).resolve()
         manifest_path = (ROOT / item["manifest"]).resolve()
-        if not path.is_file() or not manifest_path.is_file():
-            raise CorpusError(f"missing historical evaluation file: {item['path']}")
+        split = item["split"]
+        if (manifest_path not in expected or split not in ("val", "test")
+                or item["file"] != f"{split}.text.jsonl"
+                or path != manifest_path.parent / item["file"] or item["language"] != "zh"):
+            raise CorpusError("historical evaluation must reference a pinned frozen Val/Test file")
+        version, content_id, manifest_info = expected[manifest_path]
+        if (version, split) in coverage:
+            raise CorpusError("duplicate historical evaluation set")
+        coverage.add((version, split))
+        verify_file(manifest_path, manifest_info)
         manifest = read_json(manifest_path)
-        info = manifest.get("files", {}).get(item["file"])
-        if not _check_file_identity(info):
-            raise CorpusError(f"historical manifest lacks {item['file']}")
+        if (manifest["corpus_version"] != version or manifest["content_id"] != content_id
+                or identity(manifest["identity"]) != content_id or manifest["identity"]["files"] != manifest["files"]
+                or manifest["freeze_status"] != "READY" or manifest["dataset_status"] != "FORMAL"
+                or read_json(manifest_path.parent / "FROZEN") != {"content_id": content_id}):
+            raise CorpusError("historical evaluation manifest is not the trusted frozen release")
+        info = manifest["files"][item["file"]]
         verify_file(path, info)
-        rows = []
-        with path.open(encoding="utf-8") as handle:
-            for number, line in enumerate(handle, 1):
-                if line.strip():
-                    row = json.loads(line)
-                    if isinstance(row.get("text"), str):
-                        document_id = row.get("document_id") or f"{item['name']}:{number}"
-                        rows.append({"document_id": document_id,
-                                     "text": row["text"], "split": item["split"],
-                                     "set": item["name"], "language": item["language"]})
-        loaded.append({"name": item["name"], "split": item["split"], "path": str(path),
+        rows = [{"document_id": row["document_id"], "text": row["text"], "split": split,
+                 "set": item["name"], "language": row.get("language", item["language"])}
+                for row in _load_rows(path)]
+        loaded.append({"name": item["name"], "split": split, "path": str(path), "version": version,
+                       "content_id": content_id, "manifest": manifest_info,
                        "language": item["language"], "file": info, "documents": rows})
-    if not any(item["split"] == "val" for item in loaded) or not any(
-            item["split"] == "test" for item in loaded):
-        raise CorpusError("v5 requires both historical validation and test sets")
+    if coverage != {(version, split) for version, _, _ in expected.values() for split in ("val", "test")}:
+        raise CorpusError("v5 requires both historical Val/Test files from both frozen releases")
     return {"config": config, "sets": loaded}
 
 
 def cross_version_audit(rows: list[dict], historical: dict, policy: NearDupPolicy,
                         *, db_path: Path, log=print) -> tuple[list[dict], dict]:
     """Exact + near duplicate audit against historical val/test documents."""
-    historical_rows = [row for item in historical["sets"] for row in item["documents"]]
-    exact = {}
+    # Retain the original profile and also index the language recorded by the frozen split.
+    documents = {}
     for item in historical["sets"]:
         for row in item["documents"]:
-            exact.setdefault(content_hash(normalise(row["text"], item["language"]),
-                                          item["language"]), row["document_id"])
+            key = (row["document_id"], row["text"])
+            documents.setdefault(key, set()).update((item["language"], row["language"]))
+    variants = {identity([document_id, text, language]): (document_id, text, language)
+                for (document_id, text), languages in documents.items()
+                for language in sorted(languages)}
+    exact = {}
+    for document_id, text, language in variants.values():
+        exact.setdefault(content_hash(normalise(text, language), language), document_id)
     db = sqlite3.connect(db_path)
     try:
         index = MinHashLSHIndex(db, policy, prefix="historical")
-        for item in historical["sets"]:
-            for row in item["documents"]:
-                index.add(row["document_id"], row["text"], item["language"])
+        for variant, (_, text, language) in variants.items():
+            index.add(variant, text, language)
         kept, hits = [], []
         cache = {}
 
         def feature_set(text, language, chunk_index):
-            key = (hash(text), chunk_index)
+            key = (text, language, chunk_index)
             if key not in cache:
                 if len(cache) >= 4096:
                     cache.clear()
@@ -818,17 +854,11 @@ def cross_version_audit(rows: list[dict], historical: dict, policy: NearDupPolic
             for chunk_index, _chunk, values, signature, _truncated in chunk_features(
                     row["text"], row["language"], policy):
                 for other_id, other_chunk in index.candidates(row["document_id"], chunk_index, signature):
-                    # Historical feature sets are recomputed on demand and cached.
-                    historical_doc = next((doc for item in historical["sets"]
-                                           for doc in item["documents"]
-                                           if doc["document_id"] == other_id), None)
-                    if historical_doc is None:
-                        continue
-                    historical_values = feature_set(historical_doc["text"],
-                                                    historical_doc["language"], other_chunk)
+                    historical_id, text, language = variants[other_id]
+                    historical_values = feature_set(text, language, other_chunk)
                     score = exact_jaccard(values, historical_values)
                     if score >= policy.threshold:
-                        duplicate, similarity = other_id, score
+                        duplicate, similarity = historical_id, score
                         break
                 if duplicate:
                     break
@@ -839,13 +869,14 @@ def cross_version_audit(rows: list[dict], historical: dict, policy: NearDupPolic
                 kept.append(row)
     finally:
         db.close()
-    report = {"historical_documents": len(historical_rows), "audited_documents": len(rows),
+    report = {"historical_documents": len(documents), "indexed_language_variants": len(variants),
+              "audited_documents": len(rows),
               "removed_documents": len(hits), "hits": hits,
               "by_kind": dict(Counter(hit["kind"] for hit in hits)),
               "threshold": policy.threshold,
-              "sets": [{"name": item["name"], "split": item["split"],
-                        "documents": len(item["documents"]), "file": item["file"]}
-                       for item in historical["sets"]],
+              "candidate_truncations": index.annotated()["candidate_truncations"],
+              "sets": [{**{key: value for key, value in item.items() if key != "documents"},
+                        "documents": len(item["documents"])} for item in historical["sets"]],
               "limitations": "Lexical exact/near audit against the declared historical val/test files; not a semantic guarantee."}
     log(f"[v5 historical] removed {len(hits)} cross-version duplicates")
     return kept, report
@@ -934,7 +965,7 @@ def budget_for(rows: list[dict], target: int) -> dict:
 
 def training_preview(rows: list[dict], historical_seconds_per_update=MEASURED_SECONDS_PER_UPDATE,
                      *, holdout: float = 0.0) -> dict:
-    """Exact full-update budgets for 4M/10M/50M/100M on the candidate packing.
+    """Estimated Train supply for the full-update budgets on the candidate packing.
 
     ``holdout`` reserves the validation/test fraction that is never trainable.
     The preview therefore reports post-split supply, not raw candidate tokens.
@@ -944,7 +975,7 @@ def training_preview(rows: list[dict], historical_seconds_per_update=MEASURED_SE
     packing = _packing(rows)
     supply = {category: int(math.floor(tokens * (1.0 - holdout)))
               for category, tokens in packing["by_category"].items()}
-    total_windows = int(math.floor(packing["effective_tokens"] * (1.0 - holdout))) // V5_SEQ_LEN
+    total_windows = math.floor(packing["windows"] * (1.0 - holdout))
     report = {}
     for name, updates, tokens in TRAINING_BUDGETS:
         required_windows = updates * 8
@@ -968,7 +999,7 @@ def training_preview(rows: list[dict], historical_seconds_per_update=MEASURED_SE
             "estimated_hours": round(updates * historical_seconds_per_update / 3600, 3),
             "basis": "one optimizer update = 8 windows x 1023 supervised targets = 8184; supply is after the configured val/test holdout; time extrapolated from the measured 2M run",
         }
-    return {"seq_len": V5_SEQ_LEN, "tokens_per_update": V5_TOKENS_PER_UPDATE,
+    return {"status": "ESTIMATED", "seq_len": V5_SEQ_LEN, "tokens_per_update": V5_TOKENS_PER_UPDATE,
             "holdout_fraction": holdout, "candidate_packing": packing, "budgets": report,
             "time_basis": {"source": "v4-language-pilot-2m-v1", "updates": 245,
                            "seconds": 1531.928, "seconds_per_update": round(historical_seconds_per_update, 6)}}
@@ -1043,7 +1074,12 @@ def validate_approval(evidence_path: str | Path, request_path: str | Path, revie
     if evidence["corpus_version"] != V5_VERSION or evidence["decision"] != "APPROVED":
         raise CorpusError("v5 approval is not an APPROVED decision for this version")
     _require_text(evidence["reviewer"], "approval reviewer")
-    _iso_date(evidence["recorded_at"][:10], "approval recorded_at")
+    from datetime import datetime
+
+    try:
+        recorded = datetime.fromisoformat(evidence["recorded_at"]).date()
+    except (ValueError, TypeError) as exc:
+        raise CorpusError("invalid approval recorded_at") from exc
     _require_text(evidence["verbatim_human_confirmation"], "verbatim human confirmation")
     if evidence["effective_train_tokens"] != V5_TARGET:
         raise CorpusError("v5 approval budget differs from the pinned 10,000,848 tokens")
@@ -1051,27 +1087,31 @@ def validate_approval(evidence_path: str | Path, request_path: str | Path, revie
         raise CorpusError("v5 approval category ratios differ from the pinned policy")
     if evidence["approval_request"] != file_info(Path(request_path)):
         raise CorpusError("v5 approval does not bind the generated approval request")
-    if any(entry["v4_source"].get("license_status") == "REVIEW_REQUIRED"
-           for entry in review["sources"]):
-        raise CorpusError("v5 approval is incomplete: a source still requires review")
-    approved = {entry["v4_source"]["source_id"]: entry for entry in review["sources"]
-                if entry["v4_source"].get("license_status") == "APPROVED"}
+    approved = {entry["v4_source"]["source_id"]: entry for entry in approved_entries(review)}
+    if len(approved) != len(review["sources"]):
+        raise CorpusError("v5 approval is incomplete: a source lacks approval")
     rows = evidence["sources"]
-    if not isinstance(rows, list) or not rows:
-        raise CorpusError("v5 approval must list approved sources")
-    if {row.get("source_id") for row in rows} != set(approved):
+    if (not isinstance(rows, list) or len(rows) != len(approved)
+            or not all(isinstance(row, dict) for row in rows)
+            or {row.get("source_id") for row in rows} != set(approved)):
         raise CorpusError("v5 approval source ids differ from the approved registry")
     for row in rows:
         entry = approved[row["source_id"]]
+        scope = validate_scope(entry)
         if row.get("release") != entry["release"]:
             raise CorpusError(f"{row['source_id']}: approved release differs")
         if row.get("files") != entry["local_inventory"]["files"]:
             raise CorpusError(f"{row['source_id']}: approved file identities differ")
-        if row.get("decision") != "APPROVED":
-            raise CorpusError(f"{row['source_id']}: approval decision is not APPROVED")
-    for entry in review["sources"]:
-        if entry["v4_source"].get("license_status") == "REVIEW_REQUIRED":
-            raise CorpusError("v5 approval is incomplete: a source still requires review")
+        if (row.get("decision") != "APPROVED" or evidence["reviewer"] != scope["reviewer"]
+                or recorded != _iso_date(scope["reviewed_at"], "source review date")):
+            raise CorpusError(f"{row['source_id']}: approval decision, reviewer or date differs")
+    expected = approval_request(review)
+    def request_policy(value):
+        return {**value, "requested_sources": [
+            {k: v for k, v in row.items() if k != "candidate_measured"}
+            for row in value["requested_sources"]]}
+    if request_policy(request) != request_policy(expected):
+        raise CorpusError("v5 approval request source, budget or authorized scope differs")
     return {"evidence": evidence, "request": request, "approval_sha256": sha256(Path(evidence_path)),
             "request_sha256": sha256(Path(request_path))}
 
@@ -1116,27 +1156,282 @@ def verify_tokenizer_reuse(directory: str | Path) -> dict:
     return receipt
 
 
-def verify_release(directory: str | Path) -> dict:
+def formal_inputs(config, registry, approval_path, request_path) -> dict:
+    """Resolve the recorded approval and every external input to the V5 plan."""
+    if approval_path is None or request_path is None:
+        raise CorpusError("formal V5 requires the recorded approval and request")
+    approval_path, request_path = Path(approval_path).resolve(), Path(request_path).resolve()
+    entries = [source["source_review"]["entry"] for source in registry["sources"]]
+    review = load_source_review(SOURCE_REGISTRY)
+    if sorted(entries, key=lambda e: e["v4_source"]["source_id"]) != sorted(
+            review["sources"], key=lambda e: e["v4_source"]["source_id"]):
+        raise CorpusError("formal V5 sources differ from the approved snapshot")
+    approval = validate_approval(approval_path, request_path, review)
+    if (approval["approval_sha256"] != APPROVAL_SHA256
+            or sha256(SOURCE_REGISTRY) != SOURCE_REGISTRY_SHA256):
+        raise CorpusError("formal V5 approval or source registry differs from the recorded human decision")
+    for entry in entries:
+        _verify_source_files(entry)
+    request = approval["request"]
+    targets = config["targets"]
+    if (request["dataset_name"] != config["dataset_name"]
+            or any(request["requested_budget"][key] != targets[key] for key in (
+                "effective_train_tokens", "seq_len", "category_token_ratios"))
+            or config["budget"]["allow_repetition"] or config["seed"] != 42):
+        raise CorpusError("formal V5 build differs from the approved training plan")
+    candidate = load_candidate_config(CANDIDATE_CONFIG)
+    if {spec["source_id"] for spec in candidate["sources"]} != {
+            source["source_id"] for source in registry["sources"]}:
+        raise CorpusError("formal V5 candidate source set differs from the approved set")
+    sources = {source["source_id"]: source for source in registry["sources"]}
+    for spec in candidate["sources"]:
+        source = sources[spec["source_id"]]
+        if (spec["expected_language"] != source["language"]
+                or set(_source_files(source["source_review"]["entry"])) != {str((ROOT / spec["path"]).resolve())}):
+            raise CorpusError("formal V5 sampling is outside the approved file or language scope")
+    historical = load_historical(HISTORICAL_CONFIG)
+    return {
+        "approval": {"path": str(approval_path), **file_info(approval_path)},
+        "request": {"path": str(request_path), **file_info(request_path)},
+        "source_registry": file_info(SOURCE_REGISTRY),
+        "authorized_scope": request["requested_scope"],
+        "candidate_config": file_info(CANDIDATE_CONFIG),
+        "candidate_policy": candidate,
+        "historical_config": file_info(HISTORICAL_CONFIG),
+        "historical_sets": [{k: v for k, v in item.items() if k != "documents"} for item in historical["sets"]],
+        "contamination_assets": {asset["path"]: file_info(ROOT / asset["path"])
+                                 for asset in config["contamination"]["assets"]},
+        "tokenizer": file_info(TOKENIZER),
+    }
+
+
+def verify_formal_inputs(plan):
+    from .corpus_v4 import implementation_sha256
+
+    saved = plan.get("v5_inputs")
+    if not saved or plan.get("implementation_sha256") != implementation_sha256():
+        raise CorpusError("V5 generation implementation or approval evidence differs")
+    current = formal_inputs(plan["generation_config"], plan["registry"],
+                            saved["approval"]["path"], saved["request"]["path"])
+    if current != saved:
+        raise CorpusError("V5 approval, sampling, historical or source input identity changed")
+    return current
+
+
+def _caps(policy):
+    return {spec["source_id"]: spec["max_source_share"] for spec in policy["sources"]}
+
+
+def _candidate_replay(config, candidate, review, scratch, *, log, sampled=None):
+    sampled = sampled or scratch / "sampled"
+    sampling = sample_all(candidate, review, sampled, log=log)
+    rows = _load_sampled(sampled)
+    tokenizer = MiniLLMTokenizer.load(TOKENIZER)
+    if tokenizer.fingerprint != TOKENIZER_FINGERPRINT or tokenizer.vocab_size != TOKENIZER_VOCAB:
+        raise CorpusError("frozen tokenizer identity changed")
+    clean, quality = prepare_candidates(rows, config, tokenizer, log=log)
+    policy = NearDupPolicy.from_config(config["deduplication"]["near"])
+    clean, dedup = near_deduplicate(clean, policy, db_path=scratch / "near-dedup.sqlite", log=log)
+    clean, cross = cross_version_audit(clean, load_historical(HISTORICAL_CONFIG), policy,
+                                       db_path=scratch / "historical-dedup.sqlite", log=log)
+    clean, contamination = contamination_audit_candidates(clean, config)
+    return clean, {"sampling": sampling, "quality": quality, "dedup": dedup,
+                   "historical": cross, "contamination": contamination}
+
+
+def _lineage(row):
+    return {"kind": "v5_candidate_replay", **{key: row[key] for key in (
+        "document_id", "source_id", "category", "language", "parent_document_id", "part_index",
+        "part_count", "input_path", "input_sha256", "input_line", "source_record_id", "sample_rank",
+        "source_url", "revision_id", "raw_text_sha256", "normalized_text_sha256", "content_hash", "tokens")},
+        "operations": ["deterministic_hash_sample", "normalize", "boundary_split", "quality_keep",
+                       "exact_dedup", "near_dedup", "historical_cross_dedup", "contamination_screen",
+                       "source_quota_selection"]}
+
+
+def replay_formal_candidates(directory, plan, *, log):
+    """Regenerate candidates from reviewed bytes in a fresh workspace."""
+    candidate = plan["v5_inputs"]["candidate_policy"]
+    review = {"sources": [source["source_review"]["entry"] for source in plan["registry"]["sources"]]}
+    with TemporaryDirectory(dir=directory, prefix=".v5-replay-") as scratch:
+        clean, evidence = _candidate_replay(plan["generation_config"], candidate, review, Path(scratch), log=log)
+    evidence["sampling"] = [{key: value for key, value in item.items() if key not in ("seconds", "resumed")}
+                            for item in evidence["sampling"]]
+    if (evidence["dedup"]["candidate_truncations"] or evidence["historical"]["candidate_truncations"]
+            or evidence["contamination"]["errors"] or evidence["contamination"]["stats"]["truncated"]):
+        raise CorpusError("V5 candidate replay did not complete all contamination and dedup checks")
+    targets = {category: round(V5_CANDIDATE_TARGET * ratio) for category, ratio in V5_CATEGORY_RATIOS.items()}
+    caps = _caps(candidate)
+    selected, selection = select_candidates(clean, targets, caps, log=log)
+    lineage = directory / CANDIDATE_LINEAGE
+    _write_rows(lineage, [_lineage(row) for row in selected])
+    report = directory / CANDIDATE_REPORT
+    write_json(report, {"plan_key": plan["plan_key"], "inputs": plan["v5_inputs"], **evidence,
+                        "selection": selection, "lineage": file_info(lineage)})
+    return selected
+
+
+def _source_mix(counts, source_categories, caps):
+    """Apply the configured cap as a fraction of the source's own category."""
+    totals = Counter()
+    for source, count in counts.items():
+        totals[source_categories[source]] += count
+    return {source: {"category": category, "tokens": counts.get(source, 0),
+                     "category_share": share, "cap": caps[source], "within_cap": share <= caps[source]}
+            for source, category in sorted(source_categories.items())
+            for share in [counts.get(source, 0) / max(1, totals[category])]}
+
+
+def sampler_budget(directory, plan):
+    from .corpus_budget import read_token_index, supervision_by_field
+    from .data import EpochBatchSampler, PackedPretrainDataset
+    from .v4_training_accounting import category_consumption, window_token_counts
+
+    directory = Path(directory)
+    seq_len = plan["generation_config"]["targets"]["seq_len"]
+    bin_path = directory / "train.bin"
+    index_path = directory / "train.token-index.jsonl"
+    rows = read_token_index([index_path])["records"]
+    if len(set(row["document_id"] for row in rows)) != len(rows):
+        raise CorpusError("V5 Token Index contains repeated documents")
+    raw_tokens = sum(row["tokens"] for row in rows)
+    if 2 * raw_tokens != bin_path.stat().st_size:
+        raise CorpusError("V5 Train Token Index does not cover the BIN")
+    windows = len(PackedPretrainDataset(bin_path, seq_len)) if raw_tokens > seq_len else 0
+    sampler = EpochBatchSampler(windows, 8, seed=42) if windows else None
+    order = sampler.indices(0) if sampler else []
+    packing = supervision_by_category(((row["category"], row["tokens"]) for row in rows), seq_len)
+    sources = {s["source_id"]: s["category"] for s in plan["registry"]["sources"]}
+    caps = _caps(plan["v5_inputs"]["candidate_policy"])
+    inventory = _source_mix(supervision_by_field(rows, seq_len, "source_id")["by_field"], sources, caps)
+    budgets = {}
+    for name, updates, tokens in TRAINING_BUDGETS:
+        required = updates * 8
+        consumed = order[:min(required, (windows // 8) * 8)]
+        accounting = category_consumption(rows, seq_len, consumed)
+        source_mix = _source_mix(window_token_counts(rows, seq_len, consumed, "source_id"), sources, caps)
+        category_gap = {}
+        within_mix = True
+        for category, target in V5_CATEGORY_RATIOS.items():
+            count = accounting["categories"][category]["consumed_effective_tokens"]
+            category_gap[category] = max(0, math.ceil(tokens * target) - packing["by_category"][category])
+            within_mix &= bool(abs(count - tokens * target) <= tokens * V5_TOLERANCE if target else count == 0)
+        feasible = (len(consumed) == required and accounting["effective_tokens"] == tokens
+                    and within_mix and all(item["within_cap"] for item in source_mix.values()))
+        budgets[name] = {
+            "status": "FEASIBLE" if feasible else "BLOCKED",
+            "updates": updates, "required_effective_tokens": tokens, "required_windows": required,
+            "available_windows": windows, "window_gap": max(0, required - windows),
+            "category_inventory_gap": category_gap, "category_mix_within_tolerance": within_mix,
+            "consumption": accounting, "sources": source_mix,
+            "estimated_seconds": round(updates * MEASURED_SECONDS_PER_UPDATE, 3),
+            "minimum_train_bin_bytes": 2 * (required * seq_len + 1),
+        }
+    return {"status": "ACTUAL_SAMPLER_REPLAY", "seed": 42, "windows_per_update": 8,
+            "input_tokens_per_window": seq_len, "supervised_tokens_per_window": seq_len - 1,
+            "time_basis": "1531.928 seconds / 245 updates on the PR #18 T1200 run",
+            "train_bin": file_info(bin_path), "token_index": file_info(index_path),
+            "storage_bytes": {path.name: path.stat().st_size for path in sorted(directory.glob("*.bin"))},
+            "inventory_sources": inventory, "budgets": budgets}
+
+
+def formal_audit_checks(directory, plan):
+    """Reconcile candidate lineage with all three formal splits and actual windows."""
+    inputs = verify_formal_inputs(plan)
+    directory = Path(directory)
+    candidate = read_json(directory / CANDIDATE_REPORT)
+    lineage = _load_rows(directory / CANDIDATE_LINEAGE)
+    by_id = {row["document_id"]: row for row in lineage}
+    if (candidate["plan_key"] != plan["plan_key"] or candidate["inputs"] != inputs
+            or candidate["lineage"] != file_info(directory / CANDIDATE_LINEAGE)
+            or len(by_id) != len(lineage)):
+        raise CorpusError("V5 candidate lineage differs from its approved generation plan")
+    source_categories = {source["source_id"]: source["category"] for source in plan["registry"]["sources"]}
+    caps = _caps(inputs["candidate_policy"])
+    approved_inputs = {(item["source_id"], item["path"]): item["sha256"] for item in plan["inputs"]}
+    source_tokens = Counter()
+    specs = {spec["source_id"]: spec for spec in inputs["candidate_policy"]["sources"]}
+    for row in lineage:
+        spec = specs[row["source_id"]]
+        rank = _rank(inputs["candidate_policy"]["seed"], row["source_id"], row["source_record_id"])
+        if (row["sample_rank"] != f"{rank:064x}" or rank >= _threshold(spec["sample_rate"])
+                or approved_inputs.get((row["source_id"], row["input_path"])) != row["input_sha256"]
+                or source_categories[row["source_id"]] != row["category"]):
+            raise CorpusError("V5 candidate was outside approved deterministic sampling")
+        source_tokens[row["source_id"]] += row["tokens"]
+    for category, selection in candidate["selection"].items():
+        if selection["by_source"] != {s: count for s, count in source_tokens.items()
+                                      if source_categories[s] == category}:
+            raise CorpusError("V5 candidate source totals differ from its lineage")
+    historical = load_historical(HISTORICAL_CONFIG)
+    policy = NearDupPolicy.from_config(plan["generation_config"]["deduplication"]["near"])
+    excluded = {hit["document_id"] for hit in candidate["historical"]["hits"]}
+    splits = {}
+    used = set()
+    for split in ("train", "val", "test"):
+        rows = _load_rows(directory / f"{split}.text.jsonl")
+        for row in rows:
+            doc = row["document_id"]
+            record = by_id.get(doc)
+            if (doc in excluded or doc in used or record is None
+                    or record not in row["transformation_history"]
+                    or any(record[key] != row[key] for key in ("category", "language", "source_id"))
+                    or record["content_hash"] != row["normalized_sha256"]
+                    or record["content_hash"] != content_hash(row["text"], row["language"])
+                    or record["normalized_text_sha256"] != hashlib.sha256(row["text"].encode("utf-8")).hexdigest()):
+                raise CorpusError(f"V5 {split} document differs from screened candidate lineage: {doc}")
+            used.add(doc)
+        _, cross = cross_version_audit(rows, historical, policy, db_path=Path(":memory:"), log=lambda *_: None)
+        splits[split] = cross
+    historical_ok = all(not (result["hits"] or result["candidate_truncations"]) for result in splits.values())
+    budget = sampler_budget(directory, plan)
+    inventory = budget["inventory_sources"]
+    source_ok = all(item["within_cap"] for item in (
+        *_source_mix(source_tokens, source_categories, caps).values(), *inventory.values(),
+        *(item for name in ("4M", "10M") for item in budget["budgets"][name]["sources"].values())))
+    budget_ok = all(budget["budgets"][name]["status"] == "FEASIBLE" for name in ("4M", "10M"))
+    return budget, {
+        "v5_approval": (True, {"approval": inputs["approval"], "request": inputs["request"],
+                               "scope": inputs["authorized_scope"]}),
+        "v5_candidate_selection": (True, {"candidate_documents": len(lineage), "formal_documents": len(used),
+                                          "lineage": candidate["lineage"]}),
+        "v5_historical_dedup": (historical_ok, {"candidate_removed": len(excluded), "splits": splits}),
+        "v5_source_quota": (source_ok, {"inventory_sources": inventory, "caps": caps}),
+        "v5_sampler_budget": (budget_ok, {name: {key: item[key] for key in (
+            "status", "window_gap", "category_inventory_gap", "category_mix_within_tolerance")}
+            for name, item in budget["budgets"].items()}),
+    }
+
+
+def verify_release(directory: str | Path, *, manifest=None) -> dict:
     """V5-specific release evidence on top of the generic V4/language gates."""
     directory = Path(directory)
-    manifest = read_json(directory / "dataset-manifest.json")
+    manifest = manifest or read_json(directory / "dataset-manifest.json")
     plan = read_json(directory / ".v4/plan.json")
     if (manifest["corpus_version"] != V5_VERSION or plan["corpus_version"] != V5_VERSION
             or manifest["budget"]["target_effective_train_tokens"] != V5_TARGET):
         raise CorpusError("v5 release version or target differs")
-    from .v4_sources import validate_source_set
     validate_source_set(manifest["license_sources"])
     receipt = verify_tokenizer_reuse(directory)
     if receipt["fingerprint"] != manifest["tokenizer_fingerprint"]:
         raise CorpusError("v5 release tokenizer differs from the reuse receipt")
-    historical = load_historical()
-    packing = read_json(directory / "budget-report.json")
-    if packing["target_effective_train_tokens"] != V5_TARGET:
-        raise CorpusError("v5 release budget target differs")
+    for name in V5_FILES:
+        verify_file(directory / name, manifest["files"][name])
+    inputs = verify_formal_inputs(plan)
+    budget = sampler_budget(directory, plan)
+    if (manifest["identity"].get("v5_inputs") != inputs
+            or read_json(directory / SAMPLER_REPORT) != budget
+            or any(budget["budgets"][name]["status"] != "FEASIBLE" for name in ("4M", "10M"))):
+        raise CorpusError("V5 release approval, lineage or sampler budget differs")
+    audit = read_json(directory / "audit-report.json")
+    checks = {name: audit["checks"].get(name, {}) for name in V5_AUDIT_CHECKS}
+    if (any(check.get("status") != "PASS" for check in checks.values())
+            or read_json(directory / FORMAL_SCREENING_REPORT) != checks):
+        raise CorpusError("V5 release lacks complete passing audit evidence")
     return {"corpus_version": V5_VERSION, "content_id": manifest["content_id"],
             "target_effective_train_tokens": V5_TARGET,
             "tokenizer_fingerprint": receipt["fingerprint"],
-            "historical_sets": [item["name"] for item in historical["sets"]]}
+            "historical_sets": [item["name"] for item in inputs["historical_sets"]]}
 
 
 # ---------------------------------------------------------------------------
@@ -1151,31 +1446,24 @@ def inventory(out_dir: str | Path, *, registry_path: str | Path = SOURCE_REGISTR
     out.mkdir(parents=True, exist_ok=True)
     review = load_source_review(registry_path, verify_inputs=True)
     candidate_config = load_candidate_config(candidate_path)
-    sampled = out / "sampled"
-    sample_stats = sample_all(candidate_config, review, sampled, log=log)
-    rows = _load_sampled(sampled)
-    tokenizer = MiniLLMTokenizer.load(TOKENIZER)
-    if tokenizer.fingerprint != TOKENIZER_FINGERPRINT or tokenizer.vocab_size != TOKENIZER_VOCAB:
-        raise CorpusError("frozen tokenizer identity changed")
-    clean, quality = prepare_candidates(rows, load_corpus_config(), tokenizer, log=log)
-    policy = NearDupPolicy.from_config(load_corpus_config()["deduplication"]["near"])
-    clean, dedup = near_deduplicate(clean, policy, db_path=out / "near-dedup.sqlite", log=log)
-    historical = load_historical()
-    clean, cross = cross_version_audit(clean, historical, policy,
-                                       db_path=out / "historical-dedup.sqlite", log=log)
-    clean, contamination = contamination_audit_candidates(clean, load_corpus_config())
+    corpus_config = load_corpus_config()
+    from .corpus_v4 import implementation_sha256
+
+    resume_key = identity([implementation_sha256(), file_info(Path(registry_path)),
+                           file_info(Path(candidate_path)), file_info(HISTORICAL_CONFIG), corpus_config])
+    sampled = out / "sampled" / resume_key if resume else None
+    with TemporaryDirectory(dir=out, prefix=".v5-inventory-") as scratch:
+        clean, evidence = _candidate_replay(corpus_config, candidate_config, review, Path(scratch),
+                                            log=log, sampled=sampled)
+    sample_stats, quality, dedup, cross, contamination = (
+        evidence[key] for key in ("sampling", "quality", "dedup", "historical", "contamination"))
     _write_rows(out / "clean-audited.jsonl", clean)
     targets = {category: int(round(V5_CANDIDATE_TARGET * ratio))
                for category, ratio in V5_CATEGORY_RATIOS.items()}
-    caps = {}
-    for spec in candidate_config["sources"]:
-        entry = next((e for e in review["sources"]
-                      if e["v4_source"]["source_id"] == spec["source_id"]), None)
-        caps[spec["source_id"]] = spec["max_source_share"]
+    caps = _caps(candidate_config)
     selected, selection = select_candidates(clean, targets, caps, log=log)
     packing = _packing(selected)
     candidate_budget = budget_for(selected, V5_CANDIDATE_TARGET)
-    corpus_config = load_corpus_config()
     seq_len = corpus_config["targets"]["seq_len"]
     split_ratios = corpus_config["split"]["ratios"]
     holdout = split_ratios["val"] + split_ratios["test"]
@@ -1198,7 +1486,9 @@ def inventory(out_dir: str | Path, *, registry_path: str | Path = SOURCE_REGISTR
         "schema_version": 1,
         "corpus_version": V5_VERSION,
         "status": ("CANDIDATE_INVENTORY_READY"
-                   if (freeze_packing["effective_tokens"] >= V5_TARGET
+                   if (not dedup["candidate_truncations"] and not cross["candidate_truncations"]
+                       and not contamination["errors"] and not contamination["stats"]["truncated"]
+                       and freeze_packing["effective_tokens"] >= V5_TARGET
                        and all(category["satisfied"] for category in freeze_budget["categories"].values()))
                    else "CANDIDATE_INVENTORY_INSUFFICIENT"),
         "freeze_status": "BLOCKED_SOURCE_APPROVAL",
@@ -1207,7 +1497,7 @@ def inventory(out_dir: str | Path, *, registry_path: str | Path = SOURCE_REGISTR
         "seed": candidate_config["seed"],
         "source_registry": file_info(Path(registry_path)),
         "candidate_config": file_info(Path(candidate_path)),
-        "tokenizer": {"fingerprint": tokenizer.fingerprint, "vocab_size": tokenizer.vocab_size,
+        "tokenizer": {"fingerprint": TOKENIZER_FINGERPRINT, "vocab_size": TOKENIZER_VOCAB,
                       "path": str(TOKENIZER)},
         "sampling": sample_stats,
         "quality": quality,
@@ -1247,8 +1537,9 @@ def inventory(out_dir: str | Path, *, registry_path: str | Path = SOURCE_REGISTR
     write_json(out / "candidate-manifest.json", {
         "schema_version": 1, "corpus_version": V5_VERSION,
         "content_id": report["content_id"],
-        "files": {path.name: file_info(path) for path in sorted(out.glob("*.json"))
-                  if path.name != "candidate-manifest.json"},
+        "files": {path.name: file_info(path) for path in sorted(out.iterdir())
+                  if path.is_file() and path.suffix in (".json", ".jsonl")
+                  and path.name != "candidate-manifest.json"},
         "status": "CANDIDATE_ONLY_NOT_TRAINABLE",
     })
     log(f"[v5 inventory] {packing['effective_tokens']} effective candidate tokens; freeze BLOCKED")
@@ -1312,9 +1603,7 @@ def prepare(out_dir: str | Path, *, registry_path: str | Path = SOURCE_REGISTRY,
 def build(dataset: str | Path, *, registry_path: str | Path, approval_path: str | Path,
           request_path: str | Path, out_dir: str | Path, log=print) -> dict:
     """Formal V5 build; requires complete human approval evidence."""
-    review = load_source_review(registry_path, verify_inputs=True)
-    evidence = validate_approval(approval_path, request_path, review)
-    from .corpus_v4 import CorpusV4Pipeline, build_registry, inventory, load_config
+    from .corpus_v4 import CorpusV4Pipeline, build_registry, inventory, load_config, verify_frozen
     from .v4_admission import validate_v4_pilot_policy
 
     config = load_config(CORPUS_CONFIG, source_registry=registry_path)
@@ -1322,15 +1611,20 @@ def build(dataset: str | Path, *, registry_path: str | Path, approval_path: str 
     if registry["counts"]["excluded"]:
         raise CorpusError("v5 build requires every reviewed source to be admitted")
     pipeline = CorpusV4Pipeline(Path(dataset), config, registry,
-                                inventory(registry, ROOT, config=config), log=log)
+                                inventory(registry, ROOT, config=config), log=log,
+                                v5_approval=approval_path, v5_request=request_path)
     audit = pipeline.audit()
     manifest = pipeline.finalize(audit=audit)
     if manifest["freeze_status"] != "READY":
-        raise CorpusError(f"v5 build did not freeze: {manifest['freeze_status']}")
-    release = verify_release(dataset)
+        raise CorpusError(f"v5 build did not freeze: {audit['blockers']}")
+    manifest = verify_frozen(dataset)
+    release = verify_release(dataset, manifest=manifest)
     policy = validate_v4_pilot_policy(dataset)
     with report_directory(out_dir) as directory:
-        write_json(directory / "approval.json", evidence)
+        write_json(directory / "approval.json", pipeline.plan["v5_inputs"])
+        write_json(directory / SAMPLER_REPORT, read_json(Path(dataset) / SAMPLER_REPORT))
         write_json(directory / "freeze-status.json", {"audit": audit, "policy": policy,
                    "release": release, "manifest": manifest["content_id"]})
+    if not policy["ok"]:
+        raise CorpusError(f"V5 admission failed: {policy['errors']}")
     return {"manifest": manifest, "release": release, "policy": policy}
