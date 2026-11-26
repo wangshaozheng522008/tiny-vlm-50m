@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import sys
-from dataclasses import asdict
 from pathlib import Path
 
 import torch
@@ -18,7 +17,7 @@ from .training_readiness import check_readiness
 from .training_manifest import write_json
 from .train import fit, load_model_checkpoint
 from .utils import set_seed
-from .workload import parse_training_config, resolve_plan
+from .workload import parse_training_config, resolve_plan, resolved_training_options
 
 
 def launch_pilot(dataset, tokenizer_path, model_config, training_config, report_out, *, execute=False):
@@ -47,7 +46,7 @@ def launch_pilot(dataset, tokenizer_path, model_config, training_config, report_
                   "report_path":str(Path(report_out).resolve()),
                   "training_manifest":policy["manifest"],"tokenizer_fingerprint":tok.fingerprint,
                   "source_path":str(Path(opts.init_from).resolve()) if opts.init_from else None,
-                  "configuration":config,"resolved_options":asdict(opts),"initialization":policy["initialization"],
+                  "configuration":config,"resolved_options":resolved_training_options(opts),"initialization":policy["initialization"],
                   "dataset":policy["manifest"]["dataset"],"model_config":cfg.to_dict(),
                   "training_output":str(Path(opts.out).resolve()),
                   "note":"weights-only initialization resets optimizer and this-run counters; no legacy resume"}

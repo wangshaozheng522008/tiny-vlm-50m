@@ -21,7 +21,7 @@ from minillm.model import MiniLLM
 from minillm.training_milestones import verify_milestone
 from minillm.v4_language_pilot import LANGUAGE_CONFIG, is_language, validate_language_policy
 from minillm.v4_training_pilot import validate_pilot_budget
-from minillm.workload import parse_training_config
+from minillm.workload import parse_training_config, resolved_training_options
 
 
 def test_version_budget_and_schedule_are_explicit_and_legacy_stays_compatible(monkeypatch):
@@ -101,6 +101,15 @@ def test_sampler_consumes_exact_245_updates_once():
     assert report["categories"]["zh_general"]["consumed_effective_tokens"] == 882 * 1023
     with pytest.raises(ValueError):
         scaling.sampler_preview(docs, 1024, 1959, ratios, opts)
+
+
+def test_milestones_roundtrip_in_new_launch_receipts_and_leave_legacy_shape_intact():
+    baseline = resolved_training_options(train.TrainingOptions())
+    assert "milestone_steps" not in baseline
+    options = train.TrainingOptions(milestone_steps=(0, 123, 245))
+    archived = json.loads(json.dumps(resolved_training_options(options)))
+    assert archived["milestone_steps"] == [0, 123, 245]
+    assert resolved_training_options(train.TrainingOptions(**archived)) == archived
 
 
 def test_milestones_resume_same_rng_weights_and_schedule(tmp_path, tiny_tokenizer, nano_cfg, packed_data, monkeypatch):

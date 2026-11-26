@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from dataclasses import asdict
 from itertools import islice
 from pathlib import Path
 from types import SimpleNamespace
@@ -51,6 +52,16 @@ def parse_training_config(config):
     if opts.resume and opts.init_from:
         raise ValueError("resume and init_from are mutually exclusive")
     return opts, extra
+
+
+def resolved_training_options(opts):
+    """Use the persisted JSON shape and preserve receipts predating milestones."""
+    values = asdict(opts)
+    if opts.milestone_steps:
+        values["milestone_steps"] = list(opts.milestone_steps)
+    else:
+        del values["milestone_steps"]
+    return values
 
 
 def hardware(device):
