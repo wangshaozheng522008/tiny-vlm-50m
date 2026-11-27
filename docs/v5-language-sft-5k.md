@@ -6,7 +6,7 @@
 
 | 项目 | 观测 |
 | --- | --- |
-| 合成数据 | 阻塞。当前会话没有可用的模型 API 地址、密钥和训练用途授权凭据。模型 API 调用 0 次，计费 Token 为 0，实验数据生成成本尚待实际运行 |
+| 合成数据 | Codex 直接编写 100 条验证候选，其中 11 条多轮。本机 Qwen 生成 55 条训练候选。未发生外部生成 API 调用 |
 | 数据审核、冻结、实际样本 Mask 审计 | PENDING |
 | CPU Smoke Test | 通过。项目原有小模型流水线跑通 CPU 预训练、SFT、INT4 导出和重载 |
 | 专项 pytest | 49 项通过，覆盖 SFT Mask、尾部累积、恢复、量化来源与 V5 历史兼容 |
@@ -15,16 +15,55 @@
 | PR #20、#21 历史 INT4 | 使用对应 FP32 源重新量化，codes、scales、FP16 张量和量化元数据均与历史缓存一致 |
 | 20M Base 原始 V5 Val | 216 个窗口、220,968 个监督 Token，Loss 5.569691，PPL 262.3531 |
 | 20M Base 的 97 题知识诊断 | 自由填空 0/97，Chat 候选 21/97，填空候选 17/97，按选项数计算的随机期望约 25.1/97 |
-| 32 条问答诊断、正式 GPU SFT | PENDING |
+| 32 条训练候选预诊断 | T1200 上完成 160 次全参数更新。Assistant Loss 6.752604 → 0.000862，Greedy 逐字复现 0/32 → 32/32，Chat 回合结束 0/32 → 32/32 |
+| 冻结集的正式 32 条诊断、正式 GPU SFT | PENDING |
 | 500 条 Test、最佳 SFT INT4、人工评分和 30 组 SFT 问答对比 | PENDING |
 
 本地 `reports/v5-language-sft-5k-v1/pytest-summary.json` 汇总了四个分片与复测证据及 SHA256。GPU 探测日志和环境信息见同目录的 `gpu-preflight/probe.json`，SHA256 为 `e2da4e0fdc8d1d84e0dd6e05f4b479a2005bf6796c59c4a9fa7037182c493e69`。探测使用程序生成的 Token ID，未生成语料或保存权重。此耗时只描述单步容量探测。
 
-97 题的逐题条件概率、预测与汇总见本地 `reports/v5-language-sft-5k-v1/baseline-knowledge/`，Manifest 的 SHA256 为 `f99874f5f0a0f960db47b8889a45ed845cceeaaf1f27eef81071e3d2c7ca074a`。Base 在自由填空和候选排名中都缺少可靠的事实信号，现有观测不足以将失败归因于自由生成。干扰项独立复核以及 SFT 后对照仍是 `PENDING`。32 条记忆、未见问题泛化、语言质量、遗忘和背诵均待真实 SFT，当前不能据此决定扩大预训练还是继续 SFT。
+97 题的逐题条件概率、预测与汇总见本地 `reports/v5-language-sft-5k-v1/baseline-knowledge/`，Manifest 的 SHA256 为 `f99874f5f0a0f960db47b8889a45ed845cceeaaf1f27eef81071e3d2c7ca074a`。Base 在自由填空和候选排名中都缺少可靠的事实信号，现有观测不足以将失败归因于自由生成。干扰项独立复核以及 SFT 后对照仍是 `PENDING`。已见日常问答的记忆能力由候选预诊断验证，未见问题泛化、语言质量、遗忘和正式 SFT 的答案背诵仍待测量。
 
 选择下一阶段时，若模型可以记住 32 条问答，而未见事实在自由生成和候选识别中持续较弱，优先扩大预训练。若候选识别明显高于随机期望且优于自由问答，继续用 SFT 改善问答表达。
 
 ## 数据生成与审核
+
+### 无 API 批次
+
+可直接导入模型在对话会话中生成的 JSONL，也可以导入本地推理产物。每行包含 `messages`、`topic`、`topic_category`、`fact_family`、`question_family`、`dialogue_family`。每个 50–100 条的批次附一个来源 JSON，记录 `model`、`source`、`evidence`、`prompt`、`parameters`、`usage`、`scope`、`api_calls=0`、`historical_answers_visible`。会话未提供的采样参数或用量如实记为未知。训练批次要求训练用途授权，且生成上下文没有历史题答案。
+
+```bash
+.venv/bin/python scripts/generate_v5_sft_data.py import-offline \
+  /path/to/batch.jsonl /path/to/receipt.json \
+  artifacts/v5-language-sft-5k-v1/offline-batches/living-001 --split train --batch living-001
+.venv/bin/python scripts/generate_v5_sft_data.py collect-offline \
+  artifacts/v5-language-sft-5k-v1/candidates artifacts/v5-language-sft-5k-v1/offline-batches/*
+```
+
+两批直接生成的验证候选位于 `artifacts/v5-language-sft-5k-v1/offline-batches/direct-val-001/` 和 `direct-val-002/`。以原 Tokenizer 统计得到 7,309 个输入 Token、3,015 个 Assistant 监督 Token。该会话此前读取过历史知识题答案，两批来源都限定为 `evaluation_only`。验证批次之间及与历史集的文本近重复审查无命中，独立语义与事实审核为 `PENDING`。
+
+独立训练候选批次 `qwen-train-001` 使用 T1200 上的 Qwen3-4B Q4_K_M、llama.cpp b12810 和本地回环通信。模型请求只接收自行规划的 55 个生活情境和格式提示。59 次本地调用共记录 16,103 个输入 Token，其中 14,068 个命中缓存，输出 2,950 个 Token，耗时 84.55 秒，外部生成 API 费用为 0。逐条审核中，Codex 从 55 条结构合格候选中筛出 35 条适合隔离记忆实验的单轮问答。审核记录是独立模型审核，正式语料的完整审核仍待完成。[Qwen 权重及 Apache-2.0 许可](https://huggingface.co/Qwen/Qwen3-4B-GGUF/tree/bc640142c66e1fdd12af0bd68f40445458f3869b)
+
+全量合并仍要求 8,000–10,000 条候选，正式 SFT 仍使用独立审核后发布的 5,000/500/500 冻结集。
+
+### 冻结前的训练候选预诊断
+
+在 35 条独立模型初筛可用的单轮训练候选中，以 Seed 42 抽取 32 条日常问答。从 PR #21 的 FP32 权重和新 AdamW 开始，使用与正式诊断一致的 160 次更新预算。训练耗时 206.05 秒，消费 24,480 个有效监督 Token，峰值 GPU 分配为 1,774.5 MiB。Greedy token 四元组重复率从 58.00% 降至 0%，字符三元组重复率从 65.23% 降至 0.10%。回合正常结束使用 Chat 模板的 `<|end_of_turn|>`。
+
+| 完成更新数 | 训练样本 Assistant Loss |
+| ---: | ---: |
+| 0 | 6.752604 |
+| 20 | 1.252020 |
+| 40 | 0.090439 |
+| 60 | 0.075515 |
+| 80 | 0.006163 |
+| 100 | 0.002017 |
+| 120 | 0.001246 |
+| 140 | 0.001002 |
+| 160 | 0.000862 |
+
+证据位于 `reports/v5-language-sft-5k-v1/candidate-probe32/`，含 20 条 Mask 解码审计、32 组前后真实生成对照及最终指标，`result.json` 的 SHA256 为 `2582a4ea3c331083c7f4254919ee59a0bccc6f17fd91d9bf2f155d7b7d4d67f7`。预诊断权重存放于独立的 `candidate-probe32` 目录，带 `DIAGNOSTIC_ONLY`。这次测量覆盖训练题复现。正式选模、泛化和 Test 流程仍等待冻结数据。
+
+### API 批次
 
 使用已安装项目的 Python 环境，从仓库根目录运行。生成服务使用 HTTPS Chat Completions 接口。环境变量 `V5_SFT_API_URL` 是完整请求 URL，`V5_SFT_API_KEY` 是密钥。授权文件放在仓库外，字段包括 `provider`、`model`、`source`、`evidence`、`scope`、`currency`、`input_per_million`、`output_per_million`。只有核实条款或书面许可覆盖本次模型训练时才填写 `scope=training_allowed`。可用 `actual_models` 列出该证据覆盖的服务端实际模型 ID。费率应来自所选服务的计费记录，密钥只放在环境变量中。
 

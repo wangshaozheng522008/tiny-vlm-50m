@@ -6,16 +6,17 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import re
 from threading import Event
 import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from minillm.assessment_io import read_json
+from minillm.assessment_io import read_json, records, report_directory
 from minillm.corpus_utils import file_info, identity, verify_file
 from minillm.training_manifest import write_json
-from minillm.v5_sft_data import CONFIG, ROOT, TRAIN, freeze, validate_messages, write_rows
+from minillm.v5_sft_data import CONFIG, FAMILIES, ROOT, TRAIN, freeze, validate_messages, write_rows
 
 # Each entry identifies one batch and its split's subject scope.
 TOPICS = {
@@ -183,7 +184,6 @@ def generate(work, split, phase, authorization_path, concurrency, attempts):
 
 
 def collect(work, output):
-    from minillm.assessment_io import records, report_directory
     with (work / ".lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
         binding = read_json(work / "generation-profile.json")
@@ -225,6 +225,73 @@ def collect(work, output):
                                                      + outputs * auth["output_per_million"]) / 1e6})
 
 
+def validate_offline_receipt(receipt, split):
+    required = ("model", "source", "evidence", "prompt", "parameters", "usage", "scope")
+    if (any(not receipt.get(key) for key in required) or receipt.get("api_calls") != 0
+            or receipt.get("scope") not in ("training_allowed", "evaluation_only")
+            or not isinstance(receipt.get("historical_answers_visible"), bool)):
+        raise ValueError("offline batches require model, source, evidence, prompt, parameters, usage and scope")
+    if split == "train" and (receipt["scope"] != "training_allowed" or receipt["historical_answers_visible"]):
+        raise ValueError("training candidates require training scope and a generator context without historical answers")
+
+
+def import_offline(source, receipt_path, output, split, batch):
+    """Register model-authored JSONL from a session or offline inference."""
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", batch):
+        raise ValueError("batch ID must be a short lowercase identifier")
+    receipt = read_json(receipt_path)
+    validate_offline_receipt(receipt, split)
+    rows = []
+    for i, row in enumerate(records(source), 1):
+        messages = row["messages"]
+        validate_messages(messages)
+        if (row.get("topic_category") not in TRAIN
+                or any(not isinstance(row.get(key), str) or not row[key].strip() for key in ("topic", *FAMILIES))):
+            raise ValueError(f"{source}: invalid category, topic or family at row {i}")
+        rows.append({**{key: row[key] for key in ("topic", "topic_category", *FAMILIES, "messages")},
+                     "id": f"{batch}-{i:03}", "split": split, "message_sha256": identity(messages),
+                     "generation": {"batch": batch, "model": receipt["model"], "profile": identity(receipt)}})
+    if not 50 <= len(rows) <= 100 or len({row["message_sha256"] for row in rows}) != len(rows):
+        raise ValueError("offline batch must have 50–100 structurally valid, distinct conversations")
+    with report_directory(output) as directory:
+        write_rows(directory / "candidates.jsonl", rows)
+        write_json(directory / "manifest.json", {"schema_version": 1, "batch": batch, "split": split,
+                   "status": "CANDIDATE", "independent_review": "PENDING", "rows": len(rows),
+                   "source_file": file_info(source), "receipt": receipt,
+                   "candidates": file_info(directory / "candidates.jsonl")})
+
+
+def collect_offline(batches, output):
+    manifests, rows, seen = {}, [], set()
+    for batch in batches:
+        manifest = read_json(batch / "manifest.json")
+        key = manifest["batch"]
+        if key in manifests or manifest["status"] != "CANDIDATE" or manifest["schema_version"] != 1:
+            raise ValueError(f"duplicate or unsupported offline batch: {batch}")
+        receipt, split = manifest["receipt"], manifest["split"]
+        validate_offline_receipt(receipt, split)
+        path = batch / "candidates.jsonl"
+        verify_file(path, manifest["candidates"])
+        loaded = list(records(path))
+        if not 50 <= len(loaded) <= 100 or len(loaded) != manifest["rows"]:
+            raise ValueError(f"offline batch count differs: {batch}")
+        for row in loaded:
+            if (row["id"] in seen or row["split"] != split
+                    or row["generation"] != {"batch": key, "model": receipt["model"], "profile": identity(receipt)}
+                    or row["message_sha256"] != identity(row["messages"])):
+                raise ValueError(f"invalid offline candidate identity: {row['id']}")
+            seen.add(row["id"])
+        manifests[key] = {"manifest": file_info(batch / "manifest.json"), **manifest}
+        rows.extend(loaded)
+    if not 8000 <= len(rows) <= 10000:
+        raise ValueError(f"offline batches contain {len(rows)} candidates, expected 8000–10000")
+    with report_directory(output) as directory:
+        write_rows(directory / "candidates.jsonl", rows)
+        write_json(directory / "generation.json", {"mode": "offline", "batches": manifests,
+                   "candidates": file_info(directory / "candidates.jsonl"), "candidate_count": len(rows),
+                   "external_api_calls": 0})
+
+
 def main():
     parser = ArgumentParser(description=__doc__)
     parser.add_argument("--work", type=Path, default=ROOT / "artifacts/v5-language-sft-5k-v1/batches")
@@ -237,6 +304,15 @@ def main():
     g.add_argument("--concurrency", type=int, default=2)
     g.add_argument("--attempts", type=int, default=4)
     sub.add_parser("collect").add_argument("output", type=Path)
+    offline = sub.add_parser("import-offline")
+    offline.add_argument("source", type=Path)
+    offline.add_argument("receipt", type=Path)
+    offline.add_argument("output", type=Path)
+    offline.add_argument("--split", choices=tuple(TOPICS), required=True)
+    offline.add_argument("--batch", required=True)
+    offline_collection = sub.add_parser("collect-offline")
+    offline_collection.add_argument("output", type=Path)
+    offline_collection.add_argument("batches", nargs="+", type=Path)
     f = sub.add_parser("freeze")
     f.add_argument("candidate_directory", type=Path)
     f.add_argument("reviews", type=Path)
@@ -250,6 +326,10 @@ def main():
         generate(args.work, args.split, args.phase, args.authorization, args.concurrency, args.attempts)
     elif args.command == "collect":
         collect(args.work, args.output)
+    elif args.command == "import-offline":
+        import_offline(args.source, args.receipt, args.output, args.split, args.batch)
+    elif args.command == "collect-offline":
+        collect_offline(args.batches, args.output)
     else:
         from minillm.v5_sft_experiment import base_assets
         settings = read_json(CONFIG)
