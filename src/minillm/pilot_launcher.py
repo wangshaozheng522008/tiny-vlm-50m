@@ -21,6 +21,16 @@ from .workload import parse_training_config, resolve_plan, resolved_training_opt
 
 
 def launch_pilot(dataset, tokenizer_path, model_config, training_config, report_out, *, execute=False):
+    from .corpus_versions import V5_VERSION
+
+    published = Path(dataset) / "dataset-manifest.json"
+    if execute and published.is_file() and read_json(published).get("corpus_version") == V5_VERSION:
+        from .v4_admission import validate_v4_pilot_policy
+        from .v5_language_training import CONTENT_ID
+
+        admission = validate_v4_pilot_policy(dataset)
+        if not admission["ok"] or admission["content_id"] != CONTENT_ID:
+            raise ValueError(f"V5 formal training admission failed: {admission['errors']}")
     # A protected report directory also prevents duplicate execution of a launch request.
     requested,_=parse_training_config(training_config)
     for protected in (Path(requested.out).resolve(),Path(dataset).resolve()):
