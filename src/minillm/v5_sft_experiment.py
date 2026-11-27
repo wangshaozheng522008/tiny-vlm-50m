@@ -114,7 +114,7 @@ def _write_or_verify(path, value):
 def train_experiment(settings, mode, resume, *, base):
     tokenizer, checkpoint, evidence = base
     out, report, dataset = (ROOT / settings[key] for key in ("out", "report", "dataset"))
-    if (report / "test-unlock.json").exists():
+    if (report / "test-unlock.json").exists() or (report / "unseen/protocol-lock.json").exists():
         raise ValueError("the final evaluation protocol and training artifacts are locked")
     frozen = frozen_manifest(dataset, tokenizer, settings["max_seq_len"])
     os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")

@@ -63,6 +63,25 @@
 
 证据位于 `reports/v5-language-sft-5k-v1/candidate-probe32/`，含 20 条 Mask 解码审计、32 组前后真实生成对照及最终指标，`result.json` 的 SHA256 为 `2582a4ea3c331083c7f4254919ee59a0bccc6f17fd91d9bf2f155d7b7d4d67f7`。预诊断权重存放于独立的 `candidate-probe32` 目录，带 `DIAGNOSTIC_ONLY`。这次测量覆盖训练题复现。正式选模、泛化和 Test 流程仍等待冻结数据。
 
+### 预诊断模型的未见题实测
+
+以固定 Seed 42 从两个验证候选批次的五个类别各取六题。这 30 题均未出现在 32 条预诊断训练集中，共含 33 个回答回合。使用相同 CPU、Greedy 和 96 Token 预算，追问使用参考历史。结果仅用于观察小样本记忆会如何影响未见问题。
+
+| 指标 | 20M Base | 32 条预诊断模型 |
+| --- | ---: | ---: |
+| 正常结束 | 3/33 | 33/33 |
+| 平均 Token 四元组重复率 | 54.50% | 0.14% |
+| 命中至少 12 字的训练答案片段 | 0/33 | 29/33 |
+| 逐条查看后判定回答切题 | 0/33 | 0/33 |
+
+例如，询问候鸟为什么会在湖边停下来，预诊断模型回答「可以，不过得确认一下店家有没有这种选择。你先说说想点什么。」源数据作者逐条查看后记录了这一判断，独立人审待完成。完整原始输出与定性记录在 `reports/v5-language-sft-5k-v1/candidate-probe-unseen-val/`。这些候选与正式锁定的 Test 输出分别保存。
+
+### 本地全量流水线
+
+`scripts/run_v5_sft_campaign.sh` 串联 98 个规划批次、生成、独立模型审核、语义筛查、冻结、32 条诊断、三轮正式 SFT 和未见问题评测。每个主题先保存范围和家族清单，再独立生成最多 100 条候选。生成端只有主题与素材。独立审核用先前已核查的正反例做质量校准，未达标时暂停正式冻结。相似度检索由 BGE 完成，边界匹配交由审查模型复核，预训练历史题与训练、验证、测试隔离在该阶段检查。
+
+正式未见题评测先绑定 Validation 选模结果、全部节点权重和数据 SHA256，再读取 500 条 Test 进行 Greedy 及固定种子采样。评测保留所有原始回复，另外盲化比较 Base 和最佳 SFT 的语义回答与指令执行效果。人工评分保留 `PENDING`。实际进度写入 `artifacts/v5-language-sft-5k-v1/campaign-v1/phase` 及 `supervisor.log`；未见问题原始输出和逐题比较将在 `reports/v5-language-sft-5k-v1/unseen/` 发布。
+
 ### API 批次
 
 使用已安装项目的 Python 环境，从仓库根目录运行。生成服务使用 HTTPS Chat Completions 接口。环境变量 `V5_SFT_API_URL` 是完整请求 URL，`V5_SFT_API_KEY` 是密钥。授权文件放在仓库外，字段包括 `provider`、`model`、`source`、`evidence`、`scope`、`currency`、`input_per_million`、`output_per_million`。只有核实条款或书面许可覆盖本次模型训练时才填写 `scope=training_allowed`。可用 `actual_models` 列出该证据覆盖的服务端实际模型 ID。费率应来自所选服务的计费记录，密钥只放在环境变量中。
