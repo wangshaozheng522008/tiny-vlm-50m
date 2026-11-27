@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import subprocess
 from pathlib import Path
 
 import torch
@@ -20,6 +21,17 @@ def file_sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def implementation_identity(*entrypoints: Path) -> dict:
+    """Hash the runtime package and the experiment's entrypoints/configuration."""
+    package = Path(__file__).resolve().parent
+    root = package.parents[1]
+    paths = set(package.rglob("*.py")) | {Path(path).resolve() for path in entrypoints}
+    files = {str(path.relative_to(root)): file_sha256(path) for path in sorted(paths)}
+    commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    return {"git_commit": commit, "files": files,
+            "sha256": hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()}
 
 
 def dataset_identity(dataset, ignore_index: int) -> tuple[dict | None, int]:
@@ -111,6 +123,7 @@ def build_manifest(opts, model, tokenizer, train_dataset, val_dataset, *, mode, 
         "model_architecture": ARCHITECTURE, "model_config": model.cfg.to_dict(),
         "tokenizer_fingerprint": tokenizer.fingerprint, "tokenizer_vocab_size": tokenizer.vocab_size,
         "mode": mode, "dataset": {"train": train, "val": val},
+        **({"provenance": opts.provenance} if opts.provenance else {}),
         "training": {
             "seed": opts.seed, "sampler_seed": sampler.seed,
             "batch_size": opts.batch_size, "grad_accum": opts.grad_accum,
@@ -120,7 +133,9 @@ def build_manifest(opts, model, tokenizer, train_dataset, val_dataset, *, mode, 
             "optimizer_updates_per_epoch": updates,
             "learning_rate": opts.lr, "min_learning_rate": opts.min_lr,
             "warmup_ratio": opts.warmup_ratio, "warmup_steps": warmup,
-            "scheduler": "warmup_cosine", "scheduler_total_steps": target,
+            "scheduler": "warmup_cosine", "scheduler_total_steps": target - int(opts.cosine_final_update),
+            **({"cosine_final_update": True} if opts.cosine_final_update else {}),
+            **({"validate_before_milestone": True} if opts.validate_before_milestone else {}),
             "optimizer": "AdamW", "betas": [0.9, 0.95], "eps": 1e-8,
             "weight_decay": opts.weight_decay, "grad_clip": opts.grad_clip,
             **({"milestone_steps": list(milestones)} if milestones else {}),

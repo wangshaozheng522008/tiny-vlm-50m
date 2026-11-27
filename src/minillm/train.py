@@ -291,6 +291,9 @@ class TrainingOptions:
     init_from: str | None = None
     milestone_steps: tuple[int, ...] = ()
     extra_meta: dict = field(default_factory=dict)
+    provenance: dict = field(default_factory=dict)
+    validate_before_milestone: bool = False
+    cosine_final_update: bool = False
 
 
 def _tokens_at_cursor(manifest, dataset, sampler, epoch, prefix_samples):
@@ -317,6 +320,13 @@ def _validate_progress(state: dict, manifest: dict, dataset: Dataset, sampler: E
     expected_tokens = _tokens_at_cursor(manifest, dataset, sampler, epoch, prefix_samples)
     if state["tokens_seen"] != expected_tokens:
         raise CheckpointError("resume tokens_seen contradicts the data cursor")
+    if plan.get("cosine_final_update"):
+        expected_lr = plan["learning_rate"]
+        if expected_step:
+            expected_lr = lr_at(expected_step - 1, plan["scheduler_total_steps"],
+                                expected_lr, plan["min_learning_rate"], plan["warmup_steps"])
+        if state["optimizer"]["param_groups"][0]["lr"] != expected_lr:
+            raise CheckpointError("resume AdamW learning rate contradicts the training schedule")
 
 
 def _prepare_run_manifest(out: Path, manifest: dict, resumed: dict | None = None) -> dict:
@@ -481,7 +491,7 @@ def fit(
     estimate = total_steps * total_tokens / plan["optimizer_updates_per_epoch"]
     print(f"Planned effective token budget (Estimated): {estimate:,.0f}")
     print(f"Warmup steps: {warmup:,}")
-    print(f"Scheduler total steps: {total_steps:,}")
+    print(f"Scheduler total steps: {plan['scheduler_total_steps']:,}")
 
     started = last_log = time.monotonic()
     running_loss_sum = 0.0
@@ -588,6 +598,8 @@ def fit(
 
     old_handlers = {sig: signal.signal(sig, handle_signal) for sig in (signal.SIGINT, signal.SIGTERM)}
     try:
+        if opts.validate_before_milestone and global_step and global_step in milestones:
+            validation()
         capture_milestone()
         while global_step < total_steps and not interrupted:
             if opts.max_minutes and (time.monotonic() - started) >= opts.max_minutes * 60:
@@ -604,7 +616,7 @@ def fit(
                 if len(group) != remaining:
                     raise RuntimeError("batch stream ended before the declared dataset cursor; refusing to skip data")
                 step_started = time.monotonic()
-                lr = lr_at(global_step, total_steps, opts.lr, opts.min_lr, warmup)
+                lr = lr_at(global_step, plan["scheduler_total_steps"], opts.lr, opts.min_lr, warmup)
                 _check_lr(lr, opts.lr)
                 for param_group in optimizer.param_groups:
                     param_group["lr"] = lr
@@ -642,11 +654,16 @@ def fit(
                           f"loss {record['loss']:.4f} lr {lr:.2e} grad {result.grad_norm:.3f} "
                           f"{record['tokens_per_second']:,.0f} tok/s {step_seconds:.3f}s/step")
                     last_log, running_loss_sum, running_tokens, steps_since_log = now, 0.0, 0, 0
-                capture_milestone()
                 if interrupted:
+                    if not opts.validate_before_milestone or cursor != 0:
+                        capture_milestone()
                     break  # Persist first; do not spend the shutdown budget validating.
+                if not opts.validate_before_milestone:
+                    capture_milestone()
                 if val_dataset is not None and opts.val_every and global_step % opts.val_every == 0:
                     validation()
+                if opts.validate_before_milestone:
+                    capture_milestone()
                 if opts.save_every and global_step % opts.save_every == 0:
                     save_state()
                 if cursor == 0:
