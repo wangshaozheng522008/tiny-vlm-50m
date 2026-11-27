@@ -156,6 +156,7 @@ def save_training_state(
     global_step: int, epoch: int, micro_batches_consumed_in_epoch: int,
     samples_seen: int, best_loss: float | None, history: list[dict], tokens: int,
     manifest: dict, preserve_backup: bool = False, best_checkpoint: dict | None = None,
+    continuation: dict | None = None,
 ) -> None:
     backup = None if preserve_backup else path.with_name("state.prev.pt")
     if path.exists() and backup is not None:
@@ -180,6 +181,8 @@ def save_training_state(
     }
     if best_checkpoint is not None:
         payload["best_checkpoint"] = best_checkpoint
+    if continuation is not None:
+        payload["continuation"] = continuation
     atomic_torch_save(payload, path, backup=backup)
 
 

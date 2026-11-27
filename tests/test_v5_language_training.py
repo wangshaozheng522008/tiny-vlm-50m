@@ -130,3 +130,90 @@ def test_final_heldout_measurement_is_bound_and_reused(tmp_path, monkeypatch):
     assert len(calls) == 1
     with pytest.raises(ValueError, match="differs"):
         evaluation._final_test(output, {**receipt, "checkpoint": {"sha256": "other"}}, context)
+
+
+@pytest.mark.parametrize("fault", ["status", "source", "manifest_group", "payload_group", "bits", "tensor_bits",
+                                  "tensor_group", "checkpoint", "oversized"])
+def test_cached_int4_rechecks_export_profile_and_checkpoint(tmp_path, fault):
+    from minillm.assessment_io import publish_manifest
+    from minillm.corpus_utils import file_info
+    from minillm.v5_language_evaluation import _quantize
+
+    original = tmp_path / "model.pt"
+    metadata = {"architecture": "minillm", "arch_version": 2, "config": {},
+                "mode": "pretrain", "step": 1222, "tokens_seen": 10_000_848, "tokenizer_fingerprint": "tokenizer"}
+    torch.save(metadata, original)
+    source = {"files": {"model.pt": file_info(original), "milestones/step-1222/model.pt": file_info(original)},
+              "training_state": {"global_step": 1222}}
+    output = tmp_path / "export"
+    output.mkdir()
+    target = output / "model-int4.pt"
+    payload = {**metadata, "bits": 4, "quantized_bits": 4, "group_size": 128,
+               "quantized": {"weight": {"bits": 4, "orig_in": 256, "group": 128}}}
+    receipt = {"status": "EXPORTED", "bits": 4, "group_size": 128, "source": source}
+    torch.save(payload, target)
+    publish_manifest(output, "manifest.json", receipt)
+    assert _quantize(original, output, None, None, source) == target
+
+    if fault == "oversized":
+        with target.open("r+b") as handle:
+            handle.truncate(50_000_001)
+    else:
+        if fault == "status":
+            receipt["status"] = "FAILED"
+        elif fault == "source":
+            receipt["source"] = {}
+        elif fault == "manifest_group":
+            receipt["group_size"] = 64
+        elif fault == "payload_group":
+            payload["group_size"] = 64
+        elif fault == "bits":
+            payload["quantized_bits"] = 8
+        elif fault == "tensor_bits":
+            payload["quantized"]["weight"]["bits"] = 8
+        elif fault == "tensor_group":
+            payload["quantized"]["weight"]["group"] = 64
+        elif fault == "checkpoint":
+            payload["step"] = 1200
+        torch.save(payload, target)
+        (output / "manifest.json").unlink()
+        publish_manifest(output, "manifest.json", receipt)
+    with pytest.raises(ValueError, match="INT4"):
+        _quantize(original, output, None, None, source)
+
+
+def test_existing_comparison_rechecks_sampler_checkpoint_and_protocol(tmp_path, monkeypatch):
+    from minillm import v5_language_evaluation as evaluation
+    from minillm.assessment_io import publish_manifest, write_json
+    from minillm.corpus_utils import file_info
+
+    monkeypatch.setattr(v5, "DATASET", tmp_path)
+    write_json(tmp_path / ".v4/plan.json", {})
+    current = {"status": "FEASIBLE", "consumption": {"windows": 9776}, "sources": {"within_cap": True}}
+    monkeypatch.setattr(evaluation, "sampler_budget", lambda *args: {"budgets": {"10M": current}})
+    audits = {FINAL: {"consumption": current["consumption"]}}
+    final = {"run_id": "verified"}
+    protocol = {"config": {"seed": 42}}
+    directory = tmp_path / "comparison"
+    node = tmp_path / "nodes" / FINAL
+    write_json(node / "result.json", {})
+    publish_manifest(node, "manifest.json", {"status": "EVALUATED"})
+    write_json(directory / "comparison.json", {FINAL: {}})
+    write_json(directory / "checkpoint-and-consumption.json", audits)
+    write_json(directory / "actual-source-consumption.json", current["sources"])
+    write_json(directory / "final-checkpoint-consistency.json", final)
+    write_json(directory / "comparison-policy.json", protocol)
+    base = {"status": "EVALUATED", "node_manifests": {FINAL: file_info(node / "manifest.json")}}
+
+    def verify(proof=final, config=protocol):
+        return evaluation._aggregate(tmp_path, [FINAL], config, audits, None, proof, None)
+
+    publish_manifest(directory, "manifest.json", base)
+    verify()
+    with pytest.raises(ValueError, match="final checkpoint"):
+        verify(proof={"run_id": "other"})
+    with pytest.raises(ValueError, match="protocol"):
+        verify(config={"config": {"seed": 43}})
+    current["consumption"] = {"windows": 1}
+    with pytest.raises(ValueError, match="committed final sampler"):
+        verify()

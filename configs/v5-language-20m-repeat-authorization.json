@@ -1,0 +1,11 @@
+{
+  "experiment": "v5-language-20m-repeat-v1",
+  "corpus_version": "minillm-corpus-v5-language-10m-v1",
+  "content_id": "2a688379c66d701d41cede75961ca71af0dbb8254c2a5c065220b19ee4ea54ce",
+  "parent_state_sha256": "97529f5f1b4fe0e9a4a34c3b6ead1620f57ab6f2567d6dfdf9d503e108f325ea",
+  "purpose": "internal_research",
+  "additional_effective_tokens": 10000848,
+  "cumulative_effective_token_cap": 20001696,
+  "source": "PR #21 task request, sections 二 and 三",
+  "request_excerpt": "新增独立的多轮训练实验授权，明确累计消费预算为20,001,696个有效监督Token，语料范围不变，仅用于内部研究。"
+}
