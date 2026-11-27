@@ -36,6 +36,9 @@ SAMPLED = {HISTORICAL_LABEL, "step245", "step489", FINAL, INT4}
 PR20_EVALUATION_IMPLEMENTATION = {
     "bytes": 16786, "sha256": "23b50b18a7cbe2b6b2aeaafaad4356bf3c0d73fb01e01d5c17b053ff1023b8ff",
 }
+PR21_EVALUATION_IMPLEMENTATION = {
+    "bytes": 20665, "sha256": "12bf1723a1ff425919d2a5a3e5afb48b861ffbfe3dc76d4c20c59f2fd5b74cf4",
+}
 
 
 def _verify_report(directory, expected=None, *, required=()):
@@ -101,7 +104,12 @@ def _final_test(output, receipt, context, model=None):
             write_json(directory / "loss.json", loss)
             publish_manifest(directory, "manifest.json", {"status": "EVALUATED_FINAL_FP32", "identity": receipt})
     evidence = _verify_report(output)
-    if evidence["identity"] != receipt or evidence["status"] != "EVALUATED_FINAL_FP32":
+    saved = evidence["identity"]
+    matches = saved == receipt or (
+        "protocol" in saved and "protocol" in receipt
+        and _matching_protocol(saved["protocol"], receipt["protocol"])
+        and {**saved, "protocol": receipt["protocol"]} == receipt)
+    if evidence["status"] != "EVALUATED_FINAL_FP32" or not matches:
         raise ValueError("V5 Test measurement differs from the final FP32 checkpoint or protocol")
     return read_json(output / "loss.json"), file_info(output / "manifest.json")
 
@@ -175,15 +183,13 @@ def _evaluate_node(destination, name, path, context):
 def _matching_protocol(recorded, current):
     if recorded == current:
         return True
-    # PR #21 changes cache gates and parametrizes split selection. Old PR #20
-    # receipts can still be verified against the same generation protocol.
+    # PR #21 and #22 strengthen cache admission without changing decoding.
     implementation = current.get("implementation", {})
     if "v5_language_evaluation.py" not in implementation:
         return False
-    previous = {**current, "implementation": {
-        **implementation, "v5_language_evaluation.py": PR20_EVALUATION_IMPLEMENTATION,
-    }}
-    return recorded == previous
+    return any(recorded == {**current, "implementation": {
+        **implementation, "v5_language_evaluation.py": previous,
+    }} for previous in (PR20_EVALUATION_IMPLEMENTATION, PR21_EVALUATION_IMPLEMENTATION))
 
 
 def _verify_int4_export(path, output, final_proof):
@@ -209,6 +215,16 @@ def _verify_int4_export(path, output, final_proof):
                           or entry["group"] != (effective_group(entry["orig_in"], 128) or 128)
                           for entry in entries.values()):
         raise ValueError("INT4 tensor quantization profile differs")
+    from .model import MiniLLM
+    from .config import MiniLLMConfig
+    from .quantization_provenance import verify_quantized_tensors
+
+    if not isinstance(final.get("model"), dict):
+        raise ValueError("INT4 verification requires the FP32 source tensors")
+    with torch.random.fork_rng(devices=[]):
+        model = MiniLLM(MiniLLMConfig.from_dict(final["config"]))
+    model.load_state_dict(final["model"])
+    verify_quantized_tensors(payload, model)
     return target
 
 

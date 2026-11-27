@@ -136,20 +136,23 @@ def test_final_heldout_measurement_is_bound_and_reused(tmp_path, monkeypatch):
                                   "tensor_group", "checkpoint", "oversized"])
 def test_cached_int4_rechecks_export_profile_and_checkpoint(tmp_path, fault):
     from minillm.assessment_io import publish_manifest
+    from minillm.config import MINILLM_NANO
     from minillm.corpus_utils import file_info
+    from minillm.model import MiniLLM
+    from minillm.quantize import quantize_model
     from minillm.v5_language_evaluation import _quantize
 
     original = tmp_path / "model.pt"
-    metadata = {"architecture": "minillm", "arch_version": 2, "config": {},
+    model = MiniLLM(MINILLM_NANO)
+    metadata = {"architecture": "minillm", "arch_version": 2, "config": model.cfg.to_dict(),
                 "mode": "pretrain", "step": 1222, "tokens_seen": 10_000_848, "tokenizer_fingerprint": "tokenizer"}
-    torch.save(metadata, original)
+    torch.save({**metadata, "model": model.state_dict()}, original)
     source = {"files": {"model.pt": file_info(original), "milestones/step-1222/model.pt": file_info(original)},
               "training_state": {"global_step": 1222}}
     output = tmp_path / "export"
     output.mkdir()
     target = output / "model-int4.pt"
-    payload = {**metadata, "bits": 4, "quantized_bits": 4, "group_size": 128,
-               "quantized": {"weight": {"bits": 4, "orig_in": 256, "group": 128}}}
+    payload = {**metadata, **quantize_model(model), "quantized_bits": 4}
     receipt = {"status": "EXPORTED", "bits": 4, "group_size": 128, "source": source}
     torch.save(payload, target)
     publish_manifest(output, "manifest.json", receipt)
@@ -170,9 +173,9 @@ def test_cached_int4_rechecks_export_profile_and_checkpoint(tmp_path, fault):
         elif fault == "bits":
             payload["quantized_bits"] = 8
         elif fault == "tensor_bits":
-            payload["quantized"]["weight"]["bits"] = 8
+            next(iter(payload["quantized"].values()))["bits"] = 8
         elif fault == "tensor_group":
-            payload["quantized"]["weight"]["group"] = 64
+            next(iter(payload["quantized"].values()))["group"] = 64
         elif fault == "checkpoint":
             payload["step"] = 1200
         torch.save(payload, target)
