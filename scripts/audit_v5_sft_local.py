@@ -19,17 +19,18 @@ from minillm.v5_sft_experiment import base_assets
 REVIEWER = "unsloth/Qwen3.5-4B-GGUF:Q4_K_M@e87f176479d0855a907a41277aca2f8ee7a09523"
 REVIEWER_SHA256 = "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4"
 REVIEWER_SOURCE = "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/tree/e87f176479d0855a907a41277aca2f8ee7a09523"
-REVIEW_SYSTEM = """逐条找中文问答的实际错误。dialogue 从用户开始交替，每条独立审。先在 reason 引用有问题的细节或正确的响应，
-再填 issue。只考虑文字提供的条件，不能自己补背景。信息不足却猜地点、行车方向、他人状态或给具体现时结论是 fabrication。
-借出借入、进门出门、说话人和听者弄反是 role。要求写一句话却只说“我来写”是 instruction。
-不稳定事实或答案明显错是 factual。忽略用户真正要问的事是 relevance。套话、抄题干、翻译腔、第三人称转述是 style。
-追问和上一轮无关或答非所问是 context。确实没有这些问题才填 none。
-示例：问“我坐过站了，在哪下车？”答“再坐两站，在文汇路下。”是 fabrication，因为没给线路。
-问“我借你的碗明天还，行吗？”答“行，我明天把碗还你。”是 role，因为借碗的人是用户。
-问“给我写一句八字以内的开门通知。”答“没问题，我给你拟一份。”是 instruction，因为没有通知正文。
-问“这条路上哪个站有末班车？”答“我还不知道你说的哪条路和哪条线，得先确认站名。”是 none，因为正确说明信息不足。
-对话“能帮我拿一下书吗？最上面那本。”“行，我把最上面那本递给你。”是 none，双方目标一致。
-fact_family、question_family 和 dialogue_family 各给一个具体短标签，近义问法对相同事实采用相同标签。"""
+REVIEW_SYSTEM = """审查简体中文聊天训练数据。逐条独立判断。dialogue 的第1句是用户，第2句是助手，后两句若有则为下一轮。
+不要替模型改写原句。reason 用25字左右指出原句的关键细节和问题；确实答得好就指出实际完成了什么，而不是说“符合逻辑”。
+检查顺序：1. 用户实际说的像聊天吗？“某人想提议……”这种写作说明是 style。2. 两句里的“我”是不同的人。
+先分别判断哪一方借出、借入或执行动作；本该用户做、答案却说“我来还给你”，这种是 role。
+3. 答案中的线路、楼栋标志、实时状态和其他人能否食用等，用户没提供就不能断言或猜测；这些是 fabrication。
+同屋可以答应帮忙拿东西，但不能无证据说明陌生地址的具体门牌。天气、配料等缺失应明确说不确定。
+4. 用户要求写一句，答案须实际给出正文；缺正文是 instruction。事实错是 factual，答错问题是 relevance。
+多轮才检查上一句的指代和条件是否对应，错则 context。上述问题都没有，才填 none；答案不必复述用户每个词。
+好例：用户“帮我把门打开一下？”助手“行，我去开。”正确承诺可以做的动作，issue=none。
+坏例：用户“我把你借给我的笔放前台还你，行吗？”助手“可以，我会把它还你。”助手说自己还，issue=role。
+坏例：用户“我能带这包给室友吃吗？不清楚里面有什么。”助手“他应该没事，带去吧。”无配料信息猜他人能吃，issue=fabrication。
+fact_family、question_family、dialogue_family 各给一个具体简短的标签，近义问法对相同事实采用相同标签。"""
 PAIR_SYSTEM = """盲审同一中文用户提问下两个模型的回答。参考答案是语义或指令参考，允许另一种正确的自然说法。
 分别判断回答是否相关、语义正确、尊重格式条件、对信息不足处理得当。明显复读、乱答、角色错位或没有答到点都不通过。
 若两者各有得失，可判平。给出两边具体理由。输出每题的编号、A和B是否达标以及偏好。"""
@@ -116,12 +117,12 @@ def independent_review(rows, directory, port, workers, weights):
         raise ValueError("independent reviewer weights differ")
     profile = {"model": REVIEWER, "weights": weight_info, "system": REVIEW_SYSTEM,
                "model_source": REVIEWER_SOURCE,
-               "input": identity([(r["id"], r["message_sha256"]) for r in rows]), "batch_size": 5}
+               "input": identity([(r["id"], r["message_sha256"]) for r in rows]), "batch_size": 2}
     profile_path = directory / "profile.json"
     if profile_path.exists() and read_json(profile_path) != profile:
         raise ValueError("review profile changed")
     write_json(profile_path, profile)
-    groups = [rows[i:i+5] for i in range(0, len(rows), 5)]
+    groups = [rows[i:i+2] for i in range(0, len(rows), 2)]
     decisions = {}
     with ThreadPoolExecutor(max_workers=workers) as pool:
         for i, result in enumerate(pool.map(lambda args: audit_group(directory, *args, port), enumerate(groups)), 1):
