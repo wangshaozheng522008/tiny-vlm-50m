@@ -130,7 +130,7 @@ def _verify_stage(prepared):
             raise CheckpointError("model's continuation lineage differs")
         require_identical_weights(state["model"], model["model"], str(path))
         consumption = accounting(replay, prepared.documents, prepared.corpus_plan, settings["seq_len"],
-                                 index * settings["grad_accum"], enforce=step == MILESTONES[-1])
+                                 index * settings["grad_accum"], enforce=True)
         if consumption["cumulative"]["effective_tokens"] != state["tokens_seen"]:
             raise CheckpointError("milestone sampler replay disagrees with committed consumption")
         paths[name], audits[name] = path, {"checkpoint": receipt, "consumption": consumption}
