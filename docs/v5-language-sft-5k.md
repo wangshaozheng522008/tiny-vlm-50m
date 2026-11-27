@@ -9,15 +9,20 @@
 | 合成数据 | 阻塞。当前会话没有可用的模型 API 地址、密钥和训练用途授权凭据。模型 API 调用 0 次，计费 Token 为 0，实验数据生成成本尚待实际运行 |
 | 数据审核、冻结、实际样本 Mask 审计 | PENDING |
 | CPU Smoke Test | 通过。项目原有小模型流水线跑通 CPU 预训练、SFT、INT4 导出和重载 |
+| 专项 pytest | 49 项通过，覆盖 SFT Mask、尾部累积、恢复、量化来源与 V5 历史兼容 |
+| 全量 pytest | 四个分片共覆盖 1,121 项。首轮 10 项涉及旧 INT4 测试夹具及旧评测凭据格式，修订后逐项复测通过。合并逐项结果为 1,121 项通过 |
 | GPU 负载探测 | T1200、FP32、梯度检查点、512 长度、8 次累积、确定性模式。一次更新消费 4,096 个输入探测 Token、2,048 个探测监督 Token，3.294 秒，峰值分配 1,901,438,976 字节，峰值保留 1,939,865,600 字节 |
 | PR #20、#21 历史 INT4 | 使用对应 FP32 源重新量化，codes、scales、FP16 张量和量化元数据均与历史缓存一致 |
+| 20M Base 原始 V5 Val | 216 个窗口、220,968 个监督 Token，Loss 5.569691，PPL 262.3531 |
 | 20M Base 的 97 题知识诊断 | 自由填空 0/97，Chat 候选 21/97，填空候选 17/97，按选项数计算的随机期望约 25.1/97 |
 | 32 条问答诊断、正式 GPU SFT | PENDING |
 | 500 条 Test、最佳 SFT INT4、人工评分和 30 组 SFT 问答对比 | PENDING |
 
-GPU 探测日志和环境信息见本地 `reports/v5-language-sft-5k-v1/gpu-preflight/probe.json`，SHA256 为 `e2da4e0fdc8d1d84e0dd6e05f4b479a2005bf6796c59c4a9fa7037182c493e69`。探测使用程序生成的 Token ID，未生成语料或保存权重。此耗时只描述单步容量探测。
+本地 `reports/v5-language-sft-5k-v1/pytest-summary.json` 汇总了四个分片与复测证据及 SHA256。GPU 探测日志和环境信息见同目录的 `gpu-preflight/probe.json`，SHA256 为 `e2da4e0fdc8d1d84e0dd6e05f4b479a2005bf6796c59c4a9fa7037182c493e69`。探测使用程序生成的 Token ID，未生成语料或保存权重。此耗时只描述单步容量探测。
 
 97 题的逐题条件概率、预测与汇总见本地 `reports/v5-language-sft-5k-v1/baseline-knowledge/`，Manifest 的 SHA256 为 `f99874f5f0a0f960db47b8889a45ed845cceeaaf1f27eef81071e3d2c7ca074a`。Base 在自由填空和候选排名中都缺少可靠的事实信号，现有观测不足以将失败归因于自由生成。干扰项独立复核以及 SFT 后对照仍是 `PENDING`。32 条记忆、未见问题泛化、语言质量、遗忘和背诵均待真实 SFT，当前不能据此决定扩大预训练还是继续 SFT。
+
+选择下一阶段时，若模型可以记住 32 条问答，而未见事实在自由生成和候选识别中持续较弱，优先扩大预训练。若候选识别明显高于随机期望且优于自由问答，继续用 SFT 改善问答表达。
 
 ## 数据生成与审核
 
