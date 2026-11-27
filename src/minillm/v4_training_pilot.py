@@ -50,8 +50,13 @@ def validate_pilot_budget(samples, opts, extra, *, cpu_nano_test=False, corpus_v
     """One cumulative fixed plan, including Resume; rounding is < one update."""
     from .v4_language_scaling import TARGET, VERSION
 
+    from . import v5_language_training as v5
+
     scaling = corpus_version == VERSION and not cpu_nano_test
+    ten_million = corpus_version == v5.V5_VERSION and not cpu_nano_test
     expected_target = 2_000_000 if scaling else PILOT_TARGET_TOKENS
+    if ten_million:
+        expected_target = v5.NOMINAL_TARGET
     target = extra.get("target_tokens")
     if type(target) is not int or (target < 1 if cpu_nano_test else target != expected_target):
         raise ValueError(f"V4 Pilot requires exactly {expected_target:,} integer target tokens (CPU fixtures use their independent small budget)")
@@ -71,6 +76,8 @@ def validate_pilot_budget(samples, opts, extra, *, cpu_nano_test=False, corpus_v
     if scaling and (seq_len, update, opts.max_steps, planned, list(opts.milestone_steps)) != (
             1024, 8184, 245, TARGET, [0, 123, 245]):
         raise ValueError("2M requires 245 full independent 8,184-target updates and milestones 0/123/245")
+    if ten_million:
+        v5.validate_budget(samples, opts, seq_len, planned)
     return {"planned_effective_tokens": planned, "independent_effective_tokens": independent,
             "target_tokens": target, "optimizer_updates": opts.max_steps,
             "full_update_effective_tokens": update, "train_windows": samples,
@@ -141,7 +148,14 @@ def preflight(dataset, tokenizer, model_config, training_config, workspace, *,
     else:
         manifest = read_json(Path(dataset) / "dataset-manifest.json")
     from . import v4_language_scaling as scaling_policy
+    from . import v5_language_training as v5
     scaling = bool(manifest and manifest["corpus_version"] == scaling_policy.VERSION)
+    ten_million = bool(manifest and manifest["corpus_version"] == v5.V5_VERSION)
+    if ten_million:
+        try:
+            v5.validate_profile(dataset, raw, workspace, evaluation_config)
+        except (OSError, ValueError, RuntimeError, KeyError) as exc:
+            block("BLOCKED_V5_PROFILE", exc)
     if scaling:
         try:
             scaling_policy.validate_training_config(raw, workspace, evaluation_config)
@@ -194,6 +208,10 @@ def preflight(dataset, tokenizer, model_config, training_config, workspace, *,
             if cpu_nano_test:
                 raise ValueError("2M formal data requires the production pilot")
             budget["sampler_preview"] = scaling_policy.preview_consumption(dataset, train, opts)
+        if ten_million:
+            if cpu_nano_test:
+                raise ValueError("V5 requires the production GPU pilot")
+            budget["sampler_preview"] = v5.preview(dataset)
         budget["val_windows"] = len(val)
     except (OSError, ValueError, RuntimeError, KeyError) as exc:
         block("BLOCKED_TOKEN_BUDGET", exc)
@@ -214,7 +232,7 @@ def preflight(dataset, tokenizer, model_config, training_config, workspace, *,
     while not ancestor.exists():
         ancestor = ancestor.parent
     disk = {"free_bytes": shutil.disk_usage(ancestor).free,
-            "required_bytes": int(cfg.num_parameters * (100 if scaling else 44) * extra.get("disk_margin_factor", 1.2))}
+            "required_bytes": int(cfg.num_parameters * (100 if scaling or ten_million else 44) * extra.get("disk_margin_factor", 1.2))}
     if disk["free_bytes"] < disk["required_bytes"]:
         block("BLOCKED_DISK", disk)
     if Path(opts.out).exists() and (not Path(opts.out).is_dir() or any(Path(opts.out).iterdir())) and not opts.resume:
@@ -229,7 +247,7 @@ def preflight(dataset, tokenizer, model_config, training_config, workspace, *,
         if manifest is not None:
             request = _request(dataset, tokenizer, cfg, raw, evaluation, cpu_nano_test)
             request["approved_policy_sha256"] = pilot_policy.get("approved_policy_sha256")
-            if scaling:
+            if scaling or ten_million:
                 request["pinned_initial_checkpoint"] = scaling_policy.INITIAL_FILE
         if Path(workspace).exists():
             _workspace_plan(workspace, request)

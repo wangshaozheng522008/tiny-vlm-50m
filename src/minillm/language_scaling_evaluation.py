@@ -96,17 +96,18 @@ def _verify_pilot_model(model, state, lineage, context):
         raise CheckpointError(f"{context}: checkpoint initialization or pilot lineage differs")
 
 
-def _verify_final_publication(run, manifest, summary, milestone_state, data, sampler, lineage):
+def _verify_final_publication(run, manifest, summary, milestone_state, data, sampler, lineage, *, steps=(0, 123, 245)):
+    final_step = steps[-1]
     paths = {"training-manifest.json": run / "training-manifest.json", "train-summary.json": run / "train-summary.json",
              "pilot-lineage.json": run / "pilot-lineage.json", "state.pt": run / "state.pt", "model.pt": run / "model.pt"}
-    for step in (0, 123, 245):
+    for step in steps:
         name = f"milestones/step-{step}/manifest.json"
         paths[name] = run / name
     for filename in ("state.pt", "model.pt"):
-        name = f"milestones/step-245/{filename}"
+        name = f"milestones/step-{final_step}/{filename}"
         paths[name] = run / name
     final = load_training_state(paths["state.pt"], mmap=True)
-    _verify_step_state(final, manifest, data, sampler, 245)
+    _verify_step_state(final, manifest, data, sampler, final_step)
     model = torch.load(paths["model.pt"], map_location="cpu", mmap=True, weights_only=False)
     _verify_pilot_model(model, final, lineage, "published model.pt")
     if any(summary.get(key) != model[key] for key in ("pilot_initialization", "pilot_request_id")):
@@ -123,19 +124,22 @@ def _verify_final_publication(run, manifest, summary, milestone_state, data, sam
                                   "compared_fields": ["name", "shape", "dtype", "values"]}}
 
 
-def _completed_nodes(run, dataset):
+def _completed_nodes(run, dataset, *, steps=(0, 123, 245), version=VERSION,
+                     training_config=TRAINING_CONFIG):
+    final_step = steps[-1]
     summary = read_json(run / "train-summary.json")
     manifest = read_json(run / "training-manifest.json")
     policy = manifest["training"]
-    training = read_json(TRAINING_CONFIG)
+    training = read_json(training_config)
     if (summary["global_step"], summary["samples_seen"], summary["tokens_seen"], summary["stop_reason"],
             policy["target_optimizer_updates"], policy["scheduler_total_steps"], policy["milestone_steps"],
-            manifest["tokenizer_fingerprint"]) != (245, 1960, TARGET, "target_reached", 245, 245, [0, 123, 245], FINGERPRINT):
-        raise ValueError("a completed 245-step 2M training state is required")
+            manifest["tokenizer_fingerprint"]) != (final_step, final_step * 8, final_step * 8184, "target_reached",
+                                                final_step, final_step, list(steps), FINGERPRINT):
+        raise ValueError(f"a completed {final_step}-step language training state is required")
     data = PackedPretrainDataset(dataset / "train.bin", 1024)
     val = PackedPretrainDataset(dataset / "val.bin", 1024)
     frozen = read_json(dataset / "dataset-manifest.json")
-    if (frozen["corpus_version"] != VERSION or frozen["content_id"] != manifest["dataset"]["train"]["dataset_content_id"]
+    if (frozen["corpus_version"] != version or frozen["content_id"] != manifest["dataset"]["train"]["dataset_content_id"]
             or frozen["tokenizer_fingerprint"] != FINGERPRINT
             or any(dataset_identity(split_data, manifest["model_config"]["ignore_index"])[0] != manifest["dataset"][split]
                    for split, split_data in (("train", data), ("val", val)))):
@@ -149,7 +153,7 @@ def _completed_nodes(run, dataset):
     verify_file(INITIAL, INITIAL_FILE)
     verify_file(HISTORICAL, HISTORICAL_FILE)
     initial = torch.load(INITIAL, map_location="cpu", mmap=True, weights_only=False)
-    for step in (0, 123, 245):
+    for step in steps:
         directory = run / "milestones" / f"step-{step}"
         receipt = verify_milestone(directory, manifest, step=step, tokens=step * 8184)
         state = load_training_state(directory / "state.pt", mmap=True)
@@ -166,18 +170,18 @@ def _completed_nodes(run, dataset):
             raise ValueError("observed sampler does not reproduce the train state")
         audits[f"step{step}"] = {"checkpoint": receipt, "consumption": consumption}
         nodes[f"step{step}"] = path
-    final_proof = _verify_final_publication(run, manifest, summary, state, data, sampler, lineage)
+    final_proof = _verify_final_publication(run, manifest, summary, state, data, sampler, lineage, steps=steps)
     return nodes, audits, manifest, final_proof
 
 
 def _curves(run, directory, manifest):
     plan = manifest["training"]
     planned = [lr_at(i, plan["scheduler_total_steps"], plan["learning_rate"],
-                     plan["min_learning_rate"], plan["warmup_steps"]) for i in range(245)]
+                     plan["min_learning_rate"], plan["warmup_steps"]) for i in range(plan["scheduler_total_steps"])]
     steps = [row for row in records(run / "training-log.jsonl") if row["event"] == "train"]
     by_step = {row["global_step"]: row for row in steps}
-    if list(by_step) != list(range(1, 246)) or len(steps) != 245:
-        raise ValueError("complete per-update training log required for the 2M learning-rate curve")
+    if list(by_step) != list(range(1, len(planned) + 1)) or len(steps) != len(planned):
+        raise ValueError("complete per-update training log required for the learning-rate curve")
     val = {row["step"]: row["loss"] for row in read_json(run / "metrics.json")}
 
     with (directory / "loss-and-learning-rate.csv").open("w", newline="", encoding="utf-8") as handle:
@@ -334,21 +338,21 @@ def evaluate_scaling(out, *, dataset=OUTPUT):
                          "status": "EVALUATED", "environment": environment(device)})
 
 
-def _quantized_report(directory, results, logits):
+def _quantized_report(directory, results, logits, *, final=FINAL, quantized="step245_int4"):
     rows = {}
     for row in records(directory / "predictions.jsonl"):
-        if row["checkpoint"] in (FINAL, "step245_int4"):
+        if row["checkpoint"] in (final, quantized):
             rows.setdefault(row["checkpoint"], {})[(row["id"], row["strategy"], row["seed"])] = row["generated_token_ids"]
-    fp, int4 = rows[FINAL], rows["step245_int4"]
+    fp, int4 = rows[final], rows[quantized]
     if fp.keys() != int4.keys():
         raise ValueError("FP32 and INT4 prediction cohort differs")
     write_json(directory / "fp32-int4.json", {
         "runtime": "INT4 weights are dequantized to FP32; no native low-bit acceleration measured",
-        "checkpoint": results["step245_int4"]["checkpoint"], "group_size": 128,
-        "logits": quantization_comparison(logits[FINAL], logits["step245_int4"]),
+        "checkpoint": results[quantized]["checkpoint"], "group_size": 128,
+        "logits": quantization_comparison(logits[final], logits[quantized]),
         "paired_generation": [{"id": task, "strategy": strategy, "seed": seed,
                                "exact_tokens": fp[task, strategy, seed] == int4[task, strategy, seed]}
                               for task, strategy, seed in fp],
-        "fp32_val_loss": results[FINAL]["lm"]["val"]["loss"],
-        "int4_val_loss": results["step245_int4"]["lm"]["val"]["loss"],
+        "fp32_val_loss": results[final]["lm"]["val"]["loss"],
+        "int4_val_loss": results[quantized]["lm"]["val"]["loss"],
     })
