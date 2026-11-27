@@ -209,11 +209,11 @@ def save_milestone(out, model, tokenizer, manifest, *, step, tokens, extra):
         })
 
 
-def reconcile_recovery_log(out, state, checkpoint):
+def reconcile_recovery_log(out, state, checkpoint, *, initial_step=0):
     """Archive logged work beyond the authoritative committed checkpoint before replay."""
     path = out / "training-log.jsonl"
     if not path.is_file():
-        if state["global_step"]:
+        if state["global_step"] != initial_step:
             raise CheckpointError("milestone-enabled resume requires the original per-update log")
         return
     before = path.read_bytes()

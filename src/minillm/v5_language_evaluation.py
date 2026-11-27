@@ -20,7 +20,7 @@ from .language_scaling_evaluation import (BASELINE, DECODE, HUMAN_CRITERIA, _com
                                            _metrics, _quantized_report, check_scaling_historical_greedy,
                                            evaluation_data, load_historical_greedy, verify_int4_size)
 from .language_token_analysis import vocabulary
-from .quantize import save_quantized
+from .quantize import effective_group, save_quantized
 from .v4_admission import validate_v4_pilot_policy
 from .v4_language_scaling import BASE_ID, FINGERPRINT, SCALING_CONTENT_ID, base_manifest
 from .v5_language_corpus import sampler_budget
@@ -33,12 +33,17 @@ HISTORICAL_LABEL = "historical_2m"
 FINAL = "step1222"
 INT4 = "step1222_int4"
 SAMPLED = {HISTORICAL_LABEL, "step245", "step489", FINAL, INT4}
+PR20_EVALUATION_IMPLEMENTATION = {
+    "bytes": 16786, "sha256": "23b50b18a7cbe2b6b2aeaafaad4356bf3c0d73fb01e01d5c17b053ff1023b8ff",
+}
 
 
-def _verify_report(directory, expected=None):
+def _verify_report(directory, expected=None, *, required=()):
     if expected:
         verify_file(directory / "manifest.json", expected)
     manifest = read_json(directory / "manifest.json")
+    if not set(required) <= manifest["files"].keys():
+        raise ValueError("evaluation report omits required evidence files")
     for name, info in manifest["files"].items():
         if Path(name).name != name:
             raise ValueError("evaluation evidence requires local filenames")
@@ -104,13 +109,20 @@ def _final_test(output, receipt, context, model=None):
 def _evaluate_node(destination, name, path, context):
     config, tokenizer, device = (context[key] for key in ("config", "tokenizer", "device"))
     receipt = {"checkpoint": file_info(path), "protocol": context["protocol"], "node": name}
+    final_test = name == FINAL and "final_test_output" in context
     if destination.exists():
-        existing = _verify_report(destination)
-        if existing["identity"] != receipt or existing["status"] != "EVALUATED":
+        existing = _verify_report(destination, required=("result.json", "predictions.jsonl",
+                                                        "next-token-traces.json", "next-token-logits.pt"))
+        recorded = existing["identity"]
+        if (recorded.get("checkpoint") != receipt["checkpoint"] or recorded.get("node") != name
+                or not _matching_protocol(recorded.get("protocol"), receipt["protocol"])
+                or existing["status"] != "EVALUATED"):
             raise ValueError(f"existing node differs from the requested evaluation: {name}")
         result = read_json(destination / "result.json")
-        if name == FINAL:
-            loss, test_file = _final_test(context["final_test_output"], receipt, context)
+        if result["checkpoint"] != receipt["checkpoint"]:
+            raise ValueError(f"saved result identifies a different checkpoint: {name}")
+        if final_test:
+            loss, test_file = _final_test(context["final_test_output"], recorded, context)
             if loss != result["lm"]["v5_test"] or test_file != existing["final_test_manifest"]:
                 raise ValueError("final comparison differs from its held-out measurement")
         return result
@@ -121,8 +133,7 @@ def _evaluate_node(destination, name, path, context):
     step, tokens = payload["step"], payload["tokens_seen"]
     del payload
     with report_directory(destination) as directory:
-        splits = {"train": context["common"]["train"], "val": context["common"]["val"],
-                  "test": context["common"]["test"], "v5_val": context["v5_val"]}
+        splits = {**context["common"], "v5_val": context["v5_val"]}
         losses = {key: evaluate_indexed_windows(model, *window_data, device, config.batch_size)
                   for key, window_data in splits.items()}
         trace, _, logits = trace_predictions(model, tokenizer, context["probes"], context["vocab"], config)
@@ -131,7 +142,7 @@ def _evaluate_node(destination, name, path, context):
         checked = {}
         experiments = []
         with (directory / "predictions.jsonl").open("w", encoding="utf-8") as handle:
-            for strategy in (DECODE if name in SAMPLED else ("greedy",)):
+            for strategy in (DECODE if name in context.get("sampled", SAMPLED) else ("greedy",)):
                 for seed in ((config.seed,) if strategy == "greedy" else SEEDS):
                     generation = replace(config, seed=seed)
                     settings = {"checkpoint": name, "strategy": strategy, "seed": seed, "repetition_penalty": 1.0}
@@ -151,7 +162,7 @@ def _evaluate_node(destination, name, path, context):
                     experiments.append({**settings, "benchmark": _generation_metrics(scored),
                                         "continuations": _generation_metrics(continued)})
         evidence = {"status": "EVALUATED", "identity": receipt}
-        if name == FINAL:
+        if final_test:
             losses["v5_test"], evidence["final_test_manifest"] = _final_test(
                 context["final_test_output"], receipt, context, model)
         result = {"checkpoint": receipt["checkpoint"], "step": step, "tokens_seen": tokens,
@@ -161,19 +172,70 @@ def _evaluate_node(destination, name, path, context):
     return result
 
 
+def _matching_protocol(recorded, current):
+    if recorded == current:
+        return True
+    # PR #21 changes cache gates and parametrizes split selection. Old PR #20
+    # receipts can still be verified against the same generation protocol.
+    implementation = current.get("implementation", {})
+    if "v5_language_evaluation.py" not in implementation:
+        return False
+    previous = {**current, "implementation": {
+        **implementation, "v5_language_evaluation.py": PR20_EVALUATION_IMPLEMENTATION,
+    }}
+    return recorded == previous
+
+
+def _verify_int4_export(path, output, final_proof):
+    target = output / "model-int4.pt"
+    verify_int4_size(target)
+    receipt = _verify_report(output, required=(target.name,))
+    if (receipt["status"] != "EXPORTED" or receipt["source"] != final_proof or receipt["group_size"] != 128
+            or ("bits" in receipt and receipt["bits"] != 4)):
+        raise ValueError("INT4 export status, profile or final checkpoint identity differs")
+    source = file_info(path)
+    if source not in (final_proof["files"]["model.pt"],
+                      final_proof["files"][f"milestones/step-{final_proof['training_state']['global_step']}/model.pt"]):
+        raise ValueError("INT4 source is not the verified final checkpoint")
+    final = torch.load(path, map_location="cpu", mmap=True, weights_only=False)
+    payload = torch.load(target, map_location="cpu", mmap=True, weights_only=False)
+    if (any(payload.get(key) != final[key] for key in ("architecture", "arch_version", "config", "mode", "step",
+                                                       "tokens_seen", "tokenizer_fingerprint"))
+            or (payload.get("bits"), payload.get("quantized_bits"), payload.get("group_size")) != (4, 4, 128)
+            or ("source_checkpoint" in receipt and receipt["source_checkpoint"] != source)):
+        raise ValueError("INT4 payload profile or final model identity differs")
+    entries = payload.get("quantized")
+    if not entries or any(entry["bits"] != 4
+                          or entry["group"] != (effective_group(entry["orig_in"], 128) or 128)
+                          for entry in entries.values()):
+        raise ValueError("INT4 tensor quantization profile differs")
+    return target
+
+
 def _quantize(path, output, tokenizer, device, final_proof):
-    if output.exists():
-        receipt = _verify_report(output)
-        if receipt["source"] != final_proof:
-            raise ValueError("existing INT4 export belongs to a different final checkpoint")
-        return output / "model-int4.pt"
-    with report_directory(output) as directory:
-        model, payload = load_evaluation_model(path, tokenizer, device)
-        target = directory / "model-int4.pt"
-        save_quantized(target, model.cpu(), bits=4, group_size=128, tokenizer_fingerprint=FINGERPRINT, metadata=payload)
-        verify_int4_size(target)
-        publish_manifest(directory, "manifest.json", {"status": "EXPORTED", "source": final_proof, "group_size": 128})
-    return output / "model-int4.pt"
+    if not output.exists():
+        with report_directory(output) as directory:
+            model, payload = load_evaluation_model(path, tokenizer, device)
+            target = directory / "model-int4.pt"
+            save_quantized(target, model.cpu(), bits=4, group_size=128,
+                           tokenizer_fingerprint=tokenizer.fingerprint, metadata=payload)
+            publish_manifest(directory, "manifest.json", {"status": "EXPORTED", "source": final_proof, "bits": 4,
+                             "group_size": 128, "source_checkpoint": file_info(path)})
+            _verify_int4_export(path, directory, final_proof)
+    return _verify_int4_export(path, output, final_proof)
+
+
+def _verify_comparison(destination, node_manifests, protocol, audits, final_proof, sources, expected=None):
+    evidence = _verify_report(destination, expected, required=(
+        "comparison.json", "comparison-policy.json", "checkpoint-and-consumption.json",
+        "actual-source-consumption.json", "final-checkpoint-consistency.json"))
+    if (evidence["status"] != "EVALUATED" or evidence["node_manifests"] != node_manifests
+            or not _matching_protocol(read_json(destination / "comparison-policy.json"), protocol)
+            or read_json(destination / "checkpoint-and-consumption.json") != audits
+            or read_json(destination / "actual-source-consumption.json") != sources
+            or read_json(destination / "final-checkpoint-consistency.json") != final_proof):
+        raise ValueError("published comparison differs from the verified sampler, final checkpoint or protocol")
+    return evidence
 
 
 def evaluate():
@@ -236,15 +298,14 @@ def _aggregate(output, names, protocol, audits, manifest, final_proof, device):
     results = {name: read_json(path / "result.json") for name, path in nodes.items()}
     destination = output / "comparison"
     node_manifests = {name: file_info(node / "manifest.json") for name, node in nodes.items()}
-    if destination.exists():
-        if _verify_report(destination)["node_manifests"] != node_manifests:
-            raise ValueError("published comparison belongs to different evaluation nodes")
-        return
     actual = sampler_budget(profile.DATASET, read_json(profile.DATASET / ".v4/plan.json"))
     expected = actual["budgets"]["10M"]
     consumption = audits[FINAL]["consumption"]
     if consumption != expected["consumption"] or expected["status"] != "FEASIBLE":
         raise ValueError("committed final sampler does not match the frozen budget")
+    if destination.exists():
+        _verify_comparison(destination, node_manifests, protocol, audits, final_proof, expected["sources"])
+        return
     with report_directory(destination) as directory:
         write_json(directory / "comparison.json", results)
         write_json(directory / "comparison-policy.json", protocol)
